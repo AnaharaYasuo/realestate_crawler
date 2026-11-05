@@ -10,8 +10,11 @@ Gemini 3.8 Flash / 2.5 Flash を活用し、未設定・クォータ枯渇時で
 """
 
 import json
+import math
 import time
 import logging
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import os
 import random
 import re
@@ -164,8 +167,8 @@ def _build_rag_prompt(
 
 
 # --- Gemini リトライ方針 (Issue #1260): エラーコード別に可否・待機時間を決定する ---
-DEFAULT_RECOMMEND_MODEL = "gemini-3.5-flash"
-FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.5-flash")
+DEFAULT_RECOMMEND_MODEL = "gemini-3.6-flash"  # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため実体を明示
+FALLBACK_MODELS = ("gemini-3.5-flash-lite",)
 
 RATE_LIMIT_BASE_SEC = 15.0
 TRANSIENT_BASE_SEC = 3.0
@@ -188,16 +191,31 @@ def _model_wait_factor(model_name: str) -> float:
     return 4.0
 
 
+def _parse_retry_after(raw: Any) -> float | None:
+    """Retry-After (秒数 または HTTP-date) を待機秒に変換する。負数・nan・解釈不能・過去日時は None。"""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    try:
+        seconds = float(text)
+    except ValueError:
+        try:
+            target = parsedate_to_datetime(text)
+        except (TypeError, ValueError):
+            return None
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=timezone.utc)
+        seconds = (target - datetime.now(timezone.utc)).total_seconds()
+    if math.isnan(seconds) or seconds <= 0:
+        return None
+    return seconds
+
+
 def _classify_gemini_error(exc: BaseException) -> tuple[str, float | None]:
     """例外を ('rate_limit' | 'transient' | 'parse' | 'fatal', Retry-After 秒) に分類する。"""
     if isinstance(exc, urllib.error.HTTPError):
-        retry_after = None
         raw = exc.headers.get("Retry-After") if exc.headers is not None else None
-        if raw is not None:
-            try:
-                retry_after = float(raw)
-            except (TypeError, ValueError):
-                retry_after = None
+        retry_after = _parse_retry_after(raw)
         if exc.code == 429:
             return "rate_limit", retry_after
         if exc.code in _TRANSIENT_HTTP_CODES:
@@ -234,8 +252,18 @@ def _max_retries_for(kind: str) -> int:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    match = re.search(r"(\{[^}]*\})", text) or re.search(r"(\{.*\})", text, re.DOTALL)
-    return json.loads(match.group(1)) if match else None
+    """応答全体を JSON として解析し、前後に文章がある場合は最初の '{' から JSON デコーダーで終端を判定する。"""
+    try:
+        whole = json.loads(text)
+        if isinstance(whole, dict):
+            return whole
+    except ValueError:
+        pass
+    start = text.find("{")
+    if start < 0:
+        return None
+    obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    return obj if isinstance(obj, dict) else None
 
 
 def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, Any] | None:

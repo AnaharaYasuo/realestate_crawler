@@ -6,7 +6,7 @@
 - 429 でも 400/401/403 でも区別なく再試行しており、`Retry-After` も尊重していなかった。
 
 ## 2. 要件
-1. 推奨モデルの既定値（環境変数 `GEMINI_RECOMMEND_MODEL` 未設定時）を `gemini-3.8-flash` から **`gemini-3.5-flash`** に変更する。フォールバック順は `[GEMINI_RECOMMEND_MODEL, gemini-3.5-flash-lite, gemini-3.5-flash]`（重複除去）。
+1. 推奨モデルの既定値（環境変数 `GEMINI_RECOMMEND_MODEL` 未設定時）を `gemini-3.8-flash` の一段下である **`gemini-3.6-flash`** に変更する。`gemini-3.5-flash` は非推奨で API 側が `gemini-3.6-flash` に自動転送するため、既定値には実体の `gemini-3.6-flash` を明示する。フォールバック順は `[GEMINI_RECOMMEND_MODEL, gemini-3.5-flash-lite]`（重複除去。転送先と同一になる `gemini-3.5-flash` はフォールバックに含めない）。
 2. リトライ可否・待機時間は **HTTP ステータスコード（またはエラー種別）に従って決定** する。
 
 ## 3. リトライ方針
@@ -30,6 +30,11 @@
 
 待機時間 = `min(MAX_WAIT_SEC, base × 係数 × 2^(retry_index))` に ±20% のジッターを付与する。`Retry-After` がある場合は `max(Retry-After, 計算値の下限)` ではなく `Retry-After` を優先し、`MAX_WAIT_SEC` で頭打ちとする。
 
+`Retry-After` は **秒数** または **HTTP-date** のどちらも解釈する（`_parse_retry_after()`）。HTTP-date は現在時刻との差分秒に変換する。負数・ゼロ・`nan`・解釈不能・過去日時は無効として既定のバックオフに戻し、`time.sleep` に不正値を渡さない。
+
+### 3.2 応答 JSON の抽出
+`_extract_json_object()` は応答全体をまず JSON として解析し、前後に文章がある場合のみ最初の `{` から `json.JSONDecoder().raw_decode` でオブジェクト終端を判定する（文字列値内の `}` で誤って途中切断しない）。
+
 ## 4. 実装
 - 変更ファイル: `src/crawler/package/ml/report_generator.py`
   - `_classify_gemini_error()`: 例外から (リトライ可否, 種別, Retry-After 秒) を判定
@@ -40,7 +45,9 @@
 
 ## 5. テスト
 `src/crawler/tests/unit/test_gemini_retry_policy_1260.py`
-- 既定モデルが `gemini-3.5-flash` であること
+- 既定モデルが `gemini-3.6-flash` であること（フォールバックに `gemini-3.5-flash` を含まない）
+- `Retry-After` の HTTP-date を残り秒数へ変換し、負数・`nan`・解釈不能・過去日時は無効（既定バックオフ）とすること
+- 文字列値内に `}` を含む有効な JSON 応答、前後に文章がある応答を正しく抽出すること
 - 429 は 3 回までリトライし、`Retry-After` を尊重する
 - 429 の待機は上位モデルほど長い（lite < flash < pro）
 - 503 / タイムアウトは指数バックオフでリトライする

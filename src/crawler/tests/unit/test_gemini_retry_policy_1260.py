@@ -33,9 +33,48 @@ def _bad_response():
     return resp
 
 
-def test_default_recommend_model_is_gemini_3_5_flash(monkeypatch):
+def test_default_recommend_model_is_gemini_3_6_flash(monkeypatch):
+    # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため、実体の gemini-3.6-flash を明示する
     monkeypatch.delenv("GEMINI_RECOMMEND_MODEL", raising=False)
-    assert rg.DEFAULT_RECOMMEND_MODEL == "gemini-3.5-flash"
+    assert rg.DEFAULT_RECOMMEND_MODEL == "gemini-3.6-flash"
+    assert "gemini-3.5-flash" not in rg.FALLBACK_MODELS
+    assert rg.DEFAULT_RECOMMEND_MODEL not in rg.FALLBACK_MODELS
+
+
+def test_retry_after_http_date_is_converted_to_remaining_seconds():
+    from datetime import datetime, timedelta, timezone
+    from email.utils import format_datetime
+    future = datetime.now(timezone.utc) + timedelta(seconds=60)
+    _, retry_after = rg._classify_gemini_error(_http_error(429, {"Retry-After": format_datetime(future, usegmt=True)}))
+    assert retry_after is not None
+    assert 50 <= retry_after <= 61
+
+
+@pytest.mark.parametrize("raw", ["-1", "nan", "garbage", "-0.5"])
+def test_retry_after_invalid_values_fall_back_to_default_backoff(raw):
+    _, retry_after = rg._classify_gemini_error(_http_error(429, {"Retry-After": raw}))
+    assert retry_after is None
+
+
+def test_retry_after_past_http_date_falls_back_to_default_backoff():
+    from datetime import datetime, timedelta, timezone
+    from email.utils import format_datetime
+    past = datetime.now(timezone.utc) - timedelta(seconds=60)
+    _, retry_after = rg._classify_gemini_error(_http_error(429, {"Retry-After": format_datetime(past, usegmt=True)}))
+    assert retry_after is None
+
+
+def test_extract_json_handles_closing_brace_inside_string_value():
+    text = json.dumps({"area_evaluation": "価格に } を含む", "investment_rating": "A"}, ensure_ascii=False)
+    assert rg._extract_json_object(text) == {"area_evaluation": "価格に } を含む", "investment_rating": "A"}
+
+
+def test_extract_json_allows_surrounding_text():
+    assert rg._extract_json_object('結果: {"investment_rating": "AA"} 以上') == {"investment_rating": "AA"}
+
+
+def test_extract_json_returns_none_when_no_object():
+    assert rg._extract_json_object("no json here") is None
 
 
 def test_model_wait_factor_increases_with_model_tier():
