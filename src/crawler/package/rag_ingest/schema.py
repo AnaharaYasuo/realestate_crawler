@@ -48,6 +48,17 @@ def validate_chunk(chunk: KnowledgeChunk) -> list[str]:
     return errors
 
 
+UNVERIFIED_LICENSE = "未確認(規約確認待ち)"
+
+
+def fill_license(chunk: KnowledgeChunk) -> KnowledgeChunk:
+    """license が空なら未確認ラベルを補い、信頼度を 0.5 以下に下げる（規約確認後に更新する）。"""
+    if not chunk.license:
+        chunk.license = UNVERIFIED_LICENSE
+        chunk.confidence = min(chunk.confidence, 0.5)
+    return chunk
+
+
 def destination(chunk: KnowledgeChunk) -> str:
     """ライセンス・出典が欠けるチャンクは quarantine、それ以外は curated/<category>。"""
     if validate_chunk(chunk):

@@ -7,7 +7,7 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
-from package.rag_ingest.schema import KnowledgeChunk, destination
+from package.rag_ingest.schema import KnowledgeChunk, destination, fill_license
 
 
 def content_hash(chunk: KnowledgeChunk) -> str:
@@ -17,6 +17,7 @@ def content_hash(chunk: KnowledgeChunk) -> str:
 def group_by_destination(chunks: Iterable[KnowledgeChunk]) -> dict[str, list[KnowledgeChunk]]:
     groups: dict[str, list[KnowledgeChunk]] = {}
     for c in chunks:
+        fill_license(c)
         groups.setdefault(destination(c), []).append(c)
     return groups
 

@@ -25,10 +25,11 @@ def test_invalid_category_quarantined():
 
 
 def test_group_and_write(tmp_path):
-    chunks = [_chunk(), _chunk(id="b", license="")]
-    assert set(group_by_destination(chunks)) == {"curated/law", "quarantine"}
-    paths = write_local(chunks, "s", str(tmp_path))
-    assert len(paths) == 2
+    chunks = [_chunk(), _chunk(id="b", license=""), _chunk(id="c", url="")]
+    g = group_by_destination(chunks)
+    assert set(g) == {"curated/law", "quarantine"}
+    assert chunks[1].license == "未確認(規約確認待ち)" and chunks[1].confidence <= 0.5
+    assert len(write_local(chunks, "s", str(tmp_path))) == 2
 
 
 def test_article_chunking_by_article():
