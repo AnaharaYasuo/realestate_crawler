@@ -9,7 +9,7 @@ from django.db import OperationalError, close_old_connections
 
 logger = logging.getLogger(__name__)
 
-from package.ml.constants import EVAL_DB_BATCH_SIZE
+from package.ml.constants import EVAL_DB_WRITE_BATCH_SIZE
 from package.ml.evaluation.record_builder import build_or_update_eval_record
 from package.models.evaluation import PropertyEvaluation
 
@@ -34,7 +34,7 @@ EVAL_MAP_FIELDS = (
 def bulk_update_evaluation_records(
     records_to_update: list[Any],
     property_type: str = "",
-    batch_size: int = EVAL_DB_BATCH_SIZE,
+    batch_size: int = EVAL_DB_WRITE_BATCH_SIZE,
 ) -> None:
     """更新対象レコードの重複を除去して bulk_update を実行する"""
     valid_updates = []
