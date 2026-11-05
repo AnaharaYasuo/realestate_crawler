@@ -22,6 +22,7 @@ import chardet
 from bs4 import BeautifulSoup
 from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
 from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge, format_comprehensive_future_and_historical_context
+from package.ml.legal_rag import search_legal_knowledge
 from package.utils.url_security import UrlSecurityValidator
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
 
 def _build_rag_prompt(
     eval_rec, prop, ptype_jp: str, asking_price_man: int,
-    address: str, access: str, matched_kb: list, far_slack: float | None,
+    address: str, access: str, matched_kb: list, far_slack: float | None, matched_laws: list | None = None,
     site_text: str = "",
     appraisal_ctx: dict | None = None
 ) -> str:
@@ -104,6 +105,9 @@ def _build_rag_prompt(
     cf_val = getattr(eval_rec, "cash_flow", None) or "-"
     dscr_val = getattr(eval_rec, "dscr", None) or "-"
     kb_context = "\n".join([f"・【{item.get('title')}】\n{item.get('essence')}" for item in matched_kb])
+    legal_context = ""
+    if matched_laws:
+        legal_context = "\n【関係法令条文・都市特例条例（客観的法規制根拠）】\n" + "\n".join([f"・【{item.get('title')}】\n{item.get('body_text', '')[:400]}" for item in matched_laws])
 
     site_info_section = ""
     if site_text.strip():
@@ -141,6 +145,7 @@ def _build_rag_prompt(
 {future_historical_section}
 {appraisal_data_section}
 {site_info_section}
+{legal_context}
 【団長ナレッジベース（参考実戦哲学）】
 {kb_context}
 
@@ -455,6 +460,8 @@ def generate_professional_and_danchou_report(
 
     query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
     matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=2)
+    region_tag = "yokohama" if "横浜" in address else ("chiba" if "千葉" in address else "")
+    matched_laws = search_legal_knowledge(query, region_key=region_tag, top_k=2)
 
     model_name = os.getenv("GEMINI_RECOMMEND_MODEL", "gemini-3.8-flash")
     api_key = os.getenv("GEMINI_API_KEY")
@@ -466,6 +473,7 @@ def generate_professional_and_danchou_report(
     if api_key:
         prompt = _build_rag_prompt(
             eval_rec, prop, ptype_jp, asking_price_man, address, access, matched_kb, far_slack,
+            matched_laws=matched_laws,
             site_text=site_text,
             appraisal_ctx=appraisal_ctx
         )

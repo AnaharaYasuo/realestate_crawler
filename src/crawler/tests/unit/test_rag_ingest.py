@@ -84,3 +84,9 @@ def test_chiba_ordinance_collector():
     assert len(chunks) == 1
     assert chunks[0].id == "ordinance_chiba_city_sample_chiba_第1条"
     assert chunks[0].region == "chiba_city"
+
+def test_legal_rag_search():
+    from package.ml.legal_rag import search_legal_knowledge
+    res = search_legal_knowledge("横浜市 がけ地 斜面地 地下室", region_key="yokohama", top_k=2)
+    assert len(res) > 0
+    assert any("横浜" in r.get("title", "") for r in res)
