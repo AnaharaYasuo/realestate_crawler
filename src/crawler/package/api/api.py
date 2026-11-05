@@ -1996,43 +1996,44 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None, False, None
         return None, False, exc
 
-    async def _fetch_detail_item(self):
-        async def get_item():
-            item = None
-            _connector = self._generateConnector(self._getActiveEventLoop())
-            await self.semaphore.acquire()
-            try:
-                await self._apply_download_delay_if_needed()
-                record_thread_activity("detail_page_fetch", current_url=str(self.url))
-                self._touch_watchdog_progress()
-                async with aiohttp.ClientSession(
-                    headers=header,
-                    connector=_connector,
-                    timeout=self._generateTimeout()
-                ) as dtl_session:
-                    try:
-                        item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
-                    except SkipPropertyException:
-                        raise
-                    except Exception as e:
-                        logging.exception("exception get item for URL: %s Details: %s", self.url, e)
-                        raise
-                    finally:
-                        if dtl_session is not None:
-                            await dtl_session.close()
-                        if _connector is not None:
-                            await _connector.close()
-            finally:
-                self.semaphore.release()
-            return item
-
+    async def _execute_single_detail_fetch(self):
+        """詳細ページ単一回フェッチを実行"""
+        item = None
+        _connector = self._generateConnector(self._getActiveEventLoop())
+        await self.semaphore.acquire()
         try:
-            item = await get_item()
+            await self._apply_download_delay_if_needed()
+            record_thread_activity("detail_page_fetch", current_url=str(self.url))
+            self._touch_watchdog_progress()
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=_connector,
+                timeout=self._generateTimeout()
+            ) as dtl_session:
+                try:
+                    item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
+                except SkipPropertyException:
+                    raise
+                except Exception as e:
+                    logging.exception("exception get item for URL: %s Details: %s", self.url, e)
+                    raise
+                finally:
+                    if dtl_session is not None:
+                        await dtl_session.close()
+                    if _connector is not None:
+                        await _connector.close()
+        finally:
+            self.semaphore.release()
+        return item
+
+    async def _fetch_detail_item(self):
+        try:
+            item = await self._execute_single_detail_fetch()
             return item, False, None
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             logging.debug("get item retry")
             try:
-                item = await get_item()
+                item = await self._execute_single_detail_fetch()
                 return item, False, None
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
