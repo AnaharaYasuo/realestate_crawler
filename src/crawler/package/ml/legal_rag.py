@@ -14,13 +14,19 @@ logger = logging.getLogger(__name__)
 _LAW_CACHE: list[dict[str, Any]] | None = None
 
 
-def load_curated_laws() -> list[dict[str, Any]]:
-    global _LAW_CACHE
-    if _LAW_CACHE is not None:
-        return _LAW_CACHE
+def _read_jsonl_file(fpath: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        with open(fpath, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.debug("Failed reading law file %s: %s", fpath, e)
+    return rows
 
-    items: list[dict[str, Any]] = []
-    # 1. ローカルキャッシュ (tmp_rag_out または data/rag/curated)
+
+def _load_laws_from_local() -> list[dict[str, Any]]:
     candidate_dirs = [
         "../../tmp_rag_out/rag/curated/law",
         "src/crawler/data/rag/curated/law",
@@ -28,38 +34,46 @@ def load_curated_laws() -> list[dict[str, Any]]:
     ]
     for d in candidate_dirs:
         matched_files = glob.glob(os.path.join(d, "*.jsonl"))
-        if matched_files:
-            for fpath in matched_files:
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        for line in f:
-                            if line.strip():
-                                items.append(json.loads(line))
-                except (OSError, json.JSONDecodeError) as e:
-                    logger.debug("Failed reading law file %s: %s", fpath, e)
-            if items:
-                _LAW_CACHE = items
-                return _LAW_CACHE
+        if not matched_files:
+            continue
+        items: list[dict[str, Any]] = []
+        for fpath in matched_files:
+            items.extend(_read_jsonl_file(fpath))
+        if items:
+            return items
+    return []
 
-    # 2. GCS からのフォールバック
+
+def _load_laws_from_gcs() -> list[dict[str, Any]]:
     gcs_bucket = os.getenv("GCS_BUCKET_NAME", "realestate-images-sumifu-prod")
-    if gcs_bucket:
-        try:
-            from google.cloud import storage
-            client = storage.Client()
-            bucket = client.bucket(gcs_bucket)
-            blobs = list(client.list_blobs(bucket, prefix="rag/curated/law/"))
-            for b in blobs:
-                if b.name.endswith(".jsonl"):
-                    text = b.download_as_text(encoding="utf-8")
-                    for line in text.splitlines():
-                        if line.strip():
-                            items.append(json.loads(line))
-            if items:
-                _LAW_CACHE = items
-                return _LAW_CACHE
-        except (OSError, RuntimeError) as e:
-            logger.warning("GCS law retrieval fallback failed: %s", e)
+    if not gcs_bucket:
+        return []
+    items: list[dict[str, Any]] = []
+    try:
+        from google.cloud import storage
+        client = storage.Client()
+        bucket = client.bucket(gcs_bucket)
+        blobs = list(client.list_blobs(bucket, prefix="rag/curated/law/"))
+        for b in blobs:
+            if not b.name.endswith(".jsonl"):
+                continue
+            text = b.download_as_text(encoding="utf-8")
+            for line in text.splitlines():
+                if line.strip():
+                    items.append(json.loads(line))
+    except (OSError, RuntimeError) as e:
+        logger.warning("GCS law retrieval fallback failed: %s", e)
+    return items
+
+
+def load_curated_laws() -> list[dict[str, Any]]:
+    global _LAW_CACHE
+    if _LAW_CACHE is not None:
+        return _LAW_CACHE
+
+    items = _load_laws_from_local()
+    if not items:
+        items = _load_laws_from_gcs()
 
     _LAW_CACHE = items
     return _LAW_CACHE

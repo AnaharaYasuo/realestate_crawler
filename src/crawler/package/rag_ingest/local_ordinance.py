@@ -1,7 +1,4 @@
-"""地方自治体の不動産関連条例・規則（Reiki-Base等）の取得および条単位チャンク化。
-
-公共データ（条例・規則）。著作権法第13条により権利の目的とならない。
-"""
+"""地方自治体の不動産関連条例・規則（Reiki-Base等）の取得および条単位チャンク化モジュール。"""
 from __future__ import annotations
 
 import logging
@@ -131,7 +128,7 @@ def fetch_and_chunk_yokohama(ordinances: dict[str, str] | None = None, delay: fl
                     )
                     result[f"yokohama_{doc_id}"] = chunks
                 time.sleep(delay)
-            except (requests.RequestException, OSError) as e:
+            except requests.RequestException as e:
                 logger.debug("Yokohama fetch failed for %s: %s", fn, e)
     return result
 
@@ -145,7 +142,7 @@ def fetch_and_chunk_chiba(ordinances: dict[str, str] | None = None, delay: float
         s.headers.update({"User-Agent": USER_AGENT})
         try:
             s.get(CHIBA_MENU, timeout=20)
-        except (requests.RequestException, OSError) as e:
+        except requests.RequestException as e:
             logger.debug("Chiba menu fetch error: %s", e)
             
         for fn, title in targets.items():
@@ -165,6 +162,6 @@ def fetch_and_chunk_chiba(ordinances: dict[str, str] | None = None, delay: float
                     )
                     result[f"chiba_{doc_id}"] = chunks
                 time.sleep(delay)
-            except (requests.RequestException, OSError) as e:
+            except requests.RequestException as e:
                 logger.debug("Chiba fetch failed for %s: %s", fn, e)
     return result
