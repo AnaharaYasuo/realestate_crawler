@@ -50,6 +50,7 @@ def _load_laws_from_gcs() -> list[dict[str, Any]]:
         return []
     items: list[dict[str, Any]] = []
     try:
+        from google.auth.exceptions import GoogleAuthError
         from google.cloud import storage
         client = storage.Client()
         bucket = client.bucket(gcs_bucket)
@@ -61,7 +62,7 @@ def _load_laws_from_gcs() -> list[dict[str, Any]]:
             for line in text.splitlines():
                 if line.strip():
                     items.append(json.loads(line))
-    except (OSError, RuntimeError) as e:
+    except (OSError, RuntimeError, GoogleAuthError) as e:
         logger.warning("GCS law retrieval fallback failed: %s", e)
     return items
 
