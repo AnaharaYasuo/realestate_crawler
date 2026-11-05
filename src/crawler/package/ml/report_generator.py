@@ -597,9 +597,10 @@ def generate_professional_and_danchou_report(
     site_text = fetch_property_page_text(prop_url, timeout=5) if prop_url else ""
 
     query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
-    matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=2)
+    matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=3)
     region_tag = _detect_region_tag(address)
-    matched_laws = search_legal_knowledge(query, region_key=region_tag, top_k=2)
+    legal_query = f"{ptype_jp} 容積率 建蔽率 接道 斜線制限 借地借家 鑑定評価 最有効使用 住宅ローン控除 固定資産税 {access}"
+    matched_laws = search_legal_knowledge(legal_query, region_key=region_tag, top_k=5, diversify_categories=True)
 
     model_name = os.getenv("GEMINI_RECOMMEND_MODEL", DEFAULT_RECOMMEND_MODEL)
     api_key = os.getenv("GEMINI_API_KEY")
