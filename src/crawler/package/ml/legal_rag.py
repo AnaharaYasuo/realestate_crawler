@@ -120,6 +120,26 @@ def _score_law_item(item: dict[str, Any], query_lower: str, region_key: str = ""
     return score
 
 
+def _diversify_scored_items(scored: list[tuple[int, dict[str, Any]]], top_k: int) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    source_counts: dict[str, int] = {}
+    for _, item in scored:
+        sid = item.get("source_id", "")
+        count = source_counts.get(sid, 0)
+        if count < 2:
+            selected.append(item)
+            source_counts[sid] = count + 1
+            if len(selected) >= top_k:
+                return selected
+
+    for _, item in scored:
+        if item not in selected:
+            selected.append(item)
+            if len(selected) >= top_k:
+                break
+    return selected
+
+
 def search_legal_knowledge(
     query_text: str, region_key: str = "", top_k: int = 5, diversify_categories: bool = True
 ) -> list[dict[str, Any]]:
@@ -132,36 +152,13 @@ def search_legal_knowledge(
         return []
 
     query_lower = query_text.lower()
-    scored = []
-    for item in laws:
-        s = _score_law_item(item, query_lower, region_key)
-        if s > 0:
-            scored.append((s, item))
-
+    scored = [
+        (s, item) for item in laws
+        if (s := _score_law_item(item, query_lower, region_key)) > 0
+    ]
     scored.sort(key=lambda x: x[0], reverse=True)
 
     if not diversify_categories or len(scored) <= top_k:
         return [item for _, item in scored[:top_k]]
 
-    # カテゴリ・ソース別分散抽出（特定条例だけに偏らず、全国法・税法・鑑定基準を総動員）
-    selected = []
-    source_counts: dict[str, int] = {}
-    for _, item in scored:
-        sid = item.get("source_id", "")
-        # 同一法令・条例からは最大2条までに制限し、多様な法令・条例を総動員
-        count = source_counts.get(sid, 0)
-        if count < 2:
-            selected.append(item)
-            source_counts[sid] = count + 1
-            if len(selected) >= top_k:
-                break
-
-    # 足りない場合はスコア順で埋める
-    if len(selected) < top_k:
-        for _, item in scored:
-            if item not in selected:
-                selected.append(item)
-                if len(selected) >= top_k:
-                    break
-
-    return selected
+    return _diversify_scored_items(scored, top_k)
