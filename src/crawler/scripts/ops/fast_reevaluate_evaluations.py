@@ -18,6 +18,7 @@ import realestateSettings
 realestateSettings.configure()
 
 from package.models.evaluation import PropertyEvaluation
+from package.ml.constants import EVAL_DB_BATCH_SIZE
 from package.ml.predict import bulk_predict_first_stage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -41,7 +42,7 @@ def fast_reevaluate():
         grouped.setdefault(key, []).append(ev)
         
     total_updated = 0
-    BATCH_SIZE = 500
+    BATCH_SIZE = EVAL_DB_BATCH_SIZE
     
     for key, ev_list in grouped.items():
         model_class = models_by_name.get(key)
