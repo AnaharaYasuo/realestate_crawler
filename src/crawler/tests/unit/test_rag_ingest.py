@@ -71,3 +71,16 @@ def test_reiki_base_html_parsing():
     assert chunks[0].category == "law"
     assert "目的" in chunks[0].body_text
     assert chunks[1].id == "ordinance_test_city_sample01_第2条"
+
+def test_chiba_ordinance_collector():
+    from package.rag_ingest.local_ordinance import parse_reiki_base_html
+    sample_html = """
+    <html><body>
+    <p class="num">第1条 （目的）この条例は千葉市における地区計画の制限を定める。</p>
+    <p>2 この規則において地区計画とは法第68条の2の計画をいう。</p>
+    </body></html>
+    """
+    chunks = parse_reiki_base_html(sample_html, "sample_chiba", "千葉市地区計画条例", "http://example.com", "chiba_city", "2026-01-01")
+    assert len(chunks) == 1
+    assert chunks[0].id == "ordinance_chiba_city_sample_chiba_第1条"
+    assert chunks[0].region == "chiba_city"
