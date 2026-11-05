@@ -30,8 +30,10 @@ from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.api.registry import ApiRegistry
 from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
 from package.parser.baseParser import (
+    ListingEndedException,
     LoadPropertyPageException,
     ParserBase,
+    ParserFailureException,
     ReadPropertyNameException,
     SkipPropertyException,
     check_site_maintenance,
@@ -2012,23 +2014,29 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
         try:
             item = await get_item()
-            return item, False
+            return item, False, None
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             logging.debug("get item retry")
             try:
                 item = await get_item()
-                return item, False
+                return item, False, None
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {e!s}")
-                return None, False
+                return None, False, e
+        except ListingEndedException as e:
+            logging.info(f"Skipping property (Listing Ended): {type(e).__name__} for URL: {self.url}")
+            return None, True, None
+        except (ParserFailureException, ValidationError) as e:
+            logging.warning(f"Parsing/Data failure for URL: {self.url}: {e}")
+            return None, False, e
         except SkipPropertyException as e:
-            logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
-            return None, True
+            logging.info(f"Skipping property (ServerBusy/Blocked/Other): {type(e).__name__} for URL: {self.url}")
+            return None, False, None
         except Exception as e:
             logging.error(f"get item exception for URL: {self.url}", exc_info=e)
-            return None, False
+            return None, False, e
 
     @staticmethod
     def _handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
@@ -2497,9 +2505,48 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         )
         logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
 
+    def _sync_persist_parser_failure(self, err_msg: str):
+        eval_rec = self._find_existing_evaluation()
+        if eval_rec:
+            eval_rec.needs_parser_fix = True
+            eval_rec.needs_recrawl = True
+            eval_rec.data_quality_issue = str(err_msg)[:500]
+            eval_rec.is_published = True
+            eval_rec.save()
+            logger.info("[Lifecycle] Tagged PropertyEvaluation with needs_parser_fix: %s", self.url)
+            return
+
+        company = self._resolve_target_company() or "unknown"
+        property_type = (
+            getattr(self.parser, "property_type", None)
+            or PropertyTypeDetector.detect_from_url(self.url)
+            or "unknown"
+        )
+        prop_id = self._resolve_delisted_prop_id() or 0
+        PropertyEvaluation.objects.create(
+            property_url=self.url,
+            company=company,
+            property_type=property_type,
+            property_id=prop_id,
+            is_published=True,
+            needs_parser_fix=True,
+            needs_recrawl=True,
+            data_quality_issue=str(err_msg)[:500],
+            analysis_status="skipped_by_budget",
+        )
+        logger.info("[Lifecycle] Created new PropertyEvaluation with needs_parser_fix: %s", self.url)
+
+    async def _handle_parser_failure(self, error):
+        self._touch_watchdog_progress()
+        logger.warning("Handling parser failure for URL %s: %s", self.url, error)
+        try:
+            await sync_to_async(self._sync_persist_parser_failure)(str(error))
+        except Exception as e:
+            logger.warning("Failed to persist parser failure for %s: %s", self.url, e)
+
     async def _handle_skipped_property(self):
         self._touch_watchdog_progress()
-        logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
+        logger.info("Skipped property processing (Listing Ended) for URL: %s", self.url)
         try:
             await sync_to_async(self._sync_persist_delisted)()
         except OperationalError as le_err:
@@ -2510,12 +2557,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
 
     async def _treatPage(self, _session, *arg):
-        item, is_skipped = await self._fetch_detail_item()
+        fetch_res = await self._fetch_detail_item()
+        item = fetch_res[0] if len(fetch_res) > 0 else None
+        is_delisted = fetch_res[1] if len(fetch_res) > 1 else False
+        parser_err = fetch_res[2] if len(fetch_res) > 2 else None
 
         if item is not None:
             await self._handle_saved_property(item)
-        elif is_skipped:
+        elif is_delisted:
             await self._handle_skipped_property()
+        elif parser_err is not None:
+            await self._handle_parser_failure(parser_err)
         else:
             try:
                 await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")

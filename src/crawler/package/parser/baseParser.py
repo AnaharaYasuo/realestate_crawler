@@ -91,6 +91,14 @@ class SiteMaintenanceException(ServerBusyException):
     """Raised when the target website is under scheduled or emergency maintenance."""
 
 
+class AccessBlockedException(ServerBusyException, LoadPropertyPageException):
+    """Raised when request is blocked by WAF, CAPTCHA, or bot protection."""
+
+
+class ParserFailureException(SkipPropertyException):
+    """Raised when parsing fails due to selector mismatch or data deficiency (needs parser fix)."""
+
+
 MAINTENANCE_KEYWORDS = (
     "システムメンテナンス",
     "ただいまメンテナンス",
@@ -98,6 +106,22 @@ MAINTENANCE_KEYWORDS = (
     "メンテナンス中",
     "メンテナンスのお知らせ",
     "現在システムメンテナンスを実施しております",
+)
+
+ACCESS_BLOCKED_KEYWORDS = (
+    "認証にご協力ください",
+    "認証中",
+    "geetest",
+    "Click to verify",
+    "パズル認証",
+    "Just a moment...",
+    "Request blocked",
+    "The request could not be satisfied",
+    "403 ERROR",
+    "403 Forbidden",
+    "Access Denied",
+    "Cloudflare",
+    "cloudfront",
 )
 
 
@@ -113,17 +137,39 @@ def _get_page_header_text(response) -> tuple[str, str]:
     return title_text, h1_text
 
 
-def check_site_maintenance(response, site_name: str = ""):
-    """Check if the response represents a site maintenance page."""
+def check_access_blocked_or_maintenance(response, status_code: int = 200, url: str = "", site_name: str = ""):
+    """Check if the response represents an access blocked (403/CAPTCHA/WAF) or maintenance page."""
+    if status_code in (403, 429):
+        raise AccessBlockedException(f"HTTP Status {status_code} Access Blocked for URL: {url}")
+
     if response is None:
         return
+
     title_text, h1_text = _get_page_header_text(response)
     name_str = f" ({site_name})" if site_name else ""
+    combined_header = f"{title_text} {h1_text}"
+
+    # 1. メンテナンス判定
     for kw in MAINTENANCE_KEYWORDS:
-        if kw in title_text:
-            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {title_text}")
-        if kw in h1_text:
-            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {h1_text}")
+        if kw in combined_header:
+            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {combined_header.strip()}")
+
+    # 2. アクセスブロック・CAPTCHA判定
+    body_text = ""
+    if hasattr(response, "body") and response.body:
+        body_text = response.body.get_text()[:3000]
+    elif hasattr(response, "get_text"):
+        body_text = response.get_text()[:3000]
+
+    full_check_text = f"{combined_header} {body_text}"
+    for kw in ACCESS_BLOCKED_KEYWORDS:
+        if kw in full_check_text:
+            raise AccessBlockedException(f"Access blocked / challenge detected{name_str} ({kw}) for URL: {url}")
+
+
+def check_site_maintenance(response, site_name: str = ""):
+    """Check if the response represents a site maintenance page."""
+    check_access_blocked_or_maintenance(response, site_name=site_name)
 
 
 class RateLimitedException(Exception):
@@ -2081,6 +2127,9 @@ class ParserBase(metaclass=ABCMeta):
     @classmethod
     def _raise_if_listing_ended(cls, soup: BeautifulSoup, url) -> None:
         """物件詳細ページが掲載終了・非公開状態の場合に ListingEndedException を送出"""
+        # 前段でアクセスブロック・メンテナンス画面を判定（誤掲載終了の物理的遮断）
+        check_access_blocked_or_maintenance(soup, url=url, site_name=cls.__name__)
+
         title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
         if title:
             cls._raise_on_listing_title(title, url)
@@ -2197,13 +2246,13 @@ class ParserBase(metaclass=ABCMeta):
             raise
         except (LoadPropertyPageException, TimeoutError, ServerDownException) as lpe:
             logging.warning(f"Failure loading property page (skipping): {url} - {lpe}")
-            raise SkipPropertyException(f"Property fetch timed out or failed: {url}") from lpe
+            raise ParserFailureException(f"Property fetch timed out or failed: {url}") from lpe
         except Exception as e:
             msg = f"Can not read property page: {url} - Reason: {str(e)}"
             logging.exception(msg)
             if content:
                 self.save_error_html(url, content, reason=str(e))
-            raise LoadPropertyPageException(msg)
+            raise ParserFailureException(msg) from e
         return item
 
     @staticmethod
@@ -2218,7 +2267,7 @@ class ParserBase(metaclass=ABCMeta):
         if status == 429:
             raise RateLimitedException(f"HTTP Status 429 Too Many Requests: {url}")
         if status == 403:
-            raise LoadPropertyPageException(
+            raise AccessBlockedException(
                 f"HTTP Status 403 Forbidden (Possible WAF/Bot Protection): {url}"
             )
         if status in (500, 502, 503, 504):
