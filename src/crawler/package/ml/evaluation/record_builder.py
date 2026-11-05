@@ -77,6 +77,7 @@ def build_or_update_eval_record(
     company: str,
     property_type: str,
     candidate_pool: list[Any] | None = None,
+    skip_duplicate_check: bool = False,
 ) -> tuple[Any, bool]:
     """単一物件の評価レコードを生成または更新する"""
     page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
@@ -114,7 +115,7 @@ def build_or_update_eval_record(
         populate_text_risks(rec, item)
         is_new = True
 
-    if is_passed and not rec.duplicate_of_id:
+    if not skip_duplicate_check and is_passed and not rec.duplicate_of_id:
         dup = find_duplicate_property(rec, new_prop=item, candidate_pool=candidate_pool)
         if dup:
             rec.duplicate_of = dup

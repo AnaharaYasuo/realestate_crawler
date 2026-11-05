@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 import base64
 import re
@@ -12,11 +13,11 @@ class TotateParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return specs.get("現況", "") or specs.get("現況状況", "") or specs.get("状態", "")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("権利形態", "")
 
     def _parseTransport1(self, response, specs=None):
         return super()._parseTransport1(response, specs)
@@ -182,7 +183,25 @@ class TotateParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    def _parseTrafficLinesFromKotsuSet(self, response: BeautifulSoup) -> list:
+        """詳細表 tr.transport 内の span.kotsu-set (路線/駅/徒歩) を1路線1行で抽出する。
+
+        specs['交通'] は span 間の空白が失われ複数路線が1行に連結されるため、DOM構造を優先する。
+        """
+        row = response.select_one("tr.transport")
+        if not row:
+            return []
+        lines = []
+        for kset in row.select("span.kotsu-set"):
+            text = " ".join(s.strip() for s in kset.stripped_strings if s.strip())
+            if text:
+                lines.append(text)
+        return lines
+
     def _parseTrafficLines(self, response: BeautifulSoup):
+        kotsu_lines = self._parseTrafficLinesFromKotsuSet(response)
+        if kotsu_lines:
+            return kotsu_lines
         traffic_lines = []
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
@@ -302,10 +321,10 @@ class TotateMansionParser(TotateParser, MansionParserBase):
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.kanrihiStr = specs.get("管理費", "")
+        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費(月額)", "") or specs.get("管理費等(月額)", "")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_price(item.kanrihiStr)
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        item.syuzenTsumitateStr = specs.get("修繕積立金", "") or specs.get("修繕積立金(月額)", "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_price(item.syuzenTsumitateStr)
 
@@ -387,9 +406,17 @@ class TotateKodateParser(TotateParser, KodateParserBase):
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("階数", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
 
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
@@ -406,6 +433,7 @@ class TotateKodateParser(TotateParser, KodateParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -477,6 +505,7 @@ class TotateTochiParser(TotateParser, TochiParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 

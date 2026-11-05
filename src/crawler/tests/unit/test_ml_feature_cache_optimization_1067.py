@@ -11,11 +11,13 @@ def test_init_global_caches_skips_when_initialized():
     
     with patch("package.ml.features.reference_data._init_muni_cache") as mock_muni, \
          patch("package.ml.features.reference_data._init_lp_cache") as mock_lp, \
-         patch("package.ml.features.reference_data._init_misc_caches") as mock_misc:
+         patch("package.ml.features.reference_data._init_misc_caches") as mock_misc, \
+         patch("package.ml.features.reference_data._init_future_and_historical_caches") as mock_future:
         
         mock_muni.return_value = False
         mock_lp.return_value = False
         mock_misc.return_value = False
+        mock_future.return_value = False
         
         # 1回目の呼び出し: DBクエリが実行される
         _init_global_caches()

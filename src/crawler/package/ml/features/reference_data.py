@@ -333,12 +333,12 @@ def extract_macro_features(ref_prop_date: datetime.date, property_type: str) -> 
     return macro_repi, jgb, nikkei, reit, const_cost
 
 
-def query_municipal_potential(address1: str, address2: str) -> tuple[float, int, int, float, float]:
+def query_municipal_potential(address1: str, address2: str) -> tuple[float | None, int | None, int | None, float | None, float]:
     muni = _muni_cache.get((address1, address2))
     if muni:
         pop_growth = float(muni.population_growth_rate)
         income = muni.average_income
-        total_population = muni.total_population if muni.total_population is not None else 100000
+        total_population = muni.total_population
         income_growth_rate = float(muni.income_growth_rate) if muni.income_growth_rate is not None else 0.0
         pop_density = float(muni.population_density) if muni.population_density is not None else 4000.0
         return pop_growth, income, total_population, income_growth_rate, pop_density
@@ -349,7 +349,7 @@ def query_municipal_potential(address1: str, address2: str) -> tuple[float, int,
         pop_growth = sum(float(x.population_growth_rate) for x in muni_pref_vals) / n
         income = int(sum(x.average_income for x in muni_pref_vals) / n)
         has_pop = [x.total_population for x in muni_pref_vals if x.total_population is not None]
-        total_population = int(sum(has_pop) / len(has_pop)) if has_pop else 100000
+        total_population = int(sum(has_pop) / len(has_pop)) if has_pop else None
         has_ig = [float(x.income_growth_rate) for x in muni_pref_vals if x.income_growth_rate is not None]
         income_growth_rate = (sum(has_ig) / len(has_ig)) if has_ig else 0.0
         has_pd = [float(x.population_density) for x in muni_pref_vals if x.population_density is not None]
@@ -357,15 +357,15 @@ def query_municipal_potential(address1: str, address2: str) -> tuple[float, int,
         return pop_growth, income, total_population, income_growth_rate, pop_density
 
     base_density = PREFECTURE_BASE_POP_DENSITY.get(address1, 4000.0)
-    return 0.0, 3000, 100000, 0.0, base_density
+    return None, None, None, None, base_density
 
 
-def query_station_volume(station1: str) -> int:
+def query_station_volume(station1: str) -> int | None:
     if not station1:
-        return 10000
+        return None
     station_clean = station1.replace("駅", "")
     station_pot = _station_cache.get(station_clean)
-    return station_pot.passenger_volume if station_pot else 10000
+    return station_pot.passenger_volume if station_pot else None
 
 
 def calculate_effective_walk_min(walk_min: int, bus_use: int, bus_min: float, bus_walk: float, pop_density: float) -> float:

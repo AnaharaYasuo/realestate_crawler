@@ -26,6 +26,7 @@ import realestateSettings
 realestateSettings.configure()
 
 from django.db import connection, transaction
+from package.ml.constants import EVAL_DB_WRITE_BATCH_SIZE
 from package.models.evaluation import PropertyEvaluation
 
 EXPECTED_ZERO = " (Expected: 0)"
@@ -116,7 +117,7 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
         logger.info(f"Nodes requiring update: {len(to_update)} (out of {len(all_nodes)} nodes)")
 
         if to_update and not dry_run:
-            batch_size = 500
+            batch_size = EVAL_DB_WRITE_BATCH_SIZE
             with transaction.atomic():
                 for i in range(0, len(to_update), batch_size):
                     chunk = to_update[i:i + batch_size]

@@ -30,8 +30,10 @@ from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.api.registry import ApiRegistry
 from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
 from package.parser.baseParser import (
+    ListingEndedException,
     LoadPropertyPageException,
     ParserBase,
+    ParserFailureException,
     ReadPropertyNameException,
     SkipPropertyException,
     check_site_maintenance,
@@ -1231,11 +1233,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
 
         if fire_and_forget:
-            executor = _get_local_worker_executor()
-            fut = executor.submit(run_in_new_loop)
-            _track_fire_and_forget_future(fut)
-            logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
-            return detail_url, 202, "FireAndForgetLocal"
+            if os.path.exists(STOP_FLAG_FILE):
+                logger.info("Stop flag active; skipping dispatch for %s -> %s", path, detail_url)
+                return detail_url, 499, "Stopped"
+            try:
+                executor = _get_local_worker_executor()
+                fut = executor.submit(run_in_new_loop)
+                _track_fire_and_forget_future(fut)
+                logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
+                return detail_url, 202, "FireAndForgetLocal"
+            except RuntimeError as re_err:
+                logger.warning("Worker executor unavailable (%s); skipping fire-and-forget dispatch for %s", re_err, detail_url)
+                return detail_url, 503, "ExecutorShutdown"
 
         t = threading.Thread(target=run_in_new_loop, daemon=True)
         _track_fire_and_forget_thread(t)
@@ -1973,55 +1982,71 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if wait_sec > 0:
             await asyncio.sleep(wait_sec)
 
-    async def _fetch_detail_item(self):
-        async def get_item():
-            item = None
-            _connector = self._generateConnector(self._getActiveEventLoop())
-            await self.semaphore.acquire()
-            try:
-                await self._apply_download_delay_if_needed()
-                record_thread_activity("detail_page_fetch", current_url=str(self.url))
-                self._touch_watchdog_progress()
-                async with aiohttp.ClientSession(
-                    headers=header,
-                    connector=_connector,
-                    timeout=self._generateTimeout()
-                ) as dtl_session:
-                    try:
-                        item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
-                    except SkipPropertyException:
-                        raise
-                    except Exception as e:
-                        logging.exception("exception get item for URL: %s Details: %s", self.url, e)
-                        raise
-                    finally:
-                        if dtl_session is not None:
-                            await dtl_session.close()
-                        if _connector is not None:
-                            await _connector.close()
-            finally:
-                self.semaphore.release()
-            return item
+    def _classify_fetch_exception(self, exc: Exception, is_retry: bool = False):
+        """詳細ページ取得時の例外を分類して (item, is_listing_ended, error) を返す"""
+        suffix = " on retry" if is_retry else ""
+        if isinstance(exc, ListingEndedException):
+            logging.info(f"Skipping property (Listing Ended{suffix}): {type(exc).__name__} for URL: {self.url}")
+            return None, True, None
+        if isinstance(exc, (ParserFailureException, ValidationError)):
+            logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
+            return None, False, exc
+        if isinstance(exc, SkipPropertyException):
+            logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
+            return None, False, None
+        return None, False, exc
 
+    async def _execute_single_detail_fetch(self):
+        """詳細ページ単一回フェッチを実行"""
+        item = None
+        _connector = self._generateConnector(self._getActiveEventLoop())
+        await self.semaphore.acquire()
         try:
-            item = await get_item()
-            return item, False
+            await self._apply_download_delay_if_needed()
+            record_thread_activity("detail_page_fetch", current_url=str(self.url))
+            self._touch_watchdog_progress()
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=_connector,
+                timeout=self._generateTimeout()
+            ) as dtl_session:
+                try:
+                    item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
+                except SkipPropertyException:
+                    raise
+                except Exception as e:
+                    logging.exception("exception get item for URL: %s Details: %s", self.url, e)
+                    raise
+                finally:
+                    if dtl_session is not None:
+                        await dtl_session.close()
+                    if _connector is not None:
+                        await _connector.close()
+        finally:
+            self.semaphore.release()
+        return item
+
+    async def _fetch_detail_item(self):
+        try:
+            item = await self._execute_single_detail_fetch()
+            return item, False, None
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             logging.debug("get item retry")
             try:
-                item = await get_item()
-                return item, False
+                item = await self._execute_single_detail_fetch()
+                return item, False, None
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {e!s}")
-                return None, False
-        except SkipPropertyException as e:
-            logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
-            return None, True
+                return None, False, e
+            except Exception as e:
+                return self._classify_fetch_exception(e, is_retry=True)
         except Exception as e:
-            logging.error(f"get item exception for URL: {self.url}", exc_info=e)
-            return None, False
+            classified = self._classify_fetch_exception(e, is_retry=False)
+            if not isinstance(e, (ListingEndedException, ParserFailureException, ValidationError, SkipPropertyException)):
+                logging.error(f"get item exception for URL: {self.url}", exc_info=e)
+            return classified
 
     @staticmethod
     def _handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
@@ -2490,9 +2515,48 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         )
         logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
 
+    def _sync_persist_parser_failure(self, err_msg: str):
+        eval_rec = self._find_existing_evaluation()
+        if eval_rec:
+            eval_rec.needs_parser_fix = True
+            eval_rec.needs_recrawl = True
+            eval_rec.data_quality_issue = str(err_msg)[:500]
+            # 既存の公開ステータスを維持（既に掲載終了となっているものを誤って復活させない）
+            eval_rec.save()
+            logger.info("[Lifecycle] Tagged PropertyEvaluation with needs_parser_fix: %s (is_published=%s)", self.url, eval_rec.is_published)
+            return
+
+        company = self._resolve_target_company() or "unknown"
+        property_type = (
+            getattr(self.parser, "property_type", None)
+            or PropertyTypeDetector.detect_from_url(self.url)
+            or "unknown"
+        )
+        prop_id = self._resolve_delisted_prop_id() or 0
+        PropertyEvaluation.objects.create(
+            property_url=self.url,
+            company=company,
+            property_type=property_type,
+            property_id=prop_id,
+            is_published=True,
+            needs_parser_fix=True,
+            needs_recrawl=True,
+            data_quality_issue=str(err_msg)[:500],
+            analysis_status="skipped_by_budget",
+        )
+        logger.info("[Lifecycle] Created new PropertyEvaluation with needs_parser_fix: %s", self.url)
+
+    async def _handle_parser_failure(self, error):
+        self._touch_watchdog_progress()
+        logger.warning("Handling parser failure for URL %s: %s", self.url, error)
+        try:
+            await sync_to_async(self._sync_persist_parser_failure)(str(error))
+        except Exception as e:
+            logger.warning("Failed to persist parser failure for %s: %s", self.url, e)
+
     async def _handle_skipped_property(self):
         self._touch_watchdog_progress()
-        logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
+        logger.info("Skipped property processing (Listing Ended) for URL: %s", self.url)
         try:
             await sync_to_async(self._sync_persist_delisted)()
         except OperationalError as le_err:
@@ -2503,12 +2567,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
 
     async def _treatPage(self, _session, *arg):
-        item, is_skipped = await self._fetch_detail_item()
+        fetch_res = await self._fetch_detail_item()
+        item = fetch_res[0] if len(fetch_res) > 0 else None
+        is_delisted = fetch_res[1] if len(fetch_res) > 1 else False
+        parser_err = fetch_res[2] if len(fetch_res) > 2 else None
 
         if item is not None:
             await self._handle_saved_property(item)
-        elif is_skipped:
+        elif is_delisted:
             await self._handle_skipped_property()
+        elif parser_err is not None:
+            await self._handle_parser_failure(parser_err)
         else:
             try:
                 await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")

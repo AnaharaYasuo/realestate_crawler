@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 import asyncio
 import datetime
 import logging
@@ -116,13 +117,14 @@ class SmtrcParser(ParserBase):
         # 交通情報のパース
         traffic_lines = self._parseTrafficLines(response)
         self._populateTraffic(item, "  ".join(traffic_lines))
+        self._applyBusAccess1(item, traffic_lines)
 
         # 共通テーブルスペック
         specs = self._get_specs(response)
         item.biko = specs.get("備考", "")
-        item.genkyo = specs.get("現況", "")
-        item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引渡可能時期", "")
-        item.tochikenri = specs.get("土地権利", "")
+        item.genkyo = specs.get("現況", "") or specs.get("現況状況", "")
+        item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引渡可能時期", "") or specs.get("引渡し可能年月", "") or specs.get("引渡し年月", "")
+        item.tochikenri = specs.get("土地権利", "") or specs.get("権利", "")
         item.torihiki = specs.get("取引態様", "")
 
         # 築年月（表記揺れ 建築年月 もサポート）
@@ -165,6 +167,32 @@ class SmtrcParser(ParserBase):
             if l:
                 lines.append(l)
         return lines
+
+    @staticmethod
+    def _applyBusAccess1(item, traffic_lines: list) -> None:
+        """1行目がバス便 (例: 'JR横浜線 淵野辺駅 バス乗車12分桜台二丁目停 徒歩3分') の場合、
+        バス乗車分を busWalkMinute1 / busUse1 に、バス停からの徒歩分を railwayWalkMinute1 に設定する。
+        (汎用 _populateTraffic は最初の 'N分' = バス乗車分 を徒歩分と誤認するため上書き補正)
+        """
+        if not traffic_lines:
+            return
+        line = traffic_lines[0]
+        m_bus = re.search(r"バス(?:乗車)?\s*(\d+)\s*分", line)
+        if not m_bus:
+            return
+        item.busUse1 = 1
+        item.busWalkMinute1Str = f"{m_bus.group(1)}分"
+        item.busWalkMinute1 = int(m_bus.group(1))
+        m_walk = re.search(r"(?:徒歩|停歩)\s*(\d+)\s*分", line[m_bus.end():])
+        if m_walk:
+            item.railwayWalkMinute1Str = f"徒歩{m_walk.group(1)}分"
+            item.railwayWalkMinute1 = int(m_walk.group(1))
+        else:
+            item.railwayWalkMinute1Str = ""
+            item.railwayWalkMinute1 = None
+        m_stop = re.search(r"分\s*([^\s\d]+?)停", line[m_bus.start():])
+        if m_stop:
+            item.busStation1 = m_stop.group(1)
 
     async def _smtrc_fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright
@@ -463,6 +491,24 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
     def createEntity(self):
         return SmtrcKodate()
 
+    def _apply_kodate_structure_and_floor(self, item, specs: dict) -> None:
+        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
+        if item.kaisuStr:
+            item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
+        item.madori = specs.get("間取り", "")
+        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
+        if "/" in (item.kouzou or "") and not specs.get("構造"):
+            # e.g. "木造/3階建" → structure only
+            item.kouzou = item.kouzou.split("/", 1)[0].strip()
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -479,12 +525,7 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
-        item.madori = specs.get("間取り", "")
-        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
-        if "/" in (item.kouzou or "") and not specs.get("構造"):
-            # e.g. "木造/3階建" → structure only
-            item.kouzou = item.kouzou.split("/", 1)[0].strip()
+        self._apply_kodate_structure_and_floor(item, specs)
 
         # 都市計画関連
         item.youtoChiiki = specs.get("用途地域", "")
@@ -500,6 +541,7 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
 
         # 接道状況の抽出
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        apply_road_details_to_item(item, item.setsudou)
         
         return item
 
@@ -572,6 +614,7 @@ class SmtrcTochiParser(SmtrcParser, TochiParserBase):
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -643,6 +686,7 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         self._apply_invest_areas_and_ratios(item, specs)
 
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = specs.get("地目", "")
         item.youtoChiiki = specs.get("用途地域", "")
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
@@ -684,7 +728,17 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         item.soukosuStr = specs.get("総戸数", "") or specs.get("戸数", "")
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
-        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
+        if item.kaisuStr:
+            item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
 
     @staticmethod
     def _apply_invest_areas_and_ratios(item, specs: dict) -> None:

@@ -192,6 +192,7 @@ class MisawaParser(ParserBase):
         traffic_str = self._parseTrafficFull(response)
         if traffic_str:
             self._populateTraffic(item, traffic_str)
+            self._apply_misawa_traffic_fields(item, response)
 
         # Common Fields
         item.tochikenri = self._parseTochikenri(response)
@@ -265,10 +266,10 @@ class MisawaParser(ParserBase):
         norm_traffic = re.sub(r'((?:徒歩|停歩|バス)\s*\d{1,4}\s*分)\s*(?=\S)', r'\1 ', norm_traffic)
         
         # Try various patterns (ReDoS-safe: no nested .*? / (a+)* forms)
-        # 1. Standard pattern: 線駅 徒歩/バス分
+        # 1. Standard pattern: 線駅 徒歩/バス分 (バス停下車徒歩分も含む)
         matches = re.findall(
             r"(\S+(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール|電気鉄道|急行)?)\s+(\S+駅)\s*"
-            r"((?:徒歩|停歩|バス)\s*\d{1,4}\s*分(?:\s*停歩\s*\d{1,4}\s*分)?)",
+            r"((?:(?:徒歩|停歩|バス)\s*\d{1,4}\s*分\s*(?:[^\s]+(?:停|停留所|バス停)下車)?\s*)*(?:徒歩|停歩|バス)\s*\d{1,4}\s*分)",
             norm_traffic,
         )
 
@@ -291,16 +292,26 @@ class MisawaParser(ParserBase):
     def _parseRailwayCount(self, response, _specs=None):
         return len(self._parseTrafficMatches(response))
 
+    @staticmethod
+    def _extract_bus_stop_name(walk_access: str, default: str) -> str:
+        m_bracket = re.search(r'「([^」]+)」', walk_access)
+        if m_bracket:
+            return m_bracket.group(1).strip()
+        parts = walk_access.split("下車", 1)[0].split()
+        last_word = parts[-1] if parts else ""
+        for suffix in ("停留所", "バス停", "停"):
+            if last_word.endswith(suffix):
+                return last_word[:-len(suffix)].strip()
+        return default
+
     def _extract_bus_field(self, field_to_get: str, walk_access: str, default):
-        if field_to_get == 'busWalkMinuteStr':
+        if field_to_get in ('busWalkMinuteStr', 'busWalkMinute'):
             m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
-            return str(m_bus.group(1)) if m_bus else default
-        if field_to_get == 'busWalkMinute':
-            m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
+            if field_to_get == 'busWalkMinuteStr':
+                return str(m_bus.group(1)) if m_bus else default
             return int(m_bus.group(1)) if m_bus else 0
         if field_to_get == 'busStation':
-            m_stop = re.search(r'「([^」]+)」', walk_access)
-            return m_stop.group(1) if m_stop else default
+            return self._extract_bus_stop_name(walk_access, default)
         if field_to_get == 'busUse':
             return 1 if "バス" in walk_access else 0
         return default
@@ -377,6 +388,53 @@ class MisawaParser(ParserBase):
     def _parseBusWalkMinute5Str(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinuteStr', "")
     def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
     def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
+
+    def _apply_misawa_walk_fields(self, item, idx: int, w_val: int, ws_val: str, b_val: int) -> None:
+        w_field = f"railwayWalkMinute{idx}"
+        ws_field = f"railwayWalkMinute{idx}Str"
+        if hasattr(item, w_field):
+            if w_val:
+                setattr(item, w_field, w_val)
+            elif b_val and getattr(item, w_field, None) == b_val:
+                setattr(item, w_field, None)
+        if hasattr(item, ws_field):
+            if ws_val:
+                setattr(item, ws_field, ws_val)
+            elif b_val and getattr(item, w_field, None) is None:
+                setattr(item, ws_field, "")
+
+    def _apply_misawa_bus_fields(self, item, idx: int, b_val: int, bs_val: str, bst_val: str, bu_val: int) -> None:
+        if b_val and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+            setattr(item, f"busWalkMinute{idx}", b_val)
+        if bs_val and not getattr(item, f"busWalkMinute{idx}Str", None):
+            setattr(item, f"busWalkMinute{idx}Str", bs_val)
+        if bst_val and not getattr(item, f"busStation{idx}", None):
+            setattr(item, f"busStation{idx}", bst_val)
+        if bu_val and not getattr(item, f"busUse{idx}", None):
+            setattr(item, f"busUse{idx}", bu_val)
+
+    def _apply_misawa_single_traffic(self, item, response, idx: int) -> None:
+        r_val = getattr(self, f"_parseRailway{idx}", lambda r: "")(response)
+        s_val = getattr(self, f"_parseStation{idx}", lambda r: "")(response)
+        w_val = getattr(self, f"_parseRailwayWalkMinute{idx}", lambda r: 0)(response)
+        ws_val = getattr(self, f"_parseRailwayWalkMinute{idx}Str", lambda r: "")(response)
+        b_val = getattr(self, f"_parseBusWalkMinute{idx}", lambda r: 0)(response)
+        bs_val = getattr(self, f"_parseBusWalkMinute{idx}Str", lambda r: "")(response)
+        bst_val = getattr(self, f"_parseBusStation{idx}", lambda r: "")(response)
+        bu_val = getattr(self, f"_parseBusUse{idx}", lambda r: 0)(response)
+
+        if r_val and not getattr(item, f"railway{idx}", None):
+            setattr(item, f"railway{idx}", r_val)
+        if s_val and not getattr(item, f"station{idx}", None):
+            setattr(item, f"station{idx}", s_val)
+
+        self._apply_misawa_walk_fields(item, idx, w_val, ws_val, b_val)
+        self._apply_misawa_bus_fields(item, idx, b_val, bs_val, bst_val, bu_val)
+
+    def _apply_misawa_traffic_fields(self, item, response) -> None:
+        """ミサワホーム詳細パース時の交通フィールド反映（個別メソッドから確実に取得）"""
+        for idx in range(1, 6):
+            self._apply_misawa_single_traffic(item, response, idx)
 
     def _parseTochikenri(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)

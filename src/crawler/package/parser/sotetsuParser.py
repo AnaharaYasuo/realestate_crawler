@@ -151,7 +151,7 @@ class SotetsuParser(ParserBase):
 
         item.biko = specs.get("備考", "") or specs.get("その他", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
-        item.rights = self._parseRights(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
         item.torihiki = specs.get("取引態様", "")
         item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "")
 
@@ -376,6 +376,15 @@ class SotetsuKodateParser(SotetsuParser, KodateParserBase):
         item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu:
+            kozo_val = specs.get("構造・工法", "") or specs.get("構造", "") or item.kouzou or ""
+            km = re.search(r'([0-9０-９]{1,3})階建', kozo_val)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
 
         item.kenpeiStr = specs.get("建ぺい率", "")
         if item.kenpeiStr:

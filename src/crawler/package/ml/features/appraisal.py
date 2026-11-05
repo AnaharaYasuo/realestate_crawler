@@ -93,13 +93,14 @@ def calculate_mkt_comparison_value(
     return avg_unit_price * eval_area
 
 
-def _resolve_cap_rate(gross_yield: Any, income: float) -> float:
+def _resolve_cap_rate(gross_yield: Any, income: float | None) -> float:
     if gross_yield is not None and float(gross_yield) > 0:
         return float(gross_yield) / 100.0
-    if income > 7000:
-        return 0.040
-    if income > 4500:
-        return 0.050
+    if income is not None:
+        if income > 7000:
+            return 0.040
+        if income > 4500:
+            return 0.050
     return 0.06
 
 

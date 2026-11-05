@@ -106,8 +106,9 @@ def test_evaluate_single_model_streaming_orchestration(monkeypatch):
         force=False,
         limit_per_model=None,
         batch_size=1,
+        chunk_size=1,
     )
 
     assert evaluated_cnt == 2
     assert skipped_cnt == 0
-    assert len(saved_calls) == 2  # batch_size=1 なので2回チャンク保存された
+    assert len(saved_calls) == 2  # 読み込みチャンクサイズ chunk_size=1 なので2回チャンク保存された

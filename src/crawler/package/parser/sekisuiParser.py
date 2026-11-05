@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 import re
 from decimal import Decimal
 from bs4 import BeautifulSoup
@@ -489,6 +490,7 @@ class SekisuiKodateParser(SekisuiParser, KodateParserBase):
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         
         return item
 
@@ -557,5 +559,6 @@ class SekisuiTochiParser(SekisuiParser, TochiParserBase):
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item

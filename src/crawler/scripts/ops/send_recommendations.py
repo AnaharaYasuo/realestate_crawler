@@ -159,32 +159,33 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
 
-    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
-    if pred_price > 0 and asking_price_man > 0:
-        price_ratio = pred_price / asking_price_man
-        if price_ratio > 3.0 or price_ratio < 0.33:
-            logger.warning(
-                f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
-                f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
-            )
-            return False, "", 0.0
+    # 理論予測価格が未算出（0以下）または売出価格が無効な場合は推奨しない（割安判定必須）
+    if pred_price <= 0 or asking_price_man <= 0:
+        return False, "", 0.0
 
-    # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175)
-    if pred_price > 0 and asking_price_man > 0 and pred_price <= asking_price_man:
+    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
+    price_ratio = pred_price / asking_price_man
+    if price_ratio > 3.0 or price_ratio < 0.33:
+        logger.warning(
+            f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
+            f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
+        )
+        return False, "", 0.0
+
+    # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175, #1239)
+    if pred_price <= asking_price_man:
         logger.info(
             f"Skipping investment alert: Pred price ({pred_price:.0f}万) does not exceed asking price ({asking_price_man:.0f}万)"
         )
         return False, "", 0.0
 
-    score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
-    if score >= 70.0 and (pred_price <= 0 or pred_price > asking_price_man):
-        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
-
-    if pred_price > 0 and asking_price_man > 0:
-        discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-        if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
-            calc_priority = 70.0 + discount_pct
-            return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
+    # 利回りベース単独での推奨は撤廃し、割安判定（ディスカウント率 20%〜35%）を満たすもののみ推奨 (Issue #1239)
+    discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+    if 20.0 <= discount_pct <= 35.0:
+        score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
+        calc_priority = 70.0 + discount_pct + (float(score) * 0.1)
+        reason = f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】"
+        return True, reason, calc_priority
 
     return False, "", 0.0
 
@@ -201,9 +202,29 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
         return True, f"【市場予測価格より {discount_pct:.1f}% 割安（超お宝物件！）】", discount_pct
     return False, "", 0.0
 
+def _is_bus_route(prop, index: int) -> bool:
+    bus_use = getattr(prop, f"busUse{index}", None)
+    if isinstance(bus_use, (int, float)) and bus_use > 0:
+        return True
+    bus_min = getattr(prop, f"busWalkMinute{index}", None)
+    return isinstance(bus_min, (int, float)) and bus_min > 0
+
+def is_bus_access_property(prop) -> bool:
+    """全ての有効アクセス経路がバス利用の物件を「バス利用物件」と判定する (Issue #1244)。"""
+    routes = [
+        i for i in range(1, 6)
+        if isinstance(getattr(prop, f"station{i}", None), str) and getattr(prop, f"station{i}").strip()
+    ]
+    return bool(routes) and all(_is_bus_route(prop, i) for i in routes)
+
 def _evaluate_candidate(eval_rec, prop) -> tuple:
     asking_price = getattr(prop, "price", 0)
     if not asking_price or asking_price <= 0:
+        return False, "", 0.0
+
+    # バス利用物件はピックアップ対象外 (Issue #1244)
+    if is_bus_access_property(prop):
+        logger.info(f"Skipping alert (bus access property): {getattr(prop, 'pageUrl', '')}")
         return False, "", 0.0
 
     if is_investment_type(eval_rec.property_type):
@@ -242,6 +263,9 @@ def _format_single_access(prop, index: int) -> str:
     r = clean_val(getattr(prop, f"railway{index}", ""))
     s = clean_val(getattr(prop, f"station{index}", ""))
     w = clean_val(getattr(prop, f"railwayWalkMinute{index}Str", ""))
+    if w == "-":
+        w_num = getattr(prop, f"railwayWalkMinute{index}", None)
+        w = str(w_num) if w_num else "-"
     if s == "-":
         return ""
 
@@ -263,9 +287,19 @@ def _format_single_access(prop, index: int) -> str:
         transit_parts.append(bus_desc)
 
     if w != "-":
-        transit_parts.append(f"徒歩{w}" if not str(w).startswith("徒歩") else str(w))
+        transit_parts.append(_format_walk_text(w))
 
     return " ".join(transit_parts).strip()
+
+
+def _format_walk_text(w) -> str:
+    """徒歩分数を「徒歩N分」形式に正規化する (数値のみの場合は「分」を付与)"""
+    text = str(w).strip()
+    if not text.startswith("徒歩"):
+        text = f"徒歩{text}"
+    if text[-1].isdigit():
+        text += "分"
+    return text
 
 
 def _format_access_and_area(prop) -> tuple:

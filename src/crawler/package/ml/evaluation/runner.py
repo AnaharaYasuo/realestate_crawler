@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from django.db import close_old_connections
+from package.ml.constants import EVAL_DB_READ_CHUNK_SIZE, EVAL_DB_WRITE_BATCH_SIZE
 from package.ml.evaluation.notifications import notify_slack
 from package.ml.evaluation.persistence import EVAL_MAP_FIELDS, save_chunk
 from package.ml.evaluation.record_builder import resolve_company_and_type
@@ -24,7 +25,46 @@ from package.utils.deduplication import clear_real_property_cache
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONCURRENCY = 8
-DEFAULT_BATCH_SIZE = 1000
+DEFAULT_WRITE_BATCH_SIZE = EVAL_DB_WRITE_BATCH_SIZE
+DEFAULT_READ_CHUNK_SIZE = EVAL_DB_READ_CHUNK_SIZE
+
+
+def _save_chunk_with_retry(
+    chunk: list[Any],
+    predicted_prices: list[float],
+    existing_eval_map: dict[str, Any],
+    company: str,
+    property_type: str,
+    model_name: str,
+    save_kwargs: dict[str, Any],
+    max_save_retries: int = 3,
+) -> tuple[int, int]:
+    """DB瞬断・過負荷（OperationalError/2006/2013）に対する指数バックオフ付きリトライ保存"""
+    for save_attempt in range(max_save_retries):
+        try:
+            return save_chunk(
+                chunk,
+                predicted_prices,
+                existing_eval_map,
+                company,
+                property_type,
+                **save_kwargs,
+            )
+        except Exception as save_err:
+            err_str = str(save_err).lower()
+            is_db_err = any(k in err_str for k in ("operationalerror", "2006", "2013", "gone away", "lost connection", "lock wait", "deadlock"))
+            if is_db_err and save_attempt < max_save_retries - 1:
+                wait_sec = 2 ** save_attempt
+                logger.warning(
+                    "Transient DB error saving chunk for %s (attempt %d/%d): %s. Reconnecting and retrying in %ds...",
+                    model_name, save_attempt + 1, max_save_retries, save_err, wait_sec,
+                )
+                close_old_connections()
+                import time
+                time.sleep(wait_sec)
+            else:
+                raise
+    return 0, 0
 
 
 def evaluate_single_model(
@@ -32,8 +72,10 @@ def evaluate_single_model(
     existing_eval_map: dict[str, Any],
     force: bool,
     limit_per_model: int | None,
-    batch_size: int = 1000,
+    batch_size: int = DEFAULT_WRITE_BATCH_SIZE,
     reevaluate_before: Any = None,
+    skip_duplicate_check: bool = False,
+    chunk_size: int = DEFAULT_READ_CHUNK_SIZE,
 ) -> tuple[int, int, int, int]:
     """単一モデルの物件群をストリーミング評価（スレッドセーフ）"""
     close_old_connections()
@@ -50,7 +92,7 @@ def evaluate_single_model(
             existing_eval_map=existing_eval_map,
             force=force,
             limit=limit_per_model,
-            chunk_size=batch_size,
+            chunk_size=chunk_size,
             reevaluate_before=reevaluate_before,
         )
         for chunk, skipped_in_chunk in chunk_iter:
@@ -59,14 +101,20 @@ def evaluate_single_model(
                 continue
 
             predicted_prices = bulk_predict_first_stage(chunk)
-            p_cnt, d_cnt = save_chunk(
-                chunk=chunk,
-                predicted_prices=predicted_prices,
-                existing_eval_map=existing_eval_map,
-                company=company,
-                property_type=property_type,
-                batch_size=batch_size,
+            save_kwargs = {"batch_size": batch_size}
+            if skip_duplicate_check:
+                save_kwargs["skip_duplicate_check"] = skip_duplicate_check
+
+            p_cnt, d_cnt = _save_chunk_with_retry(
+                chunk,
+                predicted_prices,
+                existing_eval_map,
+                company,
+                property_type,
+                model_name,
+                save_kwargs,
             )
+
             evaluated_count += len(chunk)
             passed_count += p_cnt
             duplicate_count += d_cnt
@@ -109,20 +157,30 @@ def _build_slack_and_banner_messages(
     return finish_msg, banner
 
 
+def _read_positive_int_env(name: str, default: int) -> int:
+    """環境変数を正の整数として読み取る（0 以下は ValueError）。"""
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer, got {value}")
+    return value
+
+
 def run_bulk_evaluation(
     force: bool = False,
     limit_per_model: int | None = None,
     skip_portals: bool = False,
     skip_uncrawled: bool = False,
     reevaluate_before: Any = None,
+    skip_duplicate_check: bool = False,
 ) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
-    batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
+    batch_size = _read_positive_int_env("BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
+    chunk_size = _read_positive_int_env("BULK_EVAL_CHUNK_SIZE", DEFAULT_READ_CHUNK_SIZE)
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Write Batch Size=%d, Read Chunk Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
+        concurrency, batch_size, chunk_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -148,6 +206,8 @@ def run_bulk_evaluation(
         skip_suffix += " [未巡回・中堅仲介割愛]"
     if reevaluate_before is not None:
         skip_suffix += f" [再評価対象: < {reevaluate_before}]"
+    if skip_duplicate_check:
+        skip_suffix += " [重複判定スキップ]"
 
     slack_notifier(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
@@ -160,7 +220,9 @@ def run_bulk_evaluation(
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
-            executor.submit(single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before): m
+            executor.submit(
+                single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check, chunk_size
+            ): m
             for m in models
         }
         for future in as_completed(future_to_model):

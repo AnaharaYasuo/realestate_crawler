@@ -84,6 +84,83 @@ class AthomeParser(ParserBase):
     def _get_specs(self, response):
         return self._get_specs_table(response)
 
+    @staticmethod
+    def _extract_line_station(line: str):
+        if "/" in line:
+            parts = line.split("/", 1)
+            left = parts[0].strip()
+            right = parts[1].strip()
+            if "駅" in right:
+                station_name = right.split("駅", 1)[0].split()[-1].strip()
+                if left and station_name:
+                    return left, station_name
+        parts = line.split()
+        if len(parts) >= 2 and "駅" in parts[1]:
+            station_name = parts[1].split("駅", 1)[0].strip()
+            if station_name:
+                return parts[0].strip(), station_name
+        return None, None
+
+    @staticmethod
+    def _extract_walk_minutes(text: str):
+        m_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", text)
+        if m_m:
+            return (int(m_m.group(1)) + 79) // 80
+        m_w = re.search(r"徒歩\s*(\d{1,3})\s*分", text)
+        return int(m_w.group(1)) if m_w else None
+
+    @classmethod
+    def _apply_walk_minutes_to_item(cls, item, line: str, idx: int) -> None:
+        w_val = cls._extract_walk_minutes(line)
+        if w_val is not None:
+            if getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"railwayWalkMinute{idx}", w_val)
+            if not getattr(item, f"railwayWalkMinute{idx}Str", None):
+                setattr(item, f"railwayWalkMinute{idx}Str", f"{w_val}分")
+
+    @classmethod
+    def _apply_bus_minutes_to_item(cls, item, line: str, idx: int) -> None:
+        m_bus = re.search(r"バス\s*(\d{1,3})\s*分", line)
+        if m_bus:
+            b_val = int(m_bus.group(1))
+            if getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"busWalkMinute{idx}", b_val)
+            if not getattr(item, f"busWalkMinute{idx}Str", None):
+                setattr(item, f"busWalkMinute{idx}Str", f"{b_val}分")
+            if hasattr(item, f"busUse{idx}"):
+                setattr(item, f"busUse{idx}", 1)
+
+    @classmethod
+    def _apply_single_access_line(cls, item, line: str, idx: int) -> None:
+        r_name, s_name = cls._extract_line_station(line)
+        if r_name and not getattr(item, f"railway{idx}", None):
+            setattr(item, f"railway{idx}", r_name)
+        if s_name and not getattr(item, f"station{idx}", None):
+            setattr(item, f"station{idx}", s_name)
+
+        cls._apply_walk_minutes_to_item(item, line, idx)
+        cls._apply_bus_minutes_to_item(item, line, idx)
+
+    @classmethod
+    def _apply_athome_access_minutes(cls, item, traffic_str: str) -> None:
+        """アットホームの交通文字列から徒歩・バス分数を安全に個別補完"""
+        if not traffic_str:
+            return
+        lines = [l.strip() for l in re.split(r"[\r\n]+|\s{2,}", traffic_str) if l.strip()]
+        if not lines:
+            lines = [traffic_str.strip()]
+
+        for idx, line in enumerate(lines[:5], start=1):
+            cls._apply_single_access_line(item, line, idx)
+
+        # 第1路線フォールバック
+        if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            first_w = cls._extract_walk_minutes(traffic_str)
+            if first_w is not None:
+                item.railwayWalkMinute1 = first_w
+                if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+                    item.railwayWalkMinute1Str = f"{first_w}分"
+
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
         return specs.get("現況", "") or specs.get("現況状況", "")
@@ -640,6 +717,7 @@ class AthomeParser(ParserBase):
         # 3. 交通
         item.traffic = self._parseTraffic(response)
         self._populateTraffic(item, item.traffic)
+        self._apply_athome_access_minutes(item, item.traffic)
         
         # 4. 共通情報
         item.kouzou = self._parseKouzou(response, specs)
@@ -657,6 +735,10 @@ class AthomeParser(ParserBase):
         item.tochikenri = self._parseRights(response, specs)
         item.chidaiStr = self._parseChidaiStr(response, specs)
         item.chidai = self._parseChidai(response, specs)
+
+        # 引渡しおよび現況
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
+        item.genkyo = self._parseGenkyo(response, specs)
             
         return item
 

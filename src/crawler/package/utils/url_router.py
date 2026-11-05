@@ -296,7 +296,7 @@ class UrlRouter:
 
         # ミサワホーム (Misawa)
         {
-            "pattern": re.compile(r"realestate\.misawa\.co\.jp/[^?]*\?[^#]*bukken_type(?:%5B%5D)?=9"),
+            "pattern": re.compile(r"realestate\.misawa\.co\.jp/[^?]*\?[^#]*bukken_type(?:%5B%5D)?=9|realestate\.misawa\.co\.jp/search/sale/detail/"),
             "site": "misawa",
             "property_type": "mansion",
             "parser_module": "package.parser.misawaParser",
@@ -629,7 +629,7 @@ class UrlRouter:
             "model_cls": "DaiwaMansion",
         },
         {
-            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/kodate/"),
+            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/(?:kodate|house)/"),
             "site": "daiwa",
             "property_type": "kodate",
             "parser_module": DAIWA_PARSER_MODULE,
@@ -638,7 +638,7 @@ class UrlRouter:
             "model_cls": "DaiwaKodate",
         },
         {
-            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/tochi/"),
+            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/(?:tochi|land)/"),
             "site": "daiwa",
             "property_type": "tochi",
             "parser_module": DAIWA_PARSER_MODULE,
@@ -812,7 +812,7 @@ class UrlRouter:
             "model_cls": "SumirinMansion",
         },
         {
-            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/kodate/"),
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/(?:kodate|house)/"),
             "site": "sumirin",
             "property_type": "kodate",
             "parser_module": SUMIRIN_PARSER_MODULE,
@@ -821,7 +821,7 @@ class UrlRouter:
             "model_cls": "SumirinKodate",
         },
         {
-            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/tochi/"),
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/(?:tochi|land)/"),
             "site": "sumirin",
             "property_type": "tochi",
             "parser_module": SUMIRIN_PARSER_MODULE,
@@ -830,7 +830,7 @@ class UrlRouter:
             "model_cls": "SumirinTochi",
         },
         {
-            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/toushi/"),
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/(?:toushi|business)/"),
             "site": "sumirin",
             "property_type": "apartment",
             "parser_module": SUMIRIN_PARSER_MODULE,
