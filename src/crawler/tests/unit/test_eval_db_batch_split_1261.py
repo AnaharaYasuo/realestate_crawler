@@ -62,6 +62,9 @@ def test_evaluate_single_model_passes_read_and_write_sizes_separately(monkeypatc
 @pytest.mark.parametrize("env_name", ["BULK_EVAL_CHUNK_SIZE", "BULK_EVAL_BATCH_SIZE"])
 @pytest.mark.parametrize("value", ["0", "-5"])
 def test_run_bulk_evaluation_rejects_non_positive_sizes(monkeypatch, env_name, value):
+    # 他方の環境変数が外部環境の値に依存しないよう、両方を一旦クリアしてから対象のみ設定する
+    monkeypatch.delenv("BULK_EVAL_BATCH_SIZE", raising=False)
+    monkeypatch.delenv("BULK_EVAL_CHUNK_SIZE", raising=False)
     monkeypatch.setenv(env_name, value)
     with pytest.raises(ValueError, match=env_name):
         runner.run_bulk_evaluation()
