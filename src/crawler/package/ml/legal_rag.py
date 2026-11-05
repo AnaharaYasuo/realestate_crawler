@@ -80,28 +80,38 @@ def load_curated_laws() -> list[dict[str, Any]]:
     return _LAW_CACHE
 
 
+_KEYWORDS = [
+    # 建築・敷地・道路・容積
+    "接道", "道路", "斜線", "日影", "建蔽率", "容積率", "がけ", "崖", "擁壁",
+    "土砂災害", "浸水", "市街化調整区域", "市街化区域", "用途地域", "防火", "準防火",
+    "特例", "地区計画", "建築確認", "不燃化", "地下室", "構造", "耐震",
+    # 借地借家・契約・権利
+    "借地", "借家", "定期借地", "定期借家", "更新料", "明渡", "賃料", "借主", "貸主",
+    # 税務・減税・特例
+    "住宅ローン控除", "登録免許税", "不動産取得税", "固定資産税", "都市計画税",
+    "譲渡所得", "特別控除", "損益通算", "減価償却", "耐用年数", "青色申告",
+    # 鑑定評価・価格形成
+    "鑑定評価", "最有効使用", "正常価格", "積算価格", "収益還元", "比準価格",
+    "取引事例", "地域要因", "個別的要因", "画地", "市場性",
+]
+
+
 def _score_law_item(item: dict[str, Any], query_lower: str, region_key: str = "") -> int:
     score = 0
     item_region = item.get("region", "")
     # 地域マッチング（横浜市、千葉市など）
     if region_key and item_region:
         if region_key in item_region or item_region in region_key:
-            score += 10
+            score += 15
         elif item_region != "national":
-            # 他都市の条例は減点
+            # 他都市の条例は除外
             return 0
 
     title = item.get("title", "")
     body = item.get("body_text", "")
     haystack = (title + " " + body).lower()
 
-    # 主要キーワードマッチ
-    keywords = [
-        "接道", "道路", "斜線", "日影", "建蔽率", "容積率", "がけ", "崖", "擁壁",
-        "土砂災害", "浸水", "市街化調整区域", "用途地域", "防火", "準防火",
-        "特例", "地区計画", "建築確認", "不燃化", "地下室", "鑑定評価",
-    ]
-    for kw in keywords:
+    for kw in _KEYWORDS:
         if kw in query_lower and kw in haystack:
             score += 3
             if kw in title:
@@ -110,20 +120,82 @@ def _score_law_item(item: dict[str, Any], query_lower: str, region_key: str = ""
     return score
 
 
-def search_legal_knowledge(query_text: str, region_key: str = "", top_k: int = 3) -> list[dict[str, Any]]:
+def _get_item_group(source_id: str) -> str:
+    if source_id.startswith("reiki_"):
+        return "ordinance"
+    if any(tax_id in source_id for tax_id in ["shotoku", "hojin", "sozei", "menkyo"]):
+        return "tax"
+    if "kantei" in source_id:
+        return "appraisal"
+    return "national_law"
+
+
+def _try_add_item(
+    item: dict[str, Any],
+    selected: list[dict[str, Any]],
+    source_counts: dict[str, int],
+    group_counts: dict[str, int] | None,
+    enforce_group: bool,
+    top_k: int
+) -> bool:
+    if item in selected:
+        return False
+    sid = item.get("source_id", "")
+    if source_counts.get(sid, 0) >= 2:
+        return False
+    if enforce_group and group_counts is not None:
+        group = _get_item_group(sid)
+        if group_counts.get(group, 0) >= 2:
+            return False
+        group_counts[group] = group_counts.get(group, 0) + 1
+
+    selected.append(item)
+    source_counts[sid] = source_counts.get(sid, 0) + 1
+    return len(selected) >= top_k
+
+
+def _diversify_scored_items(scored: list[tuple[int, dict[str, Any]]], top_k: int) -> list[dict[str, Any]]:
+    if top_k <= 0:
+        return []
+    selected: list[dict[str, Any]] = []
+    source_counts: dict[str, int] = {}
+    group_counts: dict[str, int] = {}
+
+    for _, item in scored:
+        if _try_add_item(item, selected, source_counts, group_counts, enforce_group=True, top_k=top_k):
+            return selected
+
+    for _, item in scored:
+        if _try_add_item(item, selected, source_counts, None, enforce_group=False, top_k=top_k):
+            return selected
+
+    for _, item in scored:
+        if item not in selected:
+            selected.append(item)
+            if len(selected) >= top_k:
+                break
+    return selected
+
+
+def search_legal_knowledge(
+    query_text: str, region_key: str = "", top_k: int = 5, diversify_categories: bool = True
+) -> list[dict[str, Any]]:
     """
-    物件情報（所在地・道路・容積・構造等）から、関係する法令条文・都市部特例条例を抽出
+    物件情報（所在地・道路・容積・構造・価格・種別等）から、関係する法令条文・都市部特例条例・鑑定基準・税制を総動員抽出。
+    diversify_categories=True の場合、条例・建築都市法・税法・鑑定基準からバランスよく多面抽出する。
     """
     laws = load_curated_laws()
     if not laws:
         return []
 
     query_lower = query_text.lower()
-    scored = []
-    for item in laws:
-        s = _score_law_item(item, query_lower, region_key)
-        if s > 0:
-            scored.append((s, item))
-
+    scored = [
+        (s, item) for item in laws
+        if (s := _score_law_item(item, query_lower, region_key)) > 0
+    ]
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [item for score, item in scored[:top_k]]
+
+    if not diversify_categories or len(scored) <= top_k:
+        return [item for _, item in scored[:top_k]]
+
+    return _diversify_scored_items(scored, top_k)
