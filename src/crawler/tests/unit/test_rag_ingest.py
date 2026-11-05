@@ -111,3 +111,29 @@ def test_legal_rag_search(monkeypatch):
     res = legal_rag.search_legal_knowledge("横浜市 がけ地 斜面地 地下室", region_key="yokohama", top_k=2)
     assert len(res) > 0
     assert any("横浜" in r.get("title", "") for r in res)
+
+def test_search_legal_knowledge_top_k_zero_and_diversification(monkeypatch):
+    from package.ml import legal_rag
+    dummy_laws = [
+        {"id": "1", "source_id": "reiki_yokohama", "title": "横浜市建築基準条例", "body_text": "斜線制限 容積率", "region": "yokohama"},
+        {"id": "2", "source_id": "egov_kenchiku", "title": "建築基準法", "body_text": "容積率 建蔽率 接道", "region": "national"},
+        {"id": "3", "source_id": "egov_shotoku", "title": "所得税法", "body_text": "住宅ローン控除 減価償却", "region": "national"},
+        {"id": "4", "source_id": "egov_kantei", "title": "不動産鑑定評価基準", "body_text": "最有効使用 鑑定評価 積算価格", "region": "national"},
+    ]
+    monkeypatch.setattr(legal_rag, "_load_laws_from_local", lambda: dummy_laws)
+    monkeypatch.setattr(legal_rag, "_load_laws_from_gcs", list)
+    legal_rag._LAW_CACHE = None
+
+    # top_k <= 0 should return empty list
+    assert legal_rag.search_legal_knowledge("容積率", top_k=0) == []
+
+    # diversification covers different groups
+    results = legal_rag.search_legal_knowledge(
+        "容積率 接道 住宅ローン控除 鑑定評価", region_key="yokohama", top_k=4, diversify_categories=True
+    )
+    assert len(results) == 4
+    titles = [r["title"] for r in results]
+    assert "横浜市建築基準条例" in titles
+    assert "建築基準法" in titles
+    assert "所得税法" in titles
+    assert "不動産鑑定評価基準" in titles

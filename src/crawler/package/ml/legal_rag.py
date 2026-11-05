@@ -120,18 +120,46 @@ def _score_law_item(item: dict[str, Any], query_lower: str, region_key: str = ""
     return score
 
 
+def _get_item_group(source_id: str) -> str:
+    if source_id.startswith("reiki_"):
+        return "ordinance"
+    if any(tax_id in source_id for tax_id in ["shotoku", "hojin", "sozei", "menkyo"]):
+        return "tax"
+    if "kantei" in source_id:
+        return "appraisal"
+    return "national_law"
+
+
 def _diversify_scored_items(scored: list[tuple[int, dict[str, Any]]], top_k: int) -> list[dict[str, Any]]:
+    if top_k <= 0:
+        return []
     selected: list[dict[str, Any]] = []
     source_counts: dict[str, int] = {}
+    group_counts: dict[str, int] = {}
+
+    # Phase 1: 各グループ（条例, 国土・建築法, 税法, 鑑定評価）から均等に選出
     for _, item in scored:
         sid = item.get("source_id", "")
-        count = source_counts.get(sid, 0)
-        if count < 2:
+        group = _get_item_group(sid)
+        if group_counts.get(group, 0) < 2 and source_counts.get(sid, 0) < 2:
             selected.append(item)
-            source_counts[sid] = count + 1
+            source_counts[sid] = source_counts.get(sid, 0) + 1
+            group_counts[group] = group_counts.get(group, 0) + 1
             if len(selected) >= top_k:
                 return selected
 
+    # Phase 2: 残り枠をsource_id上限2件でスコア順に埋める
+    for _, item in scored:
+        if item in selected:
+            continue
+        sid = item.get("source_id", "")
+        if source_counts.get(sid, 0) < 2:
+            selected.append(item)
+            source_counts[sid] = source_counts.get(sid, 0) + 1
+            if len(selected) >= top_k:
+                return selected
+
+    # Phase 3: それでも枠が余る場合は残り全候補からスコア順に追加
     for _, item in scored:
         if item not in selected:
             selected.append(item)
