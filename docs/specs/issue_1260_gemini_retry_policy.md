@@ -30,7 +30,7 @@
 
 待機時間 = `min(MAX_WAIT_SEC, base × 係数 × 2^(retry_index))` に ±20% のジッターを付与する。`Retry-After` がある場合は `max(Retry-After, 計算値の下限)` ではなく `Retry-After` を優先し、`MAX_WAIT_SEC` で頭打ちとする。
 
-`Retry-After` は **秒数** または **HTTP-date** のどちらも解釈する（`_parse_retry_after()`）。HTTP-date は現在時刻との差分秒に変換する。負数・ゼロ・`nan`・解釈不能・過去日時は無効として既定のバックオフに戻し、`time.sleep` に不正値を渡さない。
+`Retry-After` は **秒数** または **HTTP-date** のどちらも解釈する（`_parse_retry_after()`）。HTTP-date は現在時刻との差分秒に変換する。秒数の `0` は RFC 9110 上有効な値として保持する（即時再試行可）。負数・`nan`・解釈不能・過去日時の HTTP-date は無効として既定のバックオフに戻し、`time.sleep` に不正値を渡さない。
 
 ### 3.2 応答 JSON の抽出
 `_extract_json_object()` は応答全体をまず JSON として解析し、前後に文章がある場合のみ最初の `{` から `json.JSONDecoder().raw_decode` でオブジェクト終端を判定する（文字列値内の `}` で誤って途中切断しない）。

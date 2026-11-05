@@ -192,12 +192,16 @@ def _model_wait_factor(model_name: str) -> float:
 
 
 def _parse_retry_after(raw: Any) -> float | None:
-    """Retry-After (秒数 または HTTP-date) を待機秒に変換する。負数・nan・解釈不能・過去日時は None。"""
+    """Retry-After (秒数 または HTTP-date) を待機秒に変換する。
+
+    秒数の 0 は有効（即時再試行可）。負数・nan・解釈不能・過去の HTTP-date は None（既定バックオフ）。
+    """
     if raw is None:
         return None
     text = str(raw).strip()
     try:
         seconds = float(text)
+        is_http_date = False
     except ValueError:
         try:
             target = parsedate_to_datetime(text)
@@ -206,7 +210,8 @@ def _parse_retry_after(raw: Any) -> float | None:
         if target.tzinfo is None:
             target = target.replace(tzinfo=timezone.utc)
         seconds = (target - datetime.now(timezone.utc)).total_seconds()
-    if math.isnan(seconds) or seconds <= 0:
+        is_http_date = True
+    if math.isnan(seconds) or seconds < 0 or (is_http_date and seconds == 0):
         return None
     return seconds
 

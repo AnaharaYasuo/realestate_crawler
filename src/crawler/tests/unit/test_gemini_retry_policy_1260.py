@@ -56,6 +56,12 @@ def test_retry_after_invalid_values_fall_back_to_default_backoff(raw):
     assert retry_after is None
 
 
+def test_retry_after_zero_seconds_is_valid():
+    _, retry_after = rg._classify_gemini_error(_http_error(429, {"Retry-After": "0"}))
+    assert retry_after == 0.0
+    assert rg._compute_retry_wait_sec("rate_limit", "gemini-3.6-flash", 0, retry_after=0.0) == 0.0
+
+
 def test_retry_after_past_http_date_falls_back_to_default_backoff():
     from datetime import datetime, timedelta, timezone
     from email.utils import format_datetime
