@@ -13,6 +13,7 @@ import json
 import time
 import logging
 import os
+import random
 import re
 import urllib.error
 import urllib.request
@@ -162,6 +163,81 @@ def _build_rag_prompt(
 """
 
 
+# --- Gemini リトライ方針 (Issue #1260): エラーコード別に可否・待機時間を決定する ---
+DEFAULT_RECOMMEND_MODEL = "gemini-3.5-flash"
+FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.5-flash")
+
+RATE_LIMIT_BASE_SEC = 15.0
+TRANSIENT_BASE_SEC = 3.0
+PARSE_RETRY_SEC = 2.0
+MAX_WAIT_SEC = 180.0
+JITTER_RATIO = 0.2
+MAX_RETRIES_RATE_LIMIT = 3
+MAX_RETRIES_TRANSIENT = 3
+MAX_RETRIES_PARSE = 1
+_TRANSIENT_HTTP_CODES = frozenset({500, 502, 503, 504})
+
+
+def _model_wait_factor(model_name: str) -> float:
+    """上位モデルほどレート制限が厳しいため、429 の待機係数を大きくする。"""
+    name = (model_name or "").lower()
+    if "lite" in name:
+        return 1.0
+    if "flash" in name:
+        return 2.0
+    return 4.0
+
+
+def _classify_gemini_error(exc: BaseException) -> tuple[str, float | None]:
+    """例外を ('rate_limit' | 'transient' | 'parse' | 'fatal', Retry-After 秒) に分類する。"""
+    if isinstance(exc, urllib.error.HTTPError):
+        retry_after = None
+        raw = exc.headers.get("Retry-After") if exc.headers is not None else None
+        if raw is not None:
+            try:
+                retry_after = float(raw)
+            except (TypeError, ValueError):
+                retry_after = None
+        if exc.code == 429:
+            return "rate_limit", retry_after
+        if exc.code in _TRANSIENT_HTTP_CODES:
+            return "transient", retry_after
+        return "fatal", None
+    if isinstance(exc, OSError):  # 読取タイムアウト・接続断 (HTTPError は上で処理済み)
+        return "transient", None
+    return "parse", None  # ValueError / IndexError / RuntimeError 等（応答解釈不能）
+
+
+def _compute_retry_wait_sec(
+    kind: str, model_name: str, retry_index: int, retry_after: float | None = None, rng=random.random
+) -> float:
+    """エラー種別・モデル・リトライ回数から待機秒を算出する（指数バックオフ + ジッター）。"""
+    if retry_after is not None:
+        return min(retry_after, MAX_WAIT_SEC)
+    if kind == "rate_limit":
+        base = RATE_LIMIT_BASE_SEC * _model_wait_factor(model_name)
+    elif kind == "parse":
+        return PARSE_RETRY_SEC
+    else:
+        base = TRANSIENT_BASE_SEC
+    wait = min(MAX_WAIT_SEC, base * (2 ** retry_index))
+    wait *= 1 + JITTER_RATIO * (2 * rng() - 1)
+    return min(wait, MAX_WAIT_SEC)
+
+
+def _max_retries_for(kind: str) -> int:
+    return {
+        "rate_limit": MAX_RETRIES_RATE_LIMIT,
+        "transient": MAX_RETRIES_TRANSIENT,
+        "parse": MAX_RETRIES_PARSE,
+    }.get(kind, 0)
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    match = re.search(r"(\{[^}]*\})", text) or re.search(r"(\{.*\})", text, re.DOTALL)
+    return json.loads(match.group(1)) if match else None
+
+
 def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, Any] | None:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     body = {
@@ -173,21 +249,34 @@ def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, An
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
-    for attempt in range(2):
+    retries_used: dict[str, int] = {}
+    while True:
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            match = re.search(r"(\{[^}]*\})", text)
-            if not match:
-                match = re.search(r"(\{.*\})", text, re.DOTALL)
-            if match:
-                return json.loads(match.group(1))
+            parsed = _extract_json_object(text)
+            if parsed:
+                return parsed
+            kind, retry_after, reason = "parse", None, "unparseable response"
         except (RuntimeError, ValueError, OSError, IndexError) as e:
-            logger.warning("Gemini generation failed for %s (attempt %d/2): %s", model_name, attempt + 1, e)
-            if attempt == 0:
-                time.sleep(1.5)
-    return None
+            kind, retry_after = _classify_gemini_error(e)
+            reason = f"HTTP {e.code}" if isinstance(e, urllib.error.HTTPError) else str(e)
+
+        used = retries_used.get(kind, 0)
+        if used >= _max_retries_for(kind):
+            logger.warning(
+                "Gemini generation failed for %s (%s: %s); not retrying (retries used=%d)",
+                model_name, kind, reason, used,
+            )
+            return None
+        wait_sec = _compute_retry_wait_sec(kind, model_name, used, retry_after)
+        retries_used[kind] = used + 1
+        logger.warning(
+            "Gemini generation failed for %s (%s: %s); retry %d/%d in %.1fs",
+            model_name, kind, reason, used + 1, _max_retries_for(kind), wait_sec,
+        )
+        time.sleep(wait_sec)
 
 
 def _calc_mansion_rating(ratio: float, diff_man: int) -> str:
@@ -456,7 +545,7 @@ def generate_professional_and_danchou_report(
     query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
     matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=2)
 
-    model_name = os.getenv("GEMINI_RECOMMEND_MODEL", "gemini-3.8-flash")
+    model_name = os.getenv("GEMINI_RECOMMEND_MODEL", DEFAULT_RECOMMEND_MODEL)
     api_key = os.getenv("GEMINI_API_KEY")
 
     report_data = None
@@ -469,7 +558,7 @@ def generate_professional_and_danchou_report(
             site_text=site_text,
             appraisal_ctx=appraisal_ctx
         )
-        models_to_try = [model_name, 'gemini-3.5-flash-lite', 'gemini-3.5-flash']
+        models_to_try = [model_name, *FALLBACK_MODELS]
         seen_models = set()
         for m in models_to_try:
             if not m or m in seen_models:
