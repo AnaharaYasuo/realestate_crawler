@@ -55,3 +55,19 @@ def test_practitioner_empty_license_defaults_internal_but_missing_url_quarantine
     cs = load_insights(str(p), "notes")
     assert [destination(c) for c in cs] == ["curated/practitioner_insight", "curated/practitioner_insight", "quarantine"]
     assert cs[0].kind == "judgement" and cs[0].summary_only
+
+def test_reiki_base_html_parsing():
+    from package.rag_ingest.local_ordinance import parse_reiki_base_html
+    sample_html = """
+    <html><body>
+    <p class="num">第1条 （目的）この条例は、テスト目的のために制定する。</p>
+    <p>2 この条例においてテストとは検証をいう。</p>
+    <p class="num">第2条 （制限）高さ10メートルを超える建築物は制限する。</p>
+    </body></html>
+    """
+    chunks = parse_reiki_base_html(sample_html, "sample01", "テスト条例", "http://example.com", "test_city", "2026-01-01")
+    assert len(chunks) == 2
+    assert chunks[0].id == "ordinance_test_city_sample01_第1条"
+    assert chunks[0].category == "law"
+    assert "目的" in chunks[0].body_text
+    assert chunks[1].id == "ordinance_test_city_sample01_第2条"
