@@ -72,3 +72,4 @@ terraform.tfvars
 # Git Worktrees
 .worktrees/
 worktrees/
+tmp_rag_out/
