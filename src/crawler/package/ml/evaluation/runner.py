@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from django.db import close_old_connections
-from package.ml.constants import EVAL_DB_BATCH_SIZE
+from package.ml.constants import EVAL_DB_READ_CHUNK_SIZE, EVAL_DB_WRITE_BATCH_SIZE
 from package.ml.evaluation.notifications import notify_slack
 from package.ml.evaluation.persistence import EVAL_MAP_FIELDS, save_chunk
 from package.ml.evaluation.record_builder import resolve_company_and_type
@@ -25,7 +25,8 @@ from package.utils.deduplication import clear_real_property_cache
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONCURRENCY = 8
-DEFAULT_BATCH_SIZE = EVAL_DB_BATCH_SIZE
+DEFAULT_WRITE_BATCH_SIZE = EVAL_DB_WRITE_BATCH_SIZE
+DEFAULT_READ_CHUNK_SIZE = EVAL_DB_READ_CHUNK_SIZE
 
 
 def _save_chunk_with_retry(
@@ -71,9 +72,10 @@ def evaluate_single_model(
     existing_eval_map: dict[str, Any],
     force: bool,
     limit_per_model: int | None,
-    batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_size: int = DEFAULT_WRITE_BATCH_SIZE,
     reevaluate_before: Any = None,
     skip_duplicate_check: bool = False,
+    chunk_size: int = DEFAULT_READ_CHUNK_SIZE,
 ) -> tuple[int, int, int, int]:
     """単一モデルの物件群をストリーミング評価（スレッドセーフ）"""
     close_old_connections()
@@ -90,7 +92,7 @@ def evaluate_single_model(
             existing_eval_map=existing_eval_map,
             force=force,
             limit=limit_per_model,
-            chunk_size=batch_size,
+            chunk_size=chunk_size,
             reevaluate_before=reevaluate_before,
         )
         for chunk, skipped_in_chunk in chunk_iter:
@@ -155,6 +157,14 @@ def _build_slack_and_banner_messages(
     return finish_msg, banner
 
 
+def _read_positive_int_env(name: str, default: int) -> int:
+    """環境変数を正の整数として読み取る（0 以下は ValueError）。"""
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer, got {value}")
+    return value
+
+
 def run_bulk_evaluation(
     force: bool = False,
     limit_per_model: int | None = None,
@@ -166,10 +176,11 @@ def run_bulk_evaluation(
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
-    batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
+    batch_size = _read_positive_int_env("BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
+    chunk_size = _read_positive_int_env("BULK_EVAL_CHUNK_SIZE", DEFAULT_READ_CHUNK_SIZE)
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Write Batch Size=%d, Read Chunk Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
+        concurrency, batch_size, chunk_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -210,7 +221,7 @@ def run_bulk_evaluation(
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
             executor.submit(
-                single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check
+                single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check, chunk_size
             ): m
             for m in models
         }
