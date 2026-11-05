@@ -1982,6 +1982,20 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if wait_sec > 0:
             await asyncio.sleep(wait_sec)
 
+    def _classify_fetch_exception(self, exc: Exception, is_retry: bool = False):
+        """詳細ページ取得時の例外を分類して (item, is_listing_ended, error) を返す"""
+        suffix = " on retry" if is_retry else ""
+        if isinstance(exc, ListingEndedException):
+            logging.info(f"Skipping property (Listing Ended{suffix}): {type(exc).__name__} for URL: {self.url}")
+            return None, True, None
+        if isinstance(exc, (ParserFailureException, ValidationError)):
+            logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
+            return None, False, exc
+        if isinstance(exc, SkipPropertyException):
+            logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
+            return None, False, None
+        return None, False, exc
+
     async def _fetch_detail_item(self):
         async def get_item():
             item = None
@@ -2020,32 +2034,18 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             try:
                 item = await get_item()
                 return item, False, None
-            except ListingEndedException as e:
-                logging.info(f"Skipping property (Listing Ended, retry): {type(e).__name__} for URL: {self.url}")
-                return None, True, None
-            except (ParserFailureException, ValidationError) as e:
-                logging.warning(f"Parsing/Data failure on retry for URL: {self.url}: {e}")
-                return None, False, e
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {e!s}")
                 return None, False, e
-            except SkipPropertyException as e:
-                logging.info(f"Skipping property on retry (ServerBusy/Blocked/Other): {type(e).__name__} for URL: {self.url}")
-                return None, False, None
-        except ListingEndedException as e:
-            logging.info(f"Skipping property (Listing Ended): {type(e).__name__} for URL: {self.url}")
-            return None, True, None
-        except (ParserFailureException, ValidationError) as e:
-            logging.warning(f"Parsing/Data failure for URL: {self.url}: {e}")
-            return None, False, e
-        except SkipPropertyException as e:
-            logging.info(f"Skipping property (ServerBusy/Blocked/Other): {type(e).__name__} for URL: {self.url}")
-            return None, False, None
+            except Exception as e:
+                return self._classify_fetch_exception(e, is_retry=True)
         except Exception as e:
-            logging.error(f"get item exception for URL: {self.url}", exc_info=e)
-            return None, False, e
+            classified = self._classify_fetch_exception(e, is_retry=False)
+            if not isinstance(e, (ListingEndedException, ParserFailureException, ValidationError, SkipPropertyException)):
+                logging.error(f"get item exception for URL: {self.url}", exc_info=e)
+            return classified
 
     @staticmethod
     def _handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
