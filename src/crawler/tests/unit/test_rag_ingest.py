@@ -43,13 +43,14 @@ def test_article_chunking_by_article():
     assert [c.id for c in cs] == ["law_L1_1", "law_L1_2"]
     assert "目的" in cs[0].title and cs[0].license
 
-def test_practitioner_missing_license_quarantined(tmp_path):
+def test_practitioner_empty_license_defaults_internal_but_missing_url_quarantined(tmp_path):
     import json
     from package.rag_ingest.practitioner import load_insights
     p = tmp_path / "n.jsonl"
     rows = [{"text": "A", "source_url": "u", "license": "own", "speaker_role": "仲介"},
-            {"text": "B", "source_url": "u"}]
+            {"text": "B", "source_url": "u"},
+            {"text": "C"}]
     p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
     cs = load_insights(str(p), "notes")
-    assert [destination(c) for c in cs] == ["curated/practitioner_insight", "quarantine"]
+    assert [destination(c) for c in cs] == ["curated/practitioner_insight", "curated/practitioner_insight", "quarantine"]
     assert cs[0].kind == "judgement" and cs[0].summary_only
