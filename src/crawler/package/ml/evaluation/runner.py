@@ -170,6 +170,9 @@ def run_bulk_evaluation(
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
     batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_WRITE_BATCH_SIZE)))
     chunk_size = int(os.getenv("BULK_EVAL_CHUNK_SIZE", str(DEFAULT_READ_CHUNK_SIZE)))
+    for env_name, size in (("BULK_EVAL_BATCH_SIZE", batch_size), ("BULK_EVAL_CHUNK_SIZE", chunk_size)):
+        if size <= 0:
+            raise ValueError(f"{env_name} must be a positive integer, got {size}")
     logger.info(
         "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Write Batch Size=%d, Read Chunk Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
         concurrency, batch_size, chunk_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
