@@ -18,3 +18,7 @@ DEFAULT_ENSEMBLE_WEIGHTS: dict[str, dict[str, float]] = {
     "apartment": {"lgb": 0.35, "xgb": 0.45, "cat": 0.1, "rf": 0.1},
     "tochi": {"lgb": 0.3, "xgb": 0.25, "cat": 0.25, "rf": 0.2},
 }
+
+# PropertyEvaluation 等の DB 一括書き込み (bulk_create / bulk_update) およびバルク評価のチャンクサイズ (原則 100)。
+# ProxySQL 経由の接続断 (2013) / 接続タイムアウト (9001) を避けるため、各所はこの定数を参照すること。
+EVAL_DB_BATCH_SIZE: int = 100
