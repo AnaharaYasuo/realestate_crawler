@@ -4,8 +4,10 @@ from package.rag_ingest.store import group_by_destination, write_local
 
 
 def _chunk(**kw):
-    base = dict(id="a", source_id="s", category="law", title="t", url="http://x", body_text="b",
-                license="CC BY 4.0", fetched_at="2026-01-01")
+    base = {
+        "id": "a", "source_id": "s", "category": "law", "title": "t", "url": "http://x",
+        "body_text": "b", "license": "CC BY 4.0", "fetched_at": "2026-01-01"
+    }
     base.update(kw)
     return KnowledgeChunk(**base)
 
@@ -85,8 +87,27 @@ def test_chiba_ordinance_collector():
     assert chunks[0].id == "ordinance_chiba_city_sample_chiba_第1条"
     assert chunks[0].region == "chiba_city"
 
-def test_legal_rag_search():
-    from package.ml.legal_rag import search_legal_knowledge
-    res = search_legal_knowledge("横浜市 がけ地 斜面地 地下室", region_key="yokohama", top_k=2)
+def test_legal_rag_search(monkeypatch):
+    from package.ml import legal_rag
+    # テスト環境（ローカルファイルやGCS接続なし環境）向けにダミーデータを注入
+    dummy_laws = [
+        {
+            "id": "ordinance_kanagawa_yokohama_g202RG00001312_第1条",
+            "title": "横浜市斜面地における地下室建築物の建築及び開発の制限等に関する条例",
+            "body_text": "第1条 この条例は、斜面地における地下室建築物の建築及び開発の制限について定める。",
+            "region": "kanagawa_yokohama",
+        },
+        {
+            "id": "law_egov_325AC0000000201_第1条",
+            "title": "建築基準法",
+            "body_text": "第1条 この法律は、建築物の敷地、構造、設備及び用途に関する最低の基準を定めて...",
+            "region": "national",
+        },
+    ]
+    monkeypatch.setattr(legal_rag, "_load_laws_from_local", lambda: dummy_laws)
+    monkeypatch.setattr(legal_rag, "_load_laws_from_gcs", list)
+    legal_rag._LAW_CACHE = None
+
+    res = legal_rag.search_legal_knowledge("横浜市 がけ地 斜面地 地下室", region_key="yokohama", top_k=2)
     assert len(res) > 0
     assert any("横浜" in r.get("title", "") for r in res)
