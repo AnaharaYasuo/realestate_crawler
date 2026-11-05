@@ -157,6 +157,14 @@ def _build_slack_and_banner_messages(
     return finish_msg, banner
 
 
+def _read_positive_int_env(name: str, default: int) -> int:
+    """環境変数を正の整数として読み取る（0 以下は ValueError）。"""
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer, got {value}")
+    return value
+
+
 def run_bulk_evaluation(
     force: bool = False,
     limit_per_model: int | None = None,
@@ -168,11 +176,8 @@ def run_bulk_evaluation(
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
-    batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_WRITE_BATCH_SIZE)))
-    chunk_size = int(os.getenv("BULK_EVAL_CHUNK_SIZE", str(DEFAULT_READ_CHUNK_SIZE)))
-    for env_name, size in (("BULK_EVAL_BATCH_SIZE", batch_size), ("BULK_EVAL_CHUNK_SIZE", chunk_size)):
-        if size <= 0:
-            raise ValueError(f"{env_name} must be a positive integer, got {size}")
+    batch_size = _read_positive_int_env("BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
+    chunk_size = _read_positive_int_env("BULK_EVAL_CHUNK_SIZE", DEFAULT_READ_CHUNK_SIZE)
     logger.info(
         "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Write Batch Size=%d, Read Chunk Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
         concurrency, batch_size, chunk_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
