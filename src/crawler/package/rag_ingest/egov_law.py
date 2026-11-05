@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -102,7 +102,7 @@ def fetch_law(law_id: str, session: requests.Session | None = None) -> dict:
 
 
 def collect(law_ids: dict[str, str] | None = None, delay: float = 1.0) -> dict[str, list[KnowledgeChunk]]:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     result: dict[str, list[KnowledgeChunk]] = {}
     with requests.Session() as s:
         for law_id, title in (law_ids or TARGET_LAWS).items():

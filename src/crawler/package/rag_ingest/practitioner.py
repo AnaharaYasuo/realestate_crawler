@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from package.rag_ingest.schema import KnowledgeChunk
@@ -17,7 +17,7 @@ DEFAULT_LICENSE = "社内利用(自社作成)"
 
 
 def load_insights(path: str, source_id: str) -> list[KnowledgeChunk]:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     chunks = []
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():

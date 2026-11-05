@@ -10,22 +10,29 @@ Gemini 3.8 Flash / 2.5 Flash を活用し、未設定・クォータ枯渇時で
 """
 
 import json
-import math
-import time
 import logging
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
+import math
 import os
 import random
 import re
+import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import chardet
 from bs4 import BeautifulSoup
-from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
-from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge, format_comprehensive_future_and_historical_context
+from package.ml.appraisal_context import (
+    build_appraisal_context,
+    format_appraisal_context_text,
+)
+from package.ml.danchou_rag import (
+    calculate_far_slack,
+    format_comprehensive_future_and_historical_context,
+    search_danchou_knowledge,
+)
 from package.ml.legal_rag import search_legal_knowledge
 from package.utils.url_security import UrlSecurityValidator
 
@@ -213,8 +220,8 @@ def _parse_retry_after(raw: Any) -> float | None:
         except (TypeError, ValueError):
             return None
         if target.tzinfo is None:
-            target = target.replace(tzinfo=timezone.utc)
-        seconds = (target - datetime.now(timezone.utc)).total_seconds()
+            target = target.replace(tzinfo=UTC)
+        seconds = (target - datetime.now(UTC)).total_seconds()
         is_http_date = True
     if math.isnan(seconds) or seconds < 0 or (is_http_date and seconds == 0):
         return None
