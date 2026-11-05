@@ -576,6 +576,15 @@ def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | No
         logger.warning("Failed to save report fields: %s", e)
 
 
+def _detect_region_tag(address: str) -> str:
+    """所在地住所から条例照合用の地域識別タグを抽出する。"""
+    if "横浜" in address:
+        return "yokohama"
+    if "千葉" in address:
+        return "chiba"
+    return ""
+
+
 def generate_professional_and_danchou_report(
     eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str
 ) -> dict[str, Any]:
@@ -589,7 +598,7 @@ def generate_professional_and_danchou_report(
 
     query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
     matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=2)
-    region_tag = "yokohama" if "横浜" in address else ("chiba" if "千葉" in address else "")
+    region_tag = _detect_region_tag(address)
     matched_laws = search_legal_knowledge(query, region_key=region_tag, top_k=2)
 
     model_name = os.getenv("GEMINI_RECOMMEND_MODEL", DEFAULT_RECOMMEND_MODEL)
