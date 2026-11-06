@@ -7,6 +7,11 @@ import os
 import sys
 from typing import Any
 
+# Ensure crawler directory is on sys.path
+_crawler_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if _crawler_dir not in sys.path:
+    sys.path.insert(0, _crawler_dir)
+
 # Ensure Django environment is configured
 try:
     import setup_env  # noqa: F401
@@ -14,9 +19,10 @@ except ImportError:
     pass
 
 from django.db import transaction
+from django.db.models import Q
 
 from package.ml.training.data_loader import collect_model_classes_by_type
-from package.utils.converter import parse_price
+from package.utils.converter import parse_price, parse_yen
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -47,8 +53,10 @@ def restore_price_units(
             if "price" not in field_names or "priceStr" not in field_names:
                 continue
 
-            # price が 500,000 未満（50万円未満、万円単位混在が疑われるゾーン）のレコードを対象
-            qs = model.objects.filter(price__isnull=False, price__lt=500000).exclude(price=0)
+            # 50万円未満または priceStr に「億」が含まれる高額帯レコードを走査
+            qs = model.objects.filter(
+                Q(price__lt=500000) | Q(priceStr__contains="億")
+            ).filter(price__isnull=False).exclude(price=0)
             records = list(qs.only("pk", "price", "priceStr"))
             if not records:
                 continue
@@ -58,7 +66,12 @@ def restore_price_units(
 
             for obj in records:
                 p_str = getattr(obj, "priceStr", "") or ""
-                reparsed = parse_price(p_str)
+                reparsed = None
+                # 「円」で終わる（または明示的に円単位表記）の場合は parse_yen を優先
+                if "円" in p_str and "万円" not in p_str and "億" not in p_str:
+                    reparsed = parse_yen(p_str)
+                if reparsed is None:
+                    reparsed = parse_price(p_str)
 
                 if reparsed is None or reparsed <= 0:
                     summary["total_skipped_unparseable"] += 1
@@ -69,7 +82,6 @@ def restore_price_units(
                     continue
 
                 old_price = obj.price
-                obj.price = reparsed
                 to_update.append((obj, old_price, reparsed, p_str))
 
             if to_update:
@@ -88,9 +100,19 @@ def restore_price_units(
 
                 if not dry_run:
                     with transaction.atomic():
-                        objs_to_save = [item[0] for item in to_update]
-                        model.objects.bulk_update(objs_to_save, ["price"], batch_size=batch_size)
-                    logger.info("   -> DB更新完了 (%d 件)", len(objs_to_save))
+                        # 書き込み時に読み込み時と価格・文字列が変化していないレコードのみ更新
+                        for target_obj, orig_price, new_val, orig_str in to_update:
+                            updated_rows = model.objects.filter(
+                                pk=target_obj.pk,
+                                price=orig_price,
+                                priceStr=orig_str,
+                            ).update(price=new_val)
+                            if updated_rows == 0:
+                                logger.warning(
+                                    "競合検出: pk=%s の値が実行中に更新されたためスキップしました",
+                                    target_obj.pk,
+                                )
+                    logger.info("   -> DB更新完了 (%d 件)", len(to_update))
 
     logger.info("=== 処理結果サマリー ===")
     logger.info("走査件数: %d 件", summary["total_scanned"])
