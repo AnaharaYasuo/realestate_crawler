@@ -34,6 +34,14 @@ class TrainedEnsemble(dict):
         self.smearing_factor = smearing_factor
 
 
+def _fill_empty_labels_with_singletons(vals: pd.Series) -> np.ndarray:
+    """空ラベル行を行ごとに一意な単独グループへ置換（欠損1件でGroupKFold全体が無効化されるのを防止）"""
+    arr = vals.to_numpy(dtype=object).copy()
+    for i in np.flatnonzero(arr == ""):
+        arr[i] = f"__singleton_{i}"
+    return arr
+
+
 def _resolve_group_labels(df: pd.DataFrame) -> np.ndarray | None:
     """同一マンション棟・同一所在地によるデータリーク防止用グループラベルを抽出"""
     if not isinstance(df, pd.DataFrame) or df.empty:
@@ -42,8 +50,8 @@ def _resolve_group_labels(df: pd.DataFrame) -> np.ndarray | None:
         if col in df.columns:
             vals = df[col].fillna("").astype(str).str.strip()
             non_empty = vals[vals != ""]
-            if len(non_empty) == len(df) and vals.nunique() >= 2:
-                return vals.to_numpy()
+            if len(non_empty) > 0 and non_empty.nunique() >= 2:
+                return _fill_empty_labels_with_singletons(vals)
     if "address1" in df.columns and "address2" in df.columns:
         combined = (
             df["address1"].fillna("").astype(str).str.strip()
@@ -223,7 +231,7 @@ def train_single_algo(
     """単一アルゴリズムのハイパーパラメータ調整・CV評価・全体学習"""
     if len(df) >= 100:
         logger.info("Tuning hyperparameters for %s...", name)
-        params = tune_hyperparameters(X, y, name, sample_weight=sample_weight)
+        params = tune_hyperparameters(X, y, name, sample_weight=sample_weight, groups=groups)
         logger.info("Best params for %s: %s", name, params)
     else:
         params = {}

@@ -12,6 +12,7 @@ from django.db.models import Q
 from package.ml.constants import COMPANIES
 from package.ml.features import build_features_batch
 from package.models.evaluation import PropertyEvaluation
+from package.utils.converter import parse_price
 
 logger = logging.getLogger(__name__)
 
@@ -71,22 +72,65 @@ def collect_model_classes_by_type() -> dict[str, list[tuple[str, Any]]]:
     return models_by_type
 
 
+def normalize_training_price_man(price_num: Any, price_str: Any = None) -> float:
+    """
+    モデルの price / priceStr を万円単位の float に正規化 (Issue #1282)
+    - priceStr が存在する場合は parse_price で円単位に変換して / 10000.0
+    - priceStr がない場合: 500,000 以上は円単位とみなして / 10000.0、それ未満は万円単位
+    """
+    if not price_num:
+        return 0.0
+    try:
+        val = float(price_num)
+    except (ValueError, TypeError):
+        return 0.0
+    if val <= 0:
+        return 0.0
+
+    if price_str:
+        p_from_str = parse_price(str(price_str))
+        if p_from_str and p_from_str > 0:
+            return float(p_from_str) / 10000.0
+
+    if val >= 500_000.0:
+        return val / 10000.0
+    return val
+
+
+def _collect_records_from_single_model(
+    model: Any,
+    company: str,
+    duplicate_urls: set[str],
+) -> list[tuple[Any, str, int, float, str]]:
+    """単一モデルから values_list でレコードを抽出"""
+    records: list[tuple[Any, str, int, float, str]] = []
+    # qs.count() は発行せず、直接 values_list を実行
+    qs = model.objects.order_by("pk").values_list("pk", "price", "pageUrl", "priceStr")
+    for row in qs:
+        pk = row[0]
+        price = row[1] if len(row) > 1 else None
+        page_url = row[2] if len(row) > 2 else ""
+        price_str = row[3] if len(row) > 3 else None
+        if not price or price <= 0:
+            continue
+        if page_url in duplicate_urls:
+            continue
+        price_man = normalize_training_price_man(price, price_str)
+        if price_man <= 0:
+            continue
+        records.append((model, company, pk, price_man, page_url or ""))
+    return records
+
+
 def _collect_lightweight_records_for_ptype(
     models_list: list[tuple[str, Any]],
     duplicate_urls: set[str],
 ) -> list[tuple[Any, str, int, float, str]]:
-    """ORM インスタンスを生成せず、values_list で (model, company, pk, price, page_url) を収集"""
+    """ORM インスタンスを生成せず、values_list で (model, company, pk, price_man, page_url) を収集"""
     records: list[tuple[Any, str, int, float, str]] = []
     for company, model in models_list:
         try:
-            # qs.count() は発行せず、直接 values_list を実行
-            qs = model.objects.order_by("pk").values_list("pk", "price", "pageUrl")
-            for pk, price, page_url in qs:
-                if not price or price <= 0:
-                    continue
-                if page_url in duplicate_urls:
-                    continue
-                records.append((model, company, pk, float(price) / 10000.0, page_url or ""))
+            records.extend(_collect_records_from_single_model(model, company, duplicate_urls))
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not query model %s: %s", getattr(model, "__name__", "unknown"), e)
     return records

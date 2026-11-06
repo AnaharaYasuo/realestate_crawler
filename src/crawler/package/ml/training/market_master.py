@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 from package.ml.features import _fallback_address, calculate_chikunen
+from package.ml.training.data_loader import normalize_training_price_man
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def _extract_unit_from_model_row(
 
     c_val = row_dict.get("chikunengetsu") or row_dict.get("chikunengetsuStr")
     chikunen = calculate_chikunen(c_val)
-    price_man = float(price) / 10000.0
+    price_man = normalize_training_price_man(price, row_dict.get("priceStr"))
     return {
         "pref": pref,
         "city": city,
@@ -129,7 +130,7 @@ def _collect_units_from_single_model(
         area_field = "tatemonoMenseki"
 
     model_fields = {f.name for f in model._meta.get_fields()}
-    query_fields = ["price", "pageUrl"]
+    query_fields = ["price", "pageUrl", "priceStr"]
     if "address1" in model_fields:
         query_fields.append("address1")
     if "address2" in model_fields:

@@ -3,25 +3,29 @@ ML 特徴量抽出用 各種属性パーサー・日付計算・数値変換モ�
 """
 import datetime
 import re
+import unicodedata
 from decimal import Decimal
 from typing import Any
 
 
 def parse_kouzou(kouzou_str: str | None) -> str:
-    """構造文字列から構造カテゴリを分類"""
+    """構造文字列から構造カテゴリを分類 (全角・表記揺れをNFKC正規化) (Issue #1281)"""
     if not kouzou_str:
         return 'default'
-    k_upper = kouzou_str.upper()
-    if 'RC' in k_upper or '鉄筋コンクリート' in k_upper:
-        return 'RC'
-    if 'SRC' in k_upper or '鉄骨鉄筋' in k_upper:
+    k_norm = unicodedata.normalize('NFKC', str(kouzou_str)).upper()
+    # 鉄骨造（PC板葺）など屋根・外壁付属のPC/ALCが主構造に誤判定されるのを防ぐため、主構造のS/RCを先見
+    if 'SRC' in k_norm or '鉄骨鉄筋' in k_norm:
         return 'SRC'
-    if '鉄骨' in k_upper or '重量鉄骨' in k_upper or 'Ｓ造' in k_upper:
-        if '軽量' in k_upper:
+    if '鉄骨' in k_norm or '重量鉄骨' in k_norm or '軽量鉄骨' in k_norm or 'S造' in k_norm or k_norm.startswith('S'):
+        if '軽量' in k_norm or 'LS' in k_norm:
             return 'LS'
         return 'S'
-    if '木' in k_upper or 'Ｗ造' in k_upper:
+    if 'RC' in k_norm or '鉄筋コンクリート' in k_norm or '鉄筋' in k_norm or 'PC' in k_norm or 'プレキャスト' in k_norm:
+        return 'RC'
+    if '木' in k_norm or 'W造' in k_norm:
         return 'W'
+    if 'コンクリート' in k_norm or 'ブロック' in k_norm or 'ALC' in k_norm:
+        return 'S'
     return 'default'
 
 
@@ -178,15 +182,22 @@ def parse_kouzou_features(kouzou_str: str) -> dict[str, float]:
     }
 
 
+MAJOR_FOUR = ["mitsui", "sumifu", "sumitomo", "nomura", "tokyu", "三井", "住友", "野村", "東急"]
+HOUSE_MAKERS = [
+    "misawa", "daiwa", "sekisui", "asahi", "daikyo", "smtrc", "mizuho", "sumai1", "sumirin", "heim", "haseko",
+    "ミサワ", "大和", "積水", "旭化成", "大京", "住友林業", "セキスイハイム", "長谷工",
+]
+BRAND_TIER3 = ["パーク", "シティタワー", "シティテラス", "シティハウス", "グランドメゾン", "プラウド", "ブランズ"]
+BRAND_TIER2 = ["ライオンズ", "プレミスト", "ヘーベル", "ダイワハウス"]
+
+
 def parse_company_features(company_str: str) -> dict[str, float]:
     """不動産会社・分譲ブランドの数値化（大手ティア・ブランド力）"""
     c = str(company_str or "").lower()
-    major_four = ["mitsui", "sumitomo", "nomura", "tokyu", "三井", "住友", "野村", "東急"]
-    house_makers = ["misawa", "daiwa", "sekisui", "asahi", "ミサワ", "大和", "積水", "旭化成"]
-    if any(m in c for m in major_four):
+    if any(m in c for m in MAJOR_FOUR) or any(b in c for b in BRAND_TIER3):
         tier = 3.0
         is_major = 1.0
-    elif any(h in c for h in house_makers):
+    elif any(h in c for h in HOUSE_MAKERS) or any(b in c for b in BRAND_TIER2):
         tier = 2.0
         is_major = 0.0
     else:
@@ -196,6 +207,43 @@ def parse_company_features(company_str: str) -> dict[str, float]:
         "company_tier": tier,
         "is_major_company": is_major
     }
+
+
+_CACHED_SITE_KEYS: list[str] | None = None
+
+
+def resolve_company_name(property_obj: Any) -> str:
+    """物件オブジェクト・辞書から会社名・ブランド名を解決 (Issue #1279)"""
+    global _CACHED_SITE_KEYS
+    # 1. 直接指定された company
+    c = _get_attr(property_obj, 'company', None)
+    if c and str(c).strip() and str(c).lower() != 'unknown':
+        return str(c).strip()
+
+    # 2. モデルクラス名から解決
+    cls_name = getattr(property_obj, '__class__', type(None)).__name__
+    if _CACHED_SITE_KEYS is None:
+        from package.site_registry import SiteRegistry
+        _CACHED_SITE_KEYS = sorted(SiteRegistry.get_all_sites().keys(), key=len, reverse=True)
+    sites = _CACHED_SITE_KEYS
+    name_lower = cls_name.lower()
+    matched_site = next((s for s in sites if name_lower.startswith(s) or s in name_lower), None)
+    if matched_site and matched_site not in ('athome', 'homes'):
+        return matched_site
+
+    # 3. ブランド名（物件名・分譲会社等）
+    for field in ('bunjoKaisya', 'sekouKaisya', 'kanriKaisya', 'propertyName'):
+        val = _get_attr(property_obj, field, None)
+        if val and str(val).strip():
+            val_str = str(val).strip()
+            val_lower = val_str.lower()
+            if any(k in val_lower for k in MAJOR_FOUR + HOUSE_MAKERS + BRAND_TIER3 + BRAND_TIER2):
+                return val_str
+
+    if matched_site:
+        return matched_site
+
+    return 'unknown'
 
 
 def parse_youto_zone_features(youto_str: str) -> dict[str, float]:
@@ -316,7 +364,7 @@ def _parse_seireki_date(text: str) -> datetime.date | None:
         except (ValueError, TypeError):
             pass
     try:
-        return datetime.datetime.strptime(text, "%Y-%m-%d").date()  # noqa: DTZ007
+        return datetime.datetime.strptime(text, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
 
@@ -324,7 +372,7 @@ def _parse_seireki_date(text: str) -> datetime.date | None:
 def calculate_chikunen(chikunengetsu: Any, base_date: datetime.date | None = None) -> float:
     """築年数を算出 (基準日を指定可能。文字列からのパースにも対応)"""
     if not base_date:
-        base_date = datetime.date.today()  # noqa: DTZ011
+        base_date = datetime.date.today()
     if not chikunengetsu:
         return 20.0
 
@@ -371,21 +419,116 @@ def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+_DESIGNATED_CITY_WARD_RE = re.compile(r'^([^市]+市[^区]+区)')
+_NORMAL_MUNI_RE = re.compile(r'^([^区市町村]+[区市町村])')
+_FULL_ADDRESS_MUNI_RE = re.compile(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^市]+市[^区]+区|[^区市町]+[区市町])')
+_POSTAL_CODE_PREFIX_RE = re.compile(r'^(?:〒\s*|\b)\d{3}[-‐ー−]?\d{4}\s*')
+
+
 def _clean_addr2(addr2: str) -> str:
-    if addr2:
-        m = re.match(r'^([^区市町村]+[区市町村])', addr2)
-        if m:
-            return m.group(1)
+    """市区町村名を抽出（郵便番号除去、政令指定都市の市＋区表記を完全保持）(Issue #1277, #1281)"""
+    if not addr2:
+        return ""
+    addr2 = _POSTAL_CODE_PREFIX_RE.sub('', addr2).strip()
+    # 1. 政令指定都市の「市＋区」（例: 名古屋市中区, 横浜市西区）
+    m_ward = _DESIGNATED_CITY_WARD_RE.match(addr2)
+    if m_ward:
+        return m_ward.group(1)
+    # 2. 通常の市区町村
+    m_normal = _NORMAL_MUNI_RE.match(addr2)
+    if m_normal:
+        return m_normal.group(1)
     return addr2
 
 
+_DESIGNATED_CITY_PREF_MAP = {
+    '京都市': '京都府', '神戸市': '兵庫県', '札幌市': '北海道', '千葉市': '千葉県',
+    'さいたま市': '埼玉県', '堺市': '大阪府', '大阪市': '大阪府', '仙台市': '宮城県',
+    '岡山市': '岡山県', '広島市': '広島県', '名古屋市': '愛知県', '新潟市': '新潟県',
+    '熊本市': '熊本県', '川崎市': '神奈川県', '横浜市': '神奈川県', '相模原市': '神奈川県',
+    '北九州市': '福岡県', '福岡市': '福岡県', '浜松市': '静岡県', '静岡市': '静岡県'
+}
+
+_STATIC_CITY_PREF_MAP: dict[str, str] | None = None
+
+
+def _load_static_city_pref_map() -> dict[str, str]:
+    global _STATIC_CITY_PREF_MAP
+    if _STATIC_CITY_PREF_MAP is not None:
+        return _STATIC_CITY_PREF_MAP
+    import json
+    import os
+    json_path = os.path.join(os.path.dirname(__file__), 'city_prefecture_map.json')
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, encoding='utf-8') as f:
+                _STATIC_CITY_PREF_MAP = json.load(f)
+                return _STATIC_CITY_PREF_MAP
+        except Exception:
+            pass
+    _STATIC_CITY_PREF_MAP = {}
+    return _STATIC_CITY_PREF_MAP
+
+
+def _search_muni_cache_for_pref(address2: str) -> str:
+    """キャッシュから市区町村の都道府県を検索"""
+    from package.ml.features.reference_data import _muni_cache
+    if not _muni_cache:
+        try:
+            from package.ml.features.reference_data import _init_global_caches
+            _init_global_caches()
+        except Exception:
+            pass
+
+    for (pref, city) in _muni_cache:
+        if city == address2:
+            return pref
+        if '市' in address2 and '区' in address2 and city == address2.split('市')[0] + '市':
+            return pref
+    return ""
+
+
+def _infer_prefecture_from_muni(address2: str) -> str:
+    """市区町村名から都道府県を推測・補完 (Issue #1281)"""
+    if not address2:
+        return ""
+
+    # 1. 政令指定都市の市＋区（例: 名古屋市中村区 -> 名古屋市 -> 愛知県）
+    if '市' in address2 and '区' in address2:
+        base_city = address2.split('市')[0] + '市'
+        if base_city in _DESIGNATED_CITY_PREF_MAP:
+            return _DESIGNATED_CITY_PREF_MAP[base_city]
+
+    # 2. 東京23区（単独の「区」かつ他政令指定都市でない場合）
+    if address2.endswith('区') and '市' not in address2:
+        return '東京都'
+
+    # 3. 静的マッピング（DB非接続環境でも動作）
+    static_map = _load_static_city_pref_map()
+    if address2 in static_map:
+        return static_map[address2]
+
+    # 4. マスタキャッシュから検索（DB接続時）
+    return _search_muni_cache_for_pref(address2)
+
+
 def _fallback_address(full_address: str, a1: str, a2: str) -> tuple[str, str]:
-    if a1 and a2:
-        return a1, a2
-    m = re.match(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^区市町]+[区市町])', full_address)
-    if not m:
-        return a1, a2
-    return (a1 or m.group(1)), (a2 or m.group(2))
+    """フル住所から都道府県・市区町村（政令市＋区）を補完抽出 (Issue #1277, #1281)"""
+    full_address = _POSTAL_CODE_PREFIX_RE.sub('', full_address or '').strip()
+    # address2 が政令市名単体（例: '名古屋市'）で区名を含まない場合、full_address から区名を補完
+    if a2 and re.match(r'^[^市]+市$', a2) and full_address:
+        m_ward = re.search(re.escape(a2) + r'([^区]+区)', full_address)
+        if m_ward:
+            a2 = f"{a2}{m_ward.group(1)}"
+    if not a1 or not a2:
+        m = _FULL_ADDRESS_MUNI_RE.match(full_address or '')
+        if m:
+            a1 = a1 or m.group(1)
+            a2 = a2 or m.group(2)
+    # address1 が空欄で address2 が判明している場合、マスタ逆引きで補完 (Issue #1281)
+    if not a1 and a2:
+        a1 = _infer_prefecture_from_muni(a2)
+    return a1, a2
 
 
 def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
@@ -393,8 +536,55 @@ def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
     address2 = _clean_addr2(str(_get_attr(property_obj, 'address2', '') or ''))
     address1, address2 = _fallback_address(str(_get_attr(property_obj, 'address', '') or ''), address1, address2)
     station1 = str(_get_attr(property_obj, 'station1', '') or '')
-    company = str(_get_attr(property_obj, 'company', 'unknown') or 'unknown')
+    company = resolve_company_name(property_obj)
     return address1, address2, station1, company
+
+
+_GROUP_SUFFIX_RE = re.compile(r'\d{1,4}(?:号室|号|階)?$')
+_CHOME_RE = re.compile(r'(\D+?)(\d+)?(?:丁目|-)')
+_FROM_FIRST_DIGIT_RE = re.compile(r'\d.*$', re.DOTALL)
+
+
+def _normalize_group_text(text: Any) -> str:
+    """NFKC 正規化し空白・末尾の号室/階表記を除去する（同一建物の表記揺れ吸収用）。"""
+    s = unicodedata.normalize('NFKC', str(text or ''))
+    s = ''.join(s.split())
+    return _GROUP_SUFFIX_RE.sub('', s)
+
+
+def _extract_chome(full_address: str, address1: str, address2: str) -> str:
+    """住所から（都道府県・市区町村を除いた）町丁目部分を抽出する。抽出できなければ空文字。"""
+    addr = unicodedata.normalize('NFKC', full_address or '')
+    rest = addr
+    for prefix in (address1, address2):
+        p = unicodedata.normalize('NFKC', prefix or '')
+        if p and p in rest:
+            rest = rest.split(p, 1)[1]
+    rest = rest.strip()
+    if not rest:
+        return ''
+    m = _CHOME_RE.match(rest)
+    if m:
+        return f"{m.group(1)}{m.group(2) or ''}"
+    return _FROM_FIRST_DIGIT_RE.sub('', rest)
+
+
+def extract_group_labels(property_obj: Any, address1: str, address2: str) -> tuple[str, str]:
+    """
+    CV（GroupKFold）用のグループ列 (building_group, chome_group) を返す (Issue #1278)。
+    - chome_group: 都道府県＋市区町村＋町丁目（住所が無ければ空文字）
+    - building_group: 物件名＋町丁目 → 物件名が無ければ正規化住所 → それも無ければ chome_group
+    """
+    full_address = str(_get_attr(property_obj, 'address', '') or '')
+    chome = _extract_chome(full_address, address1, address2)
+    area_key = (address1 or '') + (address2 or '')
+    chome_group = area_key + chome if area_key else _normalize_group_text(full_address)
+    name = _normalize_group_text(_get_attr(property_obj, 'propertyName', ''))
+    if name:
+        building_group = f"{name}|{chome_group}"
+    else:
+        building_group = _normalize_group_text(full_address) or chome_group
+    return building_group, chome_group
 
 
 def _parse_date_value(val: Any) -> datetime.date | None:
@@ -404,16 +594,16 @@ def _parse_date_value(val: Any) -> datetime.date | None:
         return val
     if isinstance(val, str):
         try:
-            return datetime.datetime.strptime(val[:10], "%Y-%m-%d").date()  # noqa: DTZ007
+            return datetime.datetime.strptime(val[:10], "%Y-%m-%d").date()
         except (ValueError, TypeError):
             return None
     return None
 
 
-def _resolve_eval_base_date(base_date: Any, prop_date: datetime.date | None) -> datetime.date:
-    today_val = datetime.date.today()  # noqa: DTZ011
+def _resolve_eval_base_date(base_date: Any, _prop_date: datetime.date | None = None) -> datetime.date:
+    today_val = datetime.date.today()
     if not base_date:
-        return prop_date or today_val
+        return today_val
     parsed = _parse_date_value(base_date)
     return parsed if parsed is not None else today_val
 
@@ -450,12 +640,13 @@ def _get_raw_chikunengetsu(property_obj: Any) -> Any:
     )
 
 
-def calculate_chikunen_feature(property_obj: Any, property_type: str, eval_base_date: datetime.date) -> float:
+def calculate_chikunen_feature(property_obj: Any, property_type: str, eval_base_date: datetime.date) -> tuple[float, float]:
     chikunengetsu = _get_raw_chikunengetsu(property_obj)
     if not chikunengetsu:
         kouzou_raw = str(_get_attr(property_obj, 'kouzou', '') or _get_attr(property_obj, 'structure', ''))
-        return 38.0 if ("木" in kouzou_raw or property_type == 'kodate') else 30.0
-    return calculate_chikunen(chikunengetsu, eval_base_date)
+        age = 38.0 if ("木" in kouzou_raw or property_type == 'kodate') else 30.0
+        return age, 1.0
+    return calculate_chikunen(chikunengetsu, eval_base_date), 0.0
 
 
 def extract_traffic_and_walk_min(property_obj: Any) -> tuple[int, float, float, int]:
@@ -594,6 +785,7 @@ def calculate_effective_building_and_floor_area(property_obj: Any, tochi_area: f
 
 # Alias for backward compatibility
 _extract_clean_address = extract_clean_address
+_extract_group_labels = extract_group_labels
 _resolve_eval_dates_and_diff = resolve_eval_dates_and_diff
 _calculate_chikunen_feature = calculate_chikunen_feature
 _extract_traffic_and_walk_min = extract_traffic_and_walk_min

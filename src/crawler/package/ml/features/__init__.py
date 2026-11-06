@@ -89,6 +89,7 @@ from .parsers import (
     calculate_chikunen,
     parse_chimoku_features,
     parse_company_features,
+    resolve_company_name,
     parse_floor_features,
     parse_kouzou,
     parse_kouzou_features,
