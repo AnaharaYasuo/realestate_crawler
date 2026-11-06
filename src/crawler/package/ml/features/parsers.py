@@ -13,16 +13,18 @@ def parse_kouzou(kouzou_str: str | None) -> str:
     if not kouzou_str:
         return 'default'
     k_upper = kouzou_str.upper()
-    if 'RC' in k_upper or '鉄筋コンクリート' in k_upper:
-        return 'RC'
     if 'SRC' in k_upper or '鉄骨鉄筋' in k_upper:
         return 'SRC'
-    if '鉄骨' in k_upper or '重量鉄骨' in k_upper or 'Ｓ造' in k_upper:
-        if '軽量' in k_upper:
+    if 'RC' in k_upper or '鉄筋コンクリート' in k_upper or '鉄筋' in k_upper or 'PC' in k_upper or 'プレキャスト' in k_upper:
+        return 'RC'
+    if '鉄骨' in k_upper or '重量鉄骨' in k_upper or '軽量鉄骨' in k_upper or 'S造' in k_upper or 'Ｓ造' in k_upper or k_upper.startswith('S'):
+        if '軽量' in k_upper or 'LS' in k_upper:
             return 'LS'
         return 'S'
-    if '木' in k_upper or 'Ｗ造' in k_upper:
+    if '木' in k_upper or 'W造' in k_upper or 'Ｗ造' in k_upper:
         return 'W'
+    if 'コンクリート' in k_upper or 'ブロック' in k_upper or 'ALC' in k_upper:
+        return 'S'
     return 'default'
 
 
@@ -179,15 +181,22 @@ def parse_kouzou_features(kouzou_str: str) -> dict[str, float]:
     }
 
 
+MAJOR_FOUR = ["mitsui", "sumifu", "sumitomo", "nomura", "tokyu", "三井", "住友", "野村", "東急"]
+HOUSE_MAKERS = [
+    "misawa", "daiwa", "sekisui", "asahi", "daikyo", "smtrc", "mizuho", "sumai1", "sumirin", "heim", "haseko",
+    "ミサワ", "大和", "積水", "旭化成", "大京", "住友林業", "セキスイハイム", "長谷工",
+]
+BRAND_TIER3 = ["パーク", "シティタワー", "シティテラス", "シティハウス", "グランドメゾン", "プラウド", "ブランズ"]
+BRAND_TIER2 = ["ライオンズ", "プレミスト", "ヘーベル", "ダイワハウス"]
+
+
 def parse_company_features(company_str: str) -> dict[str, float]:
     """不動産会社・分譲ブランドの数値化（大手ティア・ブランド力）"""
     c = str(company_str or "").lower()
-    major_four = ["mitsui", "sumitomo", "nomura", "tokyu", "三井", "住友", "野村", "東急"]
-    house_makers = ["misawa", "daiwa", "sekisui", "asahi", "ミサワ", "大和", "積水", "旭化成"]
-    if any(m in c for m in major_four):
+    if any(m in c for m in MAJOR_FOUR) or any(b in c for b in BRAND_TIER3):
         tier = 3.0
         is_major = 1.0
-    elif any(h in c for h in house_makers):
+    elif any(h in c for h in HOUSE_MAKERS) or any(b in c for b in BRAND_TIER2):
         tier = 2.0
         is_major = 0.0
     else:
@@ -197,6 +206,37 @@ def parse_company_features(company_str: str) -> dict[str, float]:
         "company_tier": tier,
         "is_major_company": is_major
     }
+
+
+def resolve_company_name(property_obj: Any) -> str:
+    """物件オブジェクト・辞書から会社名・ブランド名を解決 (Issue #1279)"""
+    # 1. 直接指定された company
+    c = _get_attr(property_obj, 'company', None)
+    if c and str(c).strip() and str(c).lower() != 'unknown':
+        return str(c).strip()
+
+    # 2. モデルクラス名から解決
+    cls_name = getattr(property_obj, '__class__', type(None)).__name__
+    from package.site_registry import SiteRegistry
+    sites = sorted(SiteRegistry.get_all_sites().keys(), key=len, reverse=True)
+    name_lower = cls_name.lower()
+    matched_site = next((s for s in sites if name_lower.startswith(s) or s in name_lower), None)
+    if matched_site and matched_site not in ('athome', 'homes'):
+        return matched_site
+
+    # 3. ブランド名（物件名・分譲会社等）
+    for field in ('bunjoKaisya', 'sekouKaisya', 'kanriKaisya', 'propertyName'):
+        val = _get_attr(property_obj, field, None)
+        if val and str(val).strip():
+            val_str = str(val).strip()
+            val_lower = val_str.lower()
+            if any(k in val_lower for k in MAJOR_FOUR + HOUSE_MAKERS + BRAND_TIER3 + BRAND_TIER2):
+                return val_str
+
+    if matched_site:
+        return matched_site
+
+    return 'unknown'
 
 
 def parse_youto_zone_features(youto_str: str) -> dict[str, float]:
@@ -317,7 +357,7 @@ def _parse_seireki_date(text: str) -> datetime.date | None:
         except (ValueError, TypeError):
             pass
     try:
-        return datetime.datetime.strptime(text, "%Y-%m-%d").date()  # noqa: DTZ007
+        return datetime.datetime.strptime(text, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
 
@@ -325,7 +365,7 @@ def _parse_seireki_date(text: str) -> datetime.date | None:
 def calculate_chikunen(chikunengetsu: Any, base_date: datetime.date | None = None) -> float:
     """築年数を算出 (基準日を指定可能。文字列からのパースにも対応)"""
     if not base_date:
-        base_date = datetime.date.today()  # noqa: DTZ011
+        base_date = datetime.date.today()
     if not chikunengetsu:
         return 20.0
 
@@ -412,7 +452,7 @@ def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
     address2 = _clean_addr2(str(_get_attr(property_obj, 'address2', '') or ''))
     address1, address2 = _fallback_address(str(_get_attr(property_obj, 'address', '') or ''), address1, address2)
     station1 = str(_get_attr(property_obj, 'station1', '') or '')
-    company = str(_get_attr(property_obj, 'company', 'unknown') or 'unknown')
+    company = resolve_company_name(property_obj)
     return address1, address2, station1, company
 
 
@@ -470,16 +510,16 @@ def _parse_date_value(val: Any) -> datetime.date | None:
         return val
     if isinstance(val, str):
         try:
-            return datetime.datetime.strptime(val[:10], "%Y-%m-%d").date()  # noqa: DTZ007
+            return datetime.datetime.strptime(val[:10], "%Y-%m-%d").date()
         except (ValueError, TypeError):
             return None
     return None
 
 
 def _resolve_eval_base_date(base_date: Any, prop_date: datetime.date | None) -> datetime.date:
-    today_val = datetime.date.today()  # noqa: DTZ011
+    today_val = datetime.date.today()
     if not base_date:
-        return prop_date or today_val
+        return today_val
     parsed = _parse_date_value(base_date)
     return parsed if parsed is not None else today_val
 
@@ -516,12 +556,13 @@ def _get_raw_chikunengetsu(property_obj: Any) -> Any:
     )
 
 
-def calculate_chikunen_feature(property_obj: Any, property_type: str, eval_base_date: datetime.date) -> float:
+def calculate_chikunen_feature(property_obj: Any, property_type: str, eval_base_date: datetime.date) -> tuple[float, float]:
     chikunengetsu = _get_raw_chikunengetsu(property_obj)
     if not chikunengetsu:
         kouzou_raw = str(_get_attr(property_obj, 'kouzou', '') or _get_attr(property_obj, 'structure', ''))
-        return 38.0 if ("木" in kouzou_raw or property_type == 'kodate') else 30.0
-    return calculate_chikunen(chikunengetsu, eval_base_date)
+        age = 38.0 if ("木" in kouzou_raw or property_type == 'kodate') else 30.0
+        return age, 1.0
+    return calculate_chikunen(chikunengetsu, eval_base_date), 0.0
 
 
 def extract_traffic_and_walk_min(property_obj: Any) -> tuple[int, float, float, int]:
