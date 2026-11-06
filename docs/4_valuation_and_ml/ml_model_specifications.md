@@ -455,6 +455,15 @@ src/crawler/package/ml/evaluation/
 ### 10.1 空間・建物グループ交差検証 (`GroupKFold`) によるリーク根絶
 - 同一マンション（同一建物・同一所在地）や同一町丁目の複数住戸が Train Fold と Validation Fold に分割されることによるデータリーク（Target Leakage）を防ぐため、`training/ensemble.py` の `get_cv_strategy` においてグループ識別子（正規化所在地・建物グループ）に基づく `GroupKFold` をサポート・標準適用する。
 
+#### 10.1.1 グループ列の供給と GroupKFold 強制 (Issue #1278)
+- **背景（実測）**: 本番診断で、特徴量辞書にグループ候補列（`building_group` / `chome_group` / `propertyName` / `address`）が1つも出力されておらず、`_resolve_group_labels` が常に `None` を返して全種別でランダム KFold にフォールバックしていた。市区町村単位の GroupKFold に換えると MAPE が +2〜8pt 悪化（mansion 23.2→26.8%, kodate 31.7→35.0%, apartment 11.3→13.9%, tochi 41.2→49.5%）し、従来の CV 指標は楽観的だった。
+- **グループ列の出力**: `features/builder.py` の `build_features` は、全種別で次の2列を必ず出力する（学習特徴量 `FEATURE_SETS` には含めない、CV 専用のメタ列）。
+  - `building_group`: 正規化（NFKC・空白除去）した物件名 ＋ 町丁目。物件名が無い（戸建・土地等）場合は正規化住所。いずれも無い場合は `chome_group`。
+  - `chome_group`: 都道府県＋市区町村＋町丁目（住所から抽出）。住所が全く無い場合は空文字。
+- **ラベル解決の堅牢化**: `_resolve_group_labels` は、候補列に空ラベルが一部混在していても列を捨てず、空ラベル行を行ごとに一意な単独グループ（`__singleton_<行番号>`）として扱う。これにより欠損 1 件で GroupKFold 全体が無効化される事態を防ぐ。
+- **チューニングの CV 統一**: `tune_hyperparameters` も `groups` が与えられた場合は `GroupKFold` を用い、チューニング・OOF 評価・アンサンブル重み最適化のすべてで同一のグループ分割基準とする。
+- **不変条件**: 本番学習データ（`build_features` 出力から構成した DataFrame）に対して `get_cv_strategy` が `GroupKFold` を返すこと（`test_issue_1278_group_cv_wiring.py` で保証）。
+
 ### 10.2 学習データ件数キャップの拡張
 - `training/pipeline.py` の `run_training` における `max_items` デフォルト上限を `15,000` 件から `50,000` 件へ拡張し、蓄積された全社データの局所相場学習能力を最大化する。
 

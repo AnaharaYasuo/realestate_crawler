@@ -3,6 +3,7 @@ ML 特徴量抽出用 各種属性パーサー・日付計算・数値変換モ�
 """
 import datetime
 import re
+import unicodedata
 from decimal import Decimal
 from typing import Any
 
@@ -397,6 +398,52 @@ def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
     return address1, address2, station1, company
 
 
+_GROUP_NOISE_RE = re.compile(r'[\s\u3000]+|[0-9]+号室?$|[A-Za-z]?[0-9]+階?$')
+_CHOME_RE = re.compile(r'^([^0-9]*?)([0-9]+)?(?:丁目|[-－−ー‐])')
+
+
+def _normalize_group_text(text: Any) -> str:
+    """NFKC 正規化し空白・末尾の号室/階表記を除去する（同一建物の表記揺れ吸収用）。"""
+    s = unicodedata.normalize('NFKC', str(text or ''))
+    s = _GROUP_NOISE_RE.sub('', s)
+    return s.strip()
+
+
+def _extract_chome(full_address: str, address1: str, address2: str) -> str:
+    """住所から（都道府県・市区町村を除いた）町丁目部分を抽出する。抽出できなければ空文字。"""
+    addr = unicodedata.normalize('NFKC', full_address or '')
+    rest = addr
+    for prefix in (address1, address2):
+        p = unicodedata.normalize('NFKC', prefix or '')
+        if p and p in rest:
+            rest = rest.split(p, 1)[1]
+    rest = rest.strip()
+    if not rest:
+        return ''
+    m = _CHOME_RE.match(rest)
+    if m:
+        return f"{m.group(1)}{m.group(2) or ''}"
+    return re.sub(r'[0-9].*$', '', rest)
+
+
+def extract_group_labels(property_obj: Any, address1: str, address2: str) -> tuple[str, str]:
+    """
+    CV（GroupKFold）用のグループ列 (building_group, chome_group) を返す (Issue #1278)。
+    - chome_group: 都道府県＋市区町村＋町丁目（住所が無ければ空文字）
+    - building_group: 物件名＋町丁目 → 物件名が無ければ正規化住所 → それも無ければ chome_group
+    """
+    full_address = str(_get_attr(property_obj, 'address', '') or '')
+    chome = _extract_chome(full_address, address1, address2)
+    area_key = f"{address1}{address2}"
+    chome_group = f"{area_key}{chome}" if area_key else _normalize_group_text(full_address)
+    name = _normalize_group_text(_get_attr(property_obj, 'propertyName', ''))
+    if name:
+        building_group = f"{name}|{chome_group}"
+    else:
+        building_group = _normalize_group_text(full_address) or chome_group
+    return building_group, chome_group
+
+
 def _parse_date_value(val: Any) -> datetime.date | None:
     if isinstance(val, datetime.datetime):
         return val.date()
@@ -594,6 +641,7 @@ def calculate_effective_building_and_floor_area(property_obj: Any, tochi_area: f
 
 # Alias for backward compatibility
 _extract_clean_address = extract_clean_address
+_extract_group_labels = extract_group_labels
 _resolve_eval_dates_and_diff = resolve_eval_dates_and_diff
 _calculate_chikunen_feature = calculate_chikunen_feature
 _extract_traffic_and_walk_min = extract_traffic_and_walk_min
