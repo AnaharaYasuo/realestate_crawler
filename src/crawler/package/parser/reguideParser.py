@@ -27,7 +27,6 @@ class ReguideInvestmentParser(InvestmentParser):
             "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
         }
         max_attempts = 3
-        last_exc = None
         import asyncio
         import aiohttp
         for attempt in range(max_attempts):
@@ -41,8 +40,8 @@ class ReguideInvestmentParser(InvestmentParser):
                     elif resp.status == 404:
                         from package.parser.baseParser import ListingEndedException
                         raise ListingEndedException(f"RE-Guide 404 Listing Ended: {url}")
-            except Exception as e:
-                last_exc = e
+            except Exception:
+                pass
             if attempt < max_attempts - 1:
                 await asyncio.sleep(2.0 * (attempt + 1))
         return await super()._getContent(session, url)
