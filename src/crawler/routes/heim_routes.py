@@ -14,7 +14,11 @@ from package.api.heim import (
 
 heim_bp = Blueprint('heim', __name__)
 
-HEIM_TOKYO_SEARCH_URL = "https://www.tokyo816.jp/bunjou/search_area?all_pref=1&pref_check%5B%5D=13"
+HEIM_TOKYO_SEARCH_URL = (
+    "https://www.tokyo816.jp/bunjou/search_area"
+    "?all_pref=1&pref_check%5B%5D=13&pref_check%5B%5D=14"
+    "&pref_check%5B%5D=12&pref_check%5B%5D=11&pref_check%5B%5D=19"
+)
 
 @heim_bp.route(API_KEY_HEIM_MANSION_START, methods=['POST', 'GET'])
 def heim_mansion_start():

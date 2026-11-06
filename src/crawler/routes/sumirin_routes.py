@@ -69,7 +69,7 @@ sumirinTochiDetail = sumirin_tochi_detail
 
 @sumirin_bp.route(API_KEY_SUMIRIN_INVESTMENT_START, methods=['POST', 'GET'])
 def sumirin_investment_start():
-    return ParseSumirinInvestmentStartAsync().main("https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=3&s_mode=1")
+    return ParseSumirinInvestmentStartAsync().main("https://www.suminavi.com/buy/estate/searchList?r_seq=1&ec_cd=3&p_cd=13&s_mode=1")
 
 sumirinInvestmentStart = sumirin_investment_start
 
