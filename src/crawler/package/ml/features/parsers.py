@@ -415,7 +415,7 @@ def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
 _DESIGNATED_CITY_WARD_RE = re.compile(r'^([^市]+市[^区]+区)')
 _NORMAL_MUNI_RE = re.compile(r'^([^区市町村]+[区市町村])')
 _FULL_ADDRESS_MUNI_RE = re.compile(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^市]+市[^区]+区|[^区市町]+[区市町])')
-_POSTAL_CODE_PREFIX_RE = re.compile(r'^(?:〒|\b)?\d{3}[-‐ー−]?\d{4}\s*')
+_POSTAL_CODE_PREFIX_RE = re.compile(r'^(?:〒\s*|\b)\d{3}[-‐ー−]?\d{4}\s*')
 
 
 def _clean_addr2(addr2: str) -> str:
@@ -463,6 +463,24 @@ def _load_static_city_pref_map() -> dict[str, str]:
     return _STATIC_CITY_PREF_MAP
 
 
+def _search_muni_cache_for_pref(address2: str) -> str:
+    """キャッシュから市区町村の都道府県を検索"""
+    from package.ml.features.reference_data import _muni_cache
+    if not _muni_cache:
+        try:
+            from package.ml.features.reference_data import _init_global_caches
+            _init_global_caches()
+        except Exception:
+            pass
+
+    for (pref, city) in _muni_cache:
+        if city == address2:
+            return pref
+        if '市' in address2 and '区' in address2 and city == address2.split('市')[0] + '市':
+            return pref
+    return ""
+
+
 def _infer_prefecture_from_muni(address2: str) -> str:
     """市区町村名から都道府県を推測・補完 (Issue #1281)"""
     if not address2:
@@ -484,21 +502,7 @@ def _infer_prefecture_from_muni(address2: str) -> str:
         return static_map[address2]
 
     # 4. マスタキャッシュから検索（DB接続時）
-    from package.ml.features.reference_data import _muni_cache
-    if not _muni_cache:
-        try:
-            from package.ml.features.reference_data import _init_global_caches
-            _init_global_caches()
-        except Exception:
-            pass
-
-    for (pref, city) in _muni_cache:
-        if city == address2:
-            return pref
-        if '市' in address2 and '区' in address2 and city == address2.split('市')[0] + '市':
-            return pref
-
-    return ""
+    return _search_muni_cache_for_pref(address2)
 
 
 def _fallback_address(full_address: str, a1: str, a2: str) -> tuple[str, str]:
@@ -589,7 +593,7 @@ def _parse_date_value(val: Any) -> datetime.date | None:
     return None
 
 
-def _resolve_eval_base_date(base_date: Any, prop_date: datetime.date | None) -> datetime.date:
+def _resolve_eval_base_date(base_date: Any, _prop_date: datetime.date | None = None) -> datetime.date:
     today_val = datetime.date.today()
     if not base_date:
         return today_val

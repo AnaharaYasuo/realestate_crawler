@@ -97,6 +97,27 @@ def normalize_training_price_man(price_num: Any, price_str: Any = None) -> float
     return val
 
 
+def _collect_records_from_single_model(
+    model: Any,
+    company: str,
+    duplicate_urls: set[str],
+) -> list[tuple[Any, str, int, float, str]]:
+    """単一モデルから values_list でレコードを抽出"""
+    records: list[tuple[Any, str, int, float, str]] = []
+    # qs.count() は発行せず、直接 values_list を実行
+    qs = model.objects.order_by("pk").values_list("pk", "price", "pageUrl", "priceStr")
+    for pk, price, page_url, price_str in qs:
+        if not price or price <= 0:
+            continue
+        if page_url in duplicate_urls:
+            continue
+        price_man = normalize_training_price_man(price, price_str)
+        if price_man <= 0:
+            continue
+        records.append((model, company, pk, price_man, page_url or ""))
+    return records
+
+
 def _collect_lightweight_records_for_ptype(
     models_list: list[tuple[str, Any]],
     duplicate_urls: set[str],
@@ -105,17 +126,7 @@ def _collect_lightweight_records_for_ptype(
     records: list[tuple[Any, str, int, float, str]] = []
     for company, model in models_list:
         try:
-            # qs.count() は発行せず、直接 values_list を実行
-            qs = model.objects.order_by("pk").values_list("pk", "price", "pageUrl", "priceStr")
-            for pk, price, page_url, price_str in qs:
-                if not price or price <= 0:
-                    continue
-                if page_url in duplicate_urls:
-                    continue
-                price_man = normalize_training_price_man(price, price_str)
-                if price_man <= 0:
-                    continue
-                records.append((model, company, pk, price_man, page_url or ""))
+            records.extend(_collect_records_from_single_model(model, company, duplicate_urls))
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not query model %s: %s", getattr(model, "__name__", "unknown"), e)
     return records
