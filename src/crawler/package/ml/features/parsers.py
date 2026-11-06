@@ -398,15 +398,16 @@ def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
     return address1, address2, station1, company
 
 
-_GROUP_NOISE_RE = re.compile(r'[\s\u3000]+|[0-9]+号室?$|[A-Za-z]?[0-9]+階?$')
-_CHOME_RE = re.compile(r'^([^0-9]*?)([0-9]+)?(?:丁目|[-－−ー‐])')
+_GROUP_SUFFIX_RE = re.compile(r'\d{1,4}(?:号室|号|階)?$')
+_CHOME_RE = re.compile(r'(\D+?)(\d+)?(?:丁目|-)')
+_FROM_FIRST_DIGIT_RE = re.compile(r'\d.*$', re.DOTALL)
 
 
 def _normalize_group_text(text: Any) -> str:
     """NFKC 正規化し空白・末尾の号室/階表記を除去する（同一建物の表記揺れ吸収用）。"""
     s = unicodedata.normalize('NFKC', str(text or ''))
-    s = _GROUP_NOISE_RE.sub('', s)
-    return s.strip()
+    s = ''.join(s.split())
+    return _GROUP_SUFFIX_RE.sub('', s)
 
 
 def _extract_chome(full_address: str, address1: str, address2: str) -> str:
@@ -423,7 +424,7 @@ def _extract_chome(full_address: str, address1: str, address2: str) -> str:
     m = _CHOME_RE.match(rest)
     if m:
         return f"{m.group(1)}{m.group(2) or ''}"
-    return re.sub(r'[0-9].*$', '', rest)
+    return _FROM_FIRST_DIGIT_RE.sub('', rest)
 
 
 def extract_group_labels(property_obj: Any, address1: str, address2: str) -> tuple[str, str]:
@@ -434,8 +435,8 @@ def extract_group_labels(property_obj: Any, address1: str, address2: str) -> tup
     """
     full_address = str(_get_attr(property_obj, 'address', '') or '')
     chome = _extract_chome(full_address, address1, address2)
-    area_key = f"{address1}{address2}"
-    chome_group = f"{area_key}{chome}" if area_key else _normalize_group_text(full_address)
+    area_key = (address1 or '') + (address2 or '')
+    chome_group = area_key + chome if area_key else _normalize_group_text(full_address)
     name = _normalize_group_text(_get_attr(property_obj, 'propertyName', ''))
     if name:
         building_group = f"{name}|{chome_group}"
