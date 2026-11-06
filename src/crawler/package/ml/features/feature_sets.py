@@ -5,12 +5,12 @@ ML 特徴量セット定義 (Issue #713, Epic #710)
 FEATURE_SETS = {
     "mansion": {
         "first": [
-            "area", "chikunen", "walk_min", "kanrihi", "syuzen",
+            "area", "chikunen", "is_chikunen_unknown", "walk_min", "kanrihi", "syuzen",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
+            "max_youseki", "max_kenpei",
             "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "floor_number", "total_floors", "floor_ratio", "is_top_floor", "is_first_floor",
@@ -18,19 +18,19 @@ FEATURE_SETS = {
             "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
             "company_tier", "is_major_company",
             "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
-            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount",
+            "is_shigaika_chousei", "rights_ratio",
+            "potential_floor_area",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
         ],
         "second": [
-            "area", "chikunen", "walk_min", "kanrihi", "syuzen",
+            "area", "chikunen", "is_chikunen_unknown", "walk_min", "kanrihi", "syuzen",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
+            "max_youseki", "max_kenpei",
             "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "floor_number", "total_floors", "floor_ratio", "is_top_floor", "is_first_floor",
@@ -39,8 +39,8 @@ FEATURE_SETS = {
             "company_tier", "is_major_company",
             "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
             "interior_score", "layout_score",
-            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount",
+            "is_shigaika_chousei", "rights_ratio",
+            "potential_floor_area",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -48,7 +48,7 @@ FEATURE_SETS = {
     },
     "kodate": {
         "first": [
-            "area", "tochi_menseki", "chikunen", "walk_min",
+            "area", "tochi_menseki", "chikunen", "is_chikunen_unknown", "walk_min",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
@@ -80,7 +80,7 @@ FEATURE_SETS = {
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
         ],
         "second": [
-            "area", "tochi_menseki", "chikunen", "walk_min",
+            "area", "tochi_menseki", "chikunen", "is_chikunen_unknown", "walk_min",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
@@ -115,7 +115,7 @@ FEATURE_SETS = {
     },
     "apartment": {
         "first": [
-            "area", "tochi_menseki", "chikunen", "walk_min",
+            "area", "tochi_menseki", "chikunen", "is_chikunen_unknown", "walk_min",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
@@ -148,7 +148,7 @@ FEATURE_SETS = {
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
         ],
         "second": [
-            "area", "tochi_menseki", "chikunen", "walk_min",
+            "area", "tochi_menseki", "chikunen", "is_chikunen_unknown", "walk_min",
             "pop_growth", "income", "passenger_volume", "average_land_price",
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",

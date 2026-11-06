@@ -117,20 +117,20 @@ def test_clean_training_data():
 
     # 3. More than 20 records (IQR check)
     records = []
-    for _ in range(30):
-        records.append({"price": 5000.0, "area": 70.0, "chikunen": 15.0})
+    for i in range(30):
+        records.append({"price": 5000.0 + i * 10, "area": 70.0 + i, "chikunen": 15.0, "prefecture": f"pref_{i}"})
     # Add outlier
-    records.append({"price": 500000.0, "area": 70.0, "chikunen": 15.0})
+    records.append({"price": 500000.0, "area": 70.0, "chikunen": 15.0, "prefecture": "pref_outlier"})
     df_medium = pd.DataFrame(records)
     res_medium = clean_training_data(df_medium, "mansion")
     assert len(res_medium) == 30
 
     # 4. More than 100 records (IsolationForest check)
     records_large = []
-    for _ in range(120):
-        records_large.append({"price": 5000.0, "area": 70.0, "chikunen": 15.0, "tochi_menseki": 100.0})
+    for i in range(120):
+        records_large.append({"price": 5000.0 + i * 10, "area": 70.0 + (i % 10), "chikunen": 15.0, "tochi_menseki": 100.0, "prefecture": f"pref_{i}"})
     # Add outlier
-    records_large.append({"price": 999999.0, "area": 70.0, "chikunen": 95.0, "tochi_menseki": 500.0})
+    records_large.append({"price": 999999.0, "area": 70.0, "chikunen": 95.0, "tochi_menseki": 500.0, "prefecture": "pref_outlier"})
     df_large = pd.DataFrame(records_large)
     res_large = clean_training_data(df_large, "kodate")
     assert len(res_large) < 121

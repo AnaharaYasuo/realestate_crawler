@@ -511,7 +511,50 @@ def _calculate_commercial_weight(max_youseki: float) -> float:
     return (max_youseki - 150.0) / 300.0
 
 
+def _is_designated_city_without_ward(address2: str) -> bool:
+    """政令指定都市名単体（区名が含まれていない）か判定 (Issue #1277)"""
+    if not address2:
+        return False
+    s = address2.strip()
+    return bool(re.search(r'^(名古屋|大阪|横浜|京都|神戸|福岡|札幌|さいたま|千葉|仙台|広島|静岡|浜松|新潟|相模原|堺|川崎|熊本|北九州|岡山)市$', s))
+
+
+def _get_designated_city_ward_median(address1: str, city_name: str, land_use: str) -> tuple[Any, Any, Any, float | None] | None:
+    """政令指定都市名単体の場合、同一市内の全区レコードからロバストな中央値（Median）を算出"""
+    ward_records = [
+        rec for (a1, c, u), rec in _lp_cache.items()
+        if a1 == address1 and c.startswith(city_name) and "区" in c and u == land_use
+    ]
+    if not ward_records:
+        return None
+    # 中央値を算出（偶数個の場合は中央2値の平均値でロバスト化）
+    def _median(vals: list[float | int]) -> float | int:
+        if not vals:
+            return 0
+        n = len(vals)
+        if n % 2 == 1:
+            return vals[n // 2]
+        mid1, mid2 = vals[n // 2 - 1], vals[n // 2]
+        return (mid1 + mid2) / 2 if isinstance(mid1, float) or isinstance(mid2, float) else (mid1 + mid2) // 2
+
+    prices = sorted(x.average_land_price for x in ward_records)
+    median_price = _median(prices)
+    rosenkas = sorted(x.estimated_rosenka_price for x in ward_records if x.estimated_rosenka_price is not None)
+    median_rosenka = _median(rosenkas) if rosenkas else int(median_price * 0.8)
+    fixeds = sorted(x.estimated_fixed_asset_price for x in ward_records if x.estimated_fixed_asset_price is not None)
+    median_fixed = _median(fixeds) if fixeds else int(median_price * 0.7)
+    growths = sorted(float(x.land_price_growth_rate) for x in ward_records if x.land_price_growth_rate is not None)
+    median_growth = float(_median(growths)) if growths else None
+    return median_price, median_rosenka, median_fixed, median_growth
+
+
 def _get_land_price_stats(address1: str, address2: str, land_use: str, pref_cache: dict) -> tuple[Any, Any, Any, float | None]:
+    # 政令指定都市名単体（区名なし）の場合は、都心商業地の極端な外れ値を排除するため区中央値を使用 (Issue #1277)
+    if _is_designated_city_without_ward(address2):
+        ward_median = _get_designated_city_ward_median(address1, address2.strip(), land_use)
+        if ward_median:
+            return ward_median
+
     lp = _lp_cache.get((address1, address2, land_use))
     if lp:
         growth = float(lp.land_price_growth_rate) if lp.land_price_growth_rate is not None else None

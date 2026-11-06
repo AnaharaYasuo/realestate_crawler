@@ -23,6 +23,7 @@ from .parsers import (
     _calculate_effective_building_and_floor_area,
     _calculate_shin_taishin,
     _extract_clean_address,
+    _extract_group_labels,
     _extract_traffic_and_walk_min,
     _get_attr,
     _resolve_eval_dates_and_diff,
@@ -63,9 +64,10 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     """
     _init_global_caches()
     address1, address2, station1, company = _extract_clean_address(property_obj)
+    building_group, chome_group = _extract_group_labels(property_obj, address1, address2)
     eval_base_date, ref_prop_date, time_diff_months, is_legacy = _resolve_eval_dates_and_diff(property_obj, base_date)
     macro_repi, jgb, nikkei, reit, const_cost = _extract_macro_features(ref_prop_date, property_type)
-    chikunen = _calculate_chikunen_feature(property_obj, property_type, eval_base_date)
+    chikunen, is_chikunen_unknown = _calculate_chikunen_feature(property_obj, property_type, eval_base_date)
     walk_min, bus_min, bus_walk, bus_use = _extract_traffic_and_walk_min(property_obj)
     area, tatemono_area, tochi_area, setback_ratio_temp = _calculate_area_and_setback(property_obj, property_type)
 
@@ -133,6 +135,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
         "tochi_menseki": tochi_area,
         "chikunen": chikunen,
+        "is_chikunen_unknown": is_chikunen_unknown,
         "walk_min": walk_min,
         "kanrihi": kanrihi,
         "syuzen": syuzen,
@@ -183,6 +186,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "city": address2,
         "station": station1,
         "company": company,
+        "building_group": building_group,
+        "chome_group": chome_group,
         "kouzou": kouzou_str,
         "road_direction": road_direction_str,
         "road_type": road_type_str,
