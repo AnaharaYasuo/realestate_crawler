@@ -20,6 +20,33 @@ class ReguideInvestmentParser(InvestmentParser):
     MAX_CONSECUTIVE_TIMEOUTS = 5
     REQUEST_TIMEOUT_SEC = 25
 
+    async def _getContent(self, session, url: str) -> bytes:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        }
+        max_attempts = 3
+        last_exc = None
+        import asyncio
+        import aiohttp
+        for attempt in range(max_attempts):
+            try:
+                timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT_SEC, connect=10, sock_read=20)
+                async with session.get(url, headers=headers, timeout=timeout) as resp:
+                    if resp.status in (200, 202):
+                        data = await resp.read()
+                        if len(data) >= 200:
+                            return data
+                    elif resp.status == 404:
+                        from package.parser.baseParser import ListingEndedException
+                        raise ListingEndedException(f"RE-Guide 404 Listing Ended: {url}")
+            except Exception as e:
+                last_exc = e
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(2.0 * (attempt + 1))
+        return await super()._getContent(session, url)
+
     def __init__(self, params=None):
         super().__init__()
         self.selectors = SelectorLoader.load("reguide", self.property_type)
