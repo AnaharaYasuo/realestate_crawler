@@ -1324,7 +1324,8 @@ class ParserBase(metaclass=ABCMeta):
         gun_town = cls._match_gun_town(rest)
         if gun_town:
             return gun_town
-        m = re.match("^([^市区町村]+市[^市区町村]+区)", rest)
+        # 政令指定都市の市＋区（「名古屋市中村区」のように区名に「村」を含むケースにも対応）(Issue #1277)
+        m = re.match(r"^([^市]+市[^区]+区)", rest)
         if m:
             return m.group(1)
         for name in cls._SPECIAL_CITY_PREFIXES:
