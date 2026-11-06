@@ -106,7 +106,11 @@ def _collect_records_from_single_model(
     records: list[tuple[Any, str, int, float, str]] = []
     # qs.count() は発行せず、直接 values_list を実行
     qs = model.objects.order_by("pk").values_list("pk", "price", "pageUrl", "priceStr")
-    for pk, price, page_url, price_str in qs:
+    for row in qs:
+        pk = row[0]
+        price = row[1] if len(row) > 1 else None
+        page_url = row[2] if len(row) > 2 else ""
+        price_str = row[3] if len(row) > 3 else None
         if not price or price <= 0:
             continue
         if page_url in duplicate_urls:
