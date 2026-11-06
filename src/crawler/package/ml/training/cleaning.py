@@ -75,6 +75,15 @@ def clean_training_data(df: pd.DataFrame, ptype: str) -> pd.DataFrame:
     if physical_clean_count < initial_count:
         logger.info("  Removed %d records due to physical limit filters.", initial_count - physical_clean_count)
 
+    # 1.1 重複物件の除外 (Issue #1284: 同一価格・面積・地域・築年数の重複を代表1件にdedup)
+    dedup_cols = [c for c in ["price", "area", "prefecture", "city", "chikunen"] if c in df_clean.columns]
+    if len(dedup_cols) >= 3:
+        pre_dedup = len(df_clean)
+        df_clean = df_clean.drop_duplicates(subset=dedup_cols, keep="first").copy()
+        post_dedup = len(df_clean)
+        if post_dedup < pre_dedup:
+            logger.info("  Removed %d duplicate records based on %s.", pre_dedup - post_dedup, dedup_cols)
+
     if len(df_clean) < 20:
         return df_clean
 
