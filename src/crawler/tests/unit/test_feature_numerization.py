@@ -76,13 +76,14 @@ def test_road_structure_numerization():
 
 
 def test_chimoku_numerization():
-    """地目の数値化（宅地・雑種地・農地・山林スコア）テスト"""
+    """地目の数値化（実データ分析に基づく宅地・雑種地・農地・山林スコア）テスト (Issue #1294)"""
     res = parse_chimoku_features("宅地")
     assert res["chimoku_score"] == 1.00
     assert res["is_residential_chimoku"] == 1.0
 
     forest = parse_chimoku_features("山林")
-    assert forest["chimoku_score"] == 0.70
+    assert res["chimoku_score"] > forest["chimoku_score"]
+    assert forest["chimoku_score"] == 0.68
     assert forest["is_residential_chimoku"] == 0.0
 
 
