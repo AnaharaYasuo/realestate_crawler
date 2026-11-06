@@ -66,7 +66,7 @@ def _cv_mape(
         else:
             model.fit(x_train, y_train)
         preds_log = model.predict(x_val)
-        val_areas = x_val["area"].values
+        val_areas = x_val["area"].values if "area" in x_val.columns else np.ones(len(x_val))
         mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
     return float(np.mean(mapes))
 

@@ -47,7 +47,9 @@ def restore_designated_city_address2(dry_run: bool = True) -> int:
                 if m:
                     restored = m.group(1)
 
-                if restored and restored != obj.address2 and "区" in restored:
+                # 元の address2 に含まれる市名と一致し、区名が取得できている場合のみ更新
+                curr_city = obj.address2.strip()
+                if restored and curr_city in restored and "区" in restored and restored != obj.address2:
                     old_addr2 = obj.address2
                     obj.address2 = restored
                     to_update.append((obj, old_addr2, restored, raw_addr))

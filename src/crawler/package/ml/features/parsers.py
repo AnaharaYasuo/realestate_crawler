@@ -13,14 +13,15 @@ def parse_kouzou(kouzou_str: str | None) -> str:
     if not kouzou_str:
         return 'default'
     k_norm = unicodedata.normalize('NFKC', str(kouzou_str)).upper()
+    # 鉄骨造（PC板葺）など屋根・外壁付属のPC/ALCが主構造に誤判定されるのを防ぐため、主構造のS/RCを先見
     if 'SRC' in k_norm or '鉄骨鉄筋' in k_norm:
         return 'SRC'
-    if 'RC' in k_norm or '鉄筋コンクリート' in k_norm or '鉄筋' in k_norm or 'PC' in k_norm or 'プレキャスト' in k_norm:
-        return 'RC'
     if '鉄骨' in k_norm or '重量鉄骨' in k_norm or '軽量鉄骨' in k_norm or 'S造' in k_norm or k_norm.startswith('S'):
         if '軽量' in k_norm or 'LS' in k_norm:
             return 'LS'
         return 'S'
+    if 'RC' in k_norm or '鉄筋コンクリート' in k_norm or '鉄筋' in k_norm or 'PC' in k_norm or 'プレキャスト' in k_norm:
+        return 'RC'
     if '木' in k_norm or 'W造' in k_norm:
         return 'W'
     if 'コンクリート' in k_norm or 'ブロック' in k_norm or 'ALC' in k_norm:
@@ -208,8 +209,12 @@ def parse_company_features(company_str: str) -> dict[str, float]:
     }
 
 
+_CACHED_SITE_KEYS: list[str] | None = None
+
+
 def resolve_company_name(property_obj: Any) -> str:
     """物件オブジェクト・辞書から会社名・ブランド名を解決 (Issue #1279)"""
+    global _CACHED_SITE_KEYS
     # 1. 直接指定された company
     c = _get_attr(property_obj, 'company', None)
     if c and str(c).strip() and str(c).lower() != 'unknown':
@@ -217,8 +222,10 @@ def resolve_company_name(property_obj: Any) -> str:
 
     # 2. モデルクラス名から解決
     cls_name = getattr(property_obj, '__class__', type(None)).__name__
-    from package.site_registry import SiteRegistry
-    sites = sorted(SiteRegistry.get_all_sites().keys(), key=len, reverse=True)
+    if _CACHED_SITE_KEYS is None:
+        from package.site_registry import SiteRegistry
+        _CACHED_SITE_KEYS = sorted(SiteRegistry.get_all_sites().keys(), key=len, reverse=True)
+    sites = _CACHED_SITE_KEYS
     name_lower = cls_name.lower()
     matched_site = next((s for s in sites if name_lower.startswith(s) or s in name_lower), None)
     if matched_site and matched_site not in ('athome', 'homes'):

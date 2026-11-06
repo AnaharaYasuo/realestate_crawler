@@ -527,15 +527,24 @@ def _get_designated_city_ward_median(address1: str, city_name: str, land_use: st
     ]
     if not ward_records:
         return None
-    # 中央値を算出
+    # 中央値を算出（偶数個の場合は中央2値の平均値でロバスト化）
+    def _median(vals: list[float | int]) -> float | int:
+        if not vals:
+            return 0
+        n = len(vals)
+        if n % 2 == 1:
+            return vals[n // 2]
+        mid1, mid2 = vals[n // 2 - 1], vals[n // 2]
+        return (mid1 + mid2) / 2 if isinstance(mid1, float) or isinstance(mid2, float) else (mid1 + mid2) // 2
+
     prices = sorted(x.average_land_price for x in ward_records)
-    median_price = prices[len(prices) // 2]
+    median_price = _median(prices)
     rosenkas = sorted(x.estimated_rosenka_price for x in ward_records if x.estimated_rosenka_price is not None)
-    median_rosenka = rosenkas[len(rosenkas) // 2] if rosenkas else int(median_price * 0.8)
+    median_rosenka = _median(rosenkas) if rosenkas else int(median_price * 0.8)
     fixeds = sorted(x.estimated_fixed_asset_price for x in ward_records if x.estimated_fixed_asset_price is not None)
-    median_fixed = fixeds[len(fixeds) // 2] if fixeds else int(median_price * 0.7)
-    growths = [float(x.land_price_growth_rate) for x in ward_records if x.land_price_growth_rate is not None]
-    median_growth = sorted(growths)[len(growths) // 2] if growths else None
+    median_fixed = _median(fixeds) if fixeds else int(median_price * 0.7)
+    growths = sorted(float(x.land_price_growth_rate) for x in ward_records if x.land_price_growth_rate is not None)
+    median_growth = float(_median(growths)) if growths else None
     return median_price, median_rosenka, median_fixed, median_growth
 
 
