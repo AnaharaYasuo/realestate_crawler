@@ -9,21 +9,21 @@ from typing import Any
 
 
 def parse_kouzou(kouzou_str: str | None) -> str:
-    """構造文字列から構造カテゴリを分類"""
+    """構造文字列から構造カテゴリを分類 (全角・表記揺れをNFKC正規化) (Issue #1281)"""
     if not kouzou_str:
         return 'default'
-    k_upper = kouzou_str.upper()
-    if 'SRC' in k_upper or '鉄骨鉄筋' in k_upper:
+    k_norm = unicodedata.normalize('NFKC', str(kouzou_str)).upper()
+    if 'SRC' in k_norm or '鉄骨鉄筋' in k_norm:
         return 'SRC'
-    if 'RC' in k_upper or '鉄筋コンクリート' in k_upper or '鉄筋' in k_upper or 'PC' in k_upper or 'プレキャスト' in k_upper:
+    if 'RC' in k_norm or '鉄筋コンクリート' in k_norm or '鉄筋' in k_norm or 'PC' in k_norm or 'プレキャスト' in k_norm:
         return 'RC'
-    if '鉄骨' in k_upper or '重量鉄骨' in k_upper or '軽量鉄骨' in k_upper or 'S造' in k_upper or 'Ｓ造' in k_upper or k_upper.startswith('S'):
-        if '軽量' in k_upper or 'LS' in k_upper:
+    if '鉄骨' in k_norm or '重量鉄骨' in k_norm or '軽量鉄骨' in k_norm or 'S造' in k_norm or k_norm.startswith('S'):
+        if '軽量' in k_norm or 'LS' in k_norm:
             return 'LS'
         return 'S'
-    if '木' in k_upper or 'W造' in k_upper or 'Ｗ造' in k_upper:
+    if '木' in k_norm or 'W造' in k_norm:
         return 'W'
-    if 'コンクリート' in k_upper or 'ブロック' in k_upper or 'ALC' in k_upper:
+    if 'コンクリート' in k_norm or 'ブロック' in k_norm or 'ALC' in k_norm:
         return 'S'
     return 'default'
 
@@ -415,12 +415,14 @@ def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
 _DESIGNATED_CITY_WARD_RE = re.compile(r'^([^市]+市[^区]+区)')
 _NORMAL_MUNI_RE = re.compile(r'^([^区市町村]+[区市町村])')
 _FULL_ADDRESS_MUNI_RE = re.compile(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^市]+市[^区]+区|[^区市町]+[区市町])')
+_POSTAL_CODE_PREFIX_RE = re.compile(r'^(?:〒|\b)?\d{3}[-‐ー−]?\d{4}\s*')
 
 
 def _clean_addr2(addr2: str) -> str:
-    """市区町村名を抽出（政令指定都市の市＋区表記を完全保持）(Issue #1277)"""
+    """市区町村名を抽出（郵便番号除去、政令指定都市の市＋区表記を完全保持）(Issue #1277, #1281)"""
     if not addr2:
         return ""
+    addr2 = _POSTAL_CODE_PREFIX_RE.sub('', addr2).strip()
     # 1. 政令指定都市の「市＋区」（例: 名古屋市中区, 横浜市西区）
     m_ward = _DESIGNATED_CITY_WARD_RE.match(addr2)
     if m_ward:
@@ -432,19 +434,90 @@ def _clean_addr2(addr2: str) -> str:
     return addr2
 
 
+_DESIGNATED_CITY_PREF_MAP = {
+    '京都市': '京都府', '神戸市': '兵庫県', '札幌市': '北海道', '千葉市': '千葉県',
+    'さいたま市': '埼玉県', '堺市': '大阪府', '大阪市': '大阪府', '仙台市': '宮城県',
+    '岡山市': '岡山県', '広島市': '広島県', '名古屋市': '愛知県', '新潟市': '新潟県',
+    '熊本市': '熊本県', '川崎市': '神奈川県', '横浜市': '神奈川県', '相模原市': '神奈川県',
+    '北九州市': '福岡県', '福岡市': '福岡県', '浜松市': '静岡県', '静岡市': '静岡県'
+}
+
+_STATIC_CITY_PREF_MAP: dict[str, str] | None = None
+
+
+def _load_static_city_pref_map() -> dict[str, str]:
+    global _STATIC_CITY_PREF_MAP
+    if _STATIC_CITY_PREF_MAP is not None:
+        return _STATIC_CITY_PREF_MAP
+    import json
+    import os
+    json_path = os.path.join(os.path.dirname(__file__), 'city_prefecture_map.json')
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, encoding='utf-8') as f:
+                _STATIC_CITY_PREF_MAP = json.load(f)
+                return _STATIC_CITY_PREF_MAP
+        except Exception:
+            pass
+    _STATIC_CITY_PREF_MAP = {}
+    return _STATIC_CITY_PREF_MAP
+
+
+def _infer_prefecture_from_muni(address2: str) -> str:
+    """市区町村名から都道府県を推測・補完 (Issue #1281)"""
+    if not address2:
+        return ""
+
+    # 1. 政令指定都市の市＋区（例: 名古屋市中村区 -> 名古屋市 -> 愛知県）
+    if '市' in address2 and '区' in address2:
+        base_city = address2.split('市')[0] + '市'
+        if base_city in _DESIGNATED_CITY_PREF_MAP:
+            return _DESIGNATED_CITY_PREF_MAP[base_city]
+
+    # 2. 東京23区（単独の「区」かつ他政令指定都市でない場合）
+    if address2.endswith('区') and '市' not in address2:
+        return '東京都'
+
+    # 3. 静的マッピング（DB非接続環境でも動作）
+    static_map = _load_static_city_pref_map()
+    if address2 in static_map:
+        return static_map[address2]
+
+    # 4. マスタキャッシュから検索（DB接続時）
+    from package.ml.features.reference_data import _muni_cache
+    if not _muni_cache:
+        try:
+            from package.ml.features.reference_data import _init_global_caches
+            _init_global_caches()
+        except Exception:
+            pass
+
+    for (pref, city) in _muni_cache:
+        if city == address2:
+            return pref
+        if '市' in address2 and '区' in address2 and city == address2.split('市')[0] + '市':
+            return pref
+
+    return ""
+
+
 def _fallback_address(full_address: str, a1: str, a2: str) -> tuple[str, str]:
-    """フル住所から都道府県・市区町村（政令市＋区）を補完抽出 (Issue #1277)"""
+    """フル住所から都道府県・市区町村（政令市＋区）を補完抽出 (Issue #1277, #1281)"""
+    full_address = _POSTAL_CODE_PREFIX_RE.sub('', full_address or '').strip()
     # address2 が政令市名単体（例: '名古屋市'）で区名を含まない場合、full_address から区名を補完
     if a2 and re.match(r'^[^市]+市$', a2) and full_address:
         m_ward = re.search(re.escape(a2) + r'([^区]+区)', full_address)
         if m_ward:
             a2 = f"{a2}{m_ward.group(1)}"
-    if a1 and a2:
-        return a1, a2
-    m = _FULL_ADDRESS_MUNI_RE.match(full_address or '')
-    if not m:
-        return a1, a2
-    return (a1 or m.group(1)), (a2 or m.group(2))
+    if not a1 or not a2:
+        m = _FULL_ADDRESS_MUNI_RE.match(full_address or '')
+        if m:
+            a1 = a1 or m.group(1)
+            a2 = a2 or m.group(2)
+    # address1 が空欄で address2 が判明している場合、マスタ逆引きで補完 (Issue #1281)
+    if not a1 and a2:
+        a1 = _infer_prefecture_from_muni(a2)
+    return a1, a2
 
 
 def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
