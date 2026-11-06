@@ -1,11 +1,8 @@
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 from package.parser.reguideParser import ReguideInvestmentParser
 from package.parser.baseParser import ListingEndedException
 from routes.heim_routes import HEIM_TOKYO_SEARCH_URL
-from routes.sumirin_routes import API_KEY_SUMIRIN_INVESTMENT_START
-from package.utils.crawl_jobs import UNCRAWLED_COMPANIES
+from package.utils.crawl_jobs import CRAWL_JOBS
 
 
 def test_heim_search_url_includes_five_prefectures():
@@ -27,20 +24,13 @@ def test_sumirin_investment_url_targets_capital_region():
     assert "r_seq=9" not in source
 
 
-def test_seibu_in_uncrawled_companies():
-    """西武不動産がポータル縮小に伴いクロール対象外(UNCRAWLED_COMPANIES)に設定されていること"""
-    assert "seibu" in UNCRAWLED_COMPANIES
-
-
 @pytest.mark.asyncio
 async def test_reguide_get_content_retry_success():
     """リガイドの_getContentが初回タイムアウト/エラー時に指数バックオフでリトライし成功すること"""
+    from unittest.mock import AsyncMock, MagicMock
     parser = ReguideInvestmentParser()
     
-    # 1回目は例外、2回目は正常レスポンスを返すモックSession
     mock_session = MagicMock()
-    mock_resp_fail = MagicMock()
-    
     mock_resp_success = MagicMock()
     mock_resp_success.status = 200
     mock_resp_success.read = AsyncMock(return_value=b"<html><head><title>RE-Guide Test</title></head><body>" + b"x" * 200 + b"</body></html>")
@@ -65,7 +55,6 @@ async def test_reguide_get_content_retry_success():
 
     mock_session.get = mock_get
 
-    # sleepをスキップして高速実行
     import unittest.mock as mock
     with mock.patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         content = await parser._getContent(mock_session, "https://www.re-guide.jp/investment/list/")
@@ -77,6 +66,7 @@ async def test_reguide_get_content_retry_success():
 @pytest.mark.asyncio
 async def test_reguide_get_content_404_raises_listing_ended():
     """リガイドの404応答時にListingEndedExceptionが送出されること"""
+    from unittest.mock import MagicMock
     parser = ReguideInvestmentParser()
     mock_session = MagicMock()
     mock_resp_404 = MagicMock()

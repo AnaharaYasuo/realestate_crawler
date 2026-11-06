@@ -2,7 +2,7 @@
 import os
 
 PORTAL_COMPANIES = {"athome", "homes"}
-UNCRAWLED_COMPANIES = {"kenbiya", "ietan", "haseko", "adcast", "toho", "seibu"}
+UNCRAWLED_COMPANIES = {"kenbiya", "ietan", "haseko", "adcast", "toho"}
 
 
 def is_cloud_environment() -> bool:
