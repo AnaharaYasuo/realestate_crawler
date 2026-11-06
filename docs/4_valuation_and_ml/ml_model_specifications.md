@@ -464,6 +464,12 @@ src/crawler/package/ml/evaluation/
 ### 10.4 サンプル重み一貫適用（Weighted OOF Ensemble & Weighted Duan's Smearing）
 - 時間減衰サンプル重み（`sample_weights`）をベースモデル学習時だけでなく、OOF アンサンブル重み最適化（`optimize_ensemble_weights`）および対数変換逆変換時の重み付き Duan's Smearing 係数（$\frac{\sum w_i \exp(e_i)}{\sum w_i}$）の算出にも一貫して適用する。
 
-### 10.5 予測区間（下限予測値 $P_{10}$）によるリスク調整後お宝スコア (Risk-Adjusted Bargain Score)
-- 推論時（`inference/ensemble.py`）に各ベースモデル（LightGBM / XGBoost / CatBoost / RF）の予測分布のばらつき（標準偏差 $\sigma_{\log}$）と残差スケールから、対数正規分布の 10% 下限予測値 $P_{10} = \hat{y}_{\text{median}} \cdot \exp(-1.2816 \cdot \sigma_{\text{total}})$ を算出する。
-- 点予測 $\hat{y}$ に対する単純割安率だけでなく、保守的な下限予測値 $P_{10}$ に対するリスク調整後割安率（`risk_adjusted_discount_pct = (P10 - actual_price) / P10`）を算出し、予測不確実性が高い物件（スペック欠損・外れ値）の誤通知を防止する。
+### 10.6 政令指定都市の行政区解決 ＆ 地価マスタ（LandPricePotential）突合仕様 (Issue #1277)
+- **背景（実測バグ）**:
+  - 名古屋市等の政令指定都市において、物件原本住所（`address`）に区名が含まれていても `address2` が「名古屋市」と丸められてしまい、`LandPricePotential` テーブルの `city='名古屋市'`（名駅・栄の中心部超高額商業地を含み commercial が 352万円/㎡）が参照されていた。
+  - その結果、郊外物件であっても容積率ブレンドにより公示地価が 84万円/㎡（実勢の2倍以上）に歪み、機械学習モデルの予測値が +100% のバイアス（過大評価）を起こしていた。
+- **政令指定都市の行政区完全保持**:
+  - `package/ml/features/parsers.py` の `extract_clean_address` および `_clean_addr2`, `_fallback_address` において、政令指定都市（東京23区・名古屋市・大阪市・横浜市・京都市・神戸市・福岡市・札幌市・さいたま市・千葉市・仙台市・広島市・静岡市等）の住所からは必ず「市名＋区名」（例: `名古屋市中区`, `名古屋市名東区`）を抽出・保持する。
+- **政令市名単体（区名欠損）時のロバストフォールバック**:
+  - 万一 `address2` が「名古屋市」等のように区名を含まない政令市名単体である場合、特定の一等商業地（中区等）に引っ張られた平均値を直接使用せず、該当市に属する全区の住宅地中央値（Median）および商業地中央値を算出してフォールバック値とし、外れ値による推論歪曲を防止する。
+

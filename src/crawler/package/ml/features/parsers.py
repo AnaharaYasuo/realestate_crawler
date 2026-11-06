@@ -371,18 +371,36 @@ def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+_DESIGNATED_CITY_WARD_RE = re.compile(r'^([^市]+市[^区]+区)')
+_NORMAL_MUNI_RE = re.compile(r'^([^区市町村]+[区市町村])')
+_FULL_ADDRESS_MUNI_RE = re.compile(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^市]+市[^区]+区|[^区市町]+[区市町])')
+
+
 def _clean_addr2(addr2: str) -> str:
-    if addr2:
-        m = re.match(r'^([^区市町村]+[区市町村])', addr2)
-        if m:
-            return m.group(1)
+    """市区町村名を抽出（政令指定都市の市＋区表記を完全保持）(Issue #1277)"""
+    if not addr2:
+        return ""
+    # 1. 政令指定都市の「市＋区」（例: 名古屋市中区, 横浜市西区）
+    m_ward = _DESIGNATED_CITY_WARD_RE.match(addr2)
+    if m_ward:
+        return m_ward.group(1)
+    # 2. 通常の市区町村
+    m_normal = _NORMAL_MUNI_RE.match(addr2)
+    if m_normal:
+        return m_normal.group(1)
     return addr2
 
 
 def _fallback_address(full_address: str, a1: str, a2: str) -> tuple[str, str]:
+    """フル住所から都道府県・市区町村（政令市＋区）を補完抽出 (Issue #1277)"""
+    # address2 が政令市名単体（例: '名古屋市'）で区名を含まない場合、full_address から区名を補完
+    if a2 and re.match(r'^[^市]+市$', a2) and full_address:
+        m_ward = re.search(re.escape(a2) + r'([^区]+区)', full_address)
+        if m_ward:
+            a2 = f"{a2}{m_ward.group(1)}"
     if a1 and a2:
         return a1, a2
-    m = re.match(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^区市町]+[区市町])', full_address)
+    m = _FULL_ADDRESS_MUNI_RE.match(full_address or '')
     if not m:
         return a1, a2
     return (a1 or m.group(1)), (a2 or m.group(2))
