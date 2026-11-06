@@ -117,23 +117,47 @@ def parse_road_structure_features(struct_str: str) -> dict[str, float]:
 
 
 def parse_chimoku_features(chimoku_str: str) -> dict[str, float]:
-    """地目の数値化（宅地・雑種地・農地・山林スコア）"""
-    c = str(chimoku_str or "")
-    if "宅地" in c:
+    """地目の数値化（実データ分析に基づくディスカウント率反映） (Issue #1294)
+
+    全国4.8万件の本番土地データにおける同一市区町村内実勢坪単価中央値比率:
+    - 宅地: 1.00
+    - 畑: 0.94
+    - 未設定: 0.95
+    - 雑種地: 0.92
+    - 現況宅地(登記他): 0.90
+    - 原野: 0.77
+    - 山林: 0.68
+    - 田: 0.63
+    - その他(保安林等): 0.50
+    """
+    c = str(chimoku_str or "").strip()
+    if "現況：宅地" in c or "現況地目：宅地" in c:
+        score = 0.90
+        is_res = 1.0
+    elif "宅地" in c:
         score = 1.00
         is_res = 1.0
     elif "雑種" in c:
+        score = 0.92
+        is_res = 0.0
+    elif "畑" in c:
+        score = 0.94
+        is_res = 0.0
+    elif "原野" in c:
+        score = 0.77
+        is_res = 0.0
+    elif "山林" in c:
+        score = 0.68
+        is_res = 0.0
+    elif "田" in c or "農地" in c:
+        score = 0.63
+        is_res = 0.0
+    elif not c or c in ("-", "－"):
         score = 0.95
-        is_res = 0.0
-    elif any(k in c for k in ["畑", "田", "農地"]):
-        score = 0.85
-        is_res = 0.0
-    elif any(k in c for k in ["山林", "原野"]):
-        score = 0.70
-        is_res = 0.0
+        is_res = 1.0
     else:
-        score = 0.95
-        is_res = 1.0 if not c else 0.0
+        score = 0.50
+        is_res = 0.0
     return {
         "chimoku_score": score,
         "is_residential_chimoku": is_res
