@@ -52,3 +52,18 @@ def test_fallback_when_only_city_name_given_avoids_commercial_outliers():
     price_city_only, _, _, _ = blend_land_prices("愛知県", "名古屋市", max_youseki=200.0)
     # 843,766 円/㎡ などの外れ値にならず、40万円/㎡以下に収まることを検証
     assert price_city_only < 450000, f"Expected robust fallback < 45万, got {price_city_only}"
+
+
+def test_base_parser_split_address_captures_designated_city_wards():
+    """パーサー基底クラスの _split_address が「名古屋市中村区」のように区名に村等を含む政令市でも市＋区を正しく抽出することを検証"""
+    from package.parser.sumifuParser import SumifuMansionParser
+
+    parser = SumifuMansionParser()
+    pref, city, town = parser._split_address("愛知県名古屋市中村区名駅南２丁目")
+    assert pref == "愛知県"
+    assert city == "名古屋市中村区", f"Expected 名古屋市中村区, got {city}"
+    assert "名駅南" in town
+
+    pref2, city2, _ = parser._split_address("神奈川県横浜市中区本町")
+    assert city2 == "横浜市中区"
+
