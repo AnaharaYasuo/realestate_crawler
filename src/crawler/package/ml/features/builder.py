@@ -4,6 +4,7 @@ Orchestrates domain-specific feature extraction submodules.
 """
 
 import logging
+import math
 
 from .appraisal import _calculate_appraisal_values, _calculate_tochi_appraisal_factors
 from .building import (
@@ -55,6 +56,26 @@ from .reference_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _first_valid_attr(obj, *names, default=''):
+    for name in names:
+        val = _get_attr(obj, name, None)
+        if val:
+            return val
+    return default
+
+
+def _extract_category_feature_updates(property_obj, combined_text, zone_name_prop) -> dict:
+    updates = {}
+    youto_val = _first_valid_attr(property_obj, 'youtoChiiki', default=str(zone_name_prop or ''))
+    updates.update(parse_youto_zone_features(youto_val))
+    madori_val = _first_valid_attr(property_obj, 'madori', 'roomLayout')
+    updates.update(parse_madori_layout_features(madori_val, combined_text))
+    floor_val = _first_valid_attr(property_obj, 'kai', 'floor', 'floorNumber', 'kaisu')
+    total_floor_val = _first_valid_attr(property_obj, 'chijo', 'totalFloor', 'totalFloors')
+    updates.update(parse_floor_features(floor_val, total_floor_val, combined_text))
+    return updates
 
 
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None, building_master_lookup=None):
@@ -175,6 +196,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "population_density": pop_density,
         "potential_floor_area": potential_floor_area,
         "scale_discount": scale_discount,
+        "log_tochi_menseki": round(math.log(max(1.0, float(tochi_area))), 4),
+        "narrow_road_penalty": 0.80 if (float(road_width_val) > 0 and float(road_width_val) < 4.0) or float(setback_ratio) > 0 else 1.0,
         "zone_max_kenpei": zone_max_kenpei,
         "zone_max_youseki": zone_max_youseki,
         "kouzou_lifespan_ratio": kouzou_lifespan_ratio,
@@ -223,13 +246,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats.update(parse_chimoku_features(chimoku_str))
     feats.update(parse_kouzou_features(kouzou_str))
     feats.update(parse_company_features(company))
-    youto_val = _get_attr(property_obj, 'youtoChiiki', '') or str(zone_name_prop or '')
-    feats.update(parse_youto_zone_features(youto_val))
-    madori_val = _get_attr(property_obj, 'madori', '') or _get_attr(property_obj, 'roomLayout', '') or ''
-    feats.update(parse_madori_layout_features(madori_val, combined_text))
-    floor_val = _get_attr(property_obj, 'kai', '') or _get_attr(property_obj, 'floor', '') or _get_attr(property_obj, 'floorNumber', '') or _get_attr(property_obj, 'kaisu', '') or ''
-    total_floor_val = _get_attr(property_obj, 'chijo', '') or _get_attr(property_obj, 'totalFloor', '') or _get_attr(property_obj, 'totalFloors', '') or ''
-    feats.update(parse_floor_features(floor_val, total_floor_val, combined_text))
+    feats.update(_extract_category_feature_updates(property_obj, combined_text, zone_name_prop))
 
     return feats
 
