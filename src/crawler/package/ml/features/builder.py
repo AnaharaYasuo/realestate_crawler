@@ -226,12 +226,19 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats.update(parse_chimoku_features(chimoku_str))
     feats.update(parse_kouzou_features(kouzou_str))
     feats.update(parse_company_features(company))
-    youto_val = _get_attr(property_obj, 'youtoChiiki', '') or str(zone_name_prop or '')
+    def _first_valid_attr(*names, default=''):
+        for name in names:
+            val = _get_attr(property_obj, name, None)
+            if val:
+                return val
+        return default
+
+    youto_val = _first_valid_attr('youtoChiiki', default=str(zone_name_prop or ''))
     feats.update(parse_youto_zone_features(youto_val))
-    madori_val = _get_attr(property_obj, 'madori', '') or _get_attr(property_obj, 'roomLayout', '') or ''
+    madori_val = _first_valid_attr('madori', 'roomLayout')
     feats.update(parse_madori_layout_features(madori_val, combined_text))
-    floor_val = _get_attr(property_obj, 'kai', '') or _get_attr(property_obj, 'floor', '') or _get_attr(property_obj, 'floorNumber', '') or _get_attr(property_obj, 'kaisu', '') or ''
-    total_floor_val = _get_attr(property_obj, 'chijo', '') or _get_attr(property_obj, 'totalFloor', '') or _get_attr(property_obj, 'totalFloors', '') or ''
+    floor_val = _first_valid_attr('kai', 'floor', 'floorNumber', 'kaisu')
+    total_floor_val = _first_valid_attr('chijo', 'totalFloor', 'totalFloors')
     feats.update(parse_floor_features(floor_val, total_floor_val, combined_text))
 
     return feats
