@@ -154,7 +154,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     )
 
     bias_feats = calculate_bias_correction_features(
-        property_obj, property_type, chikunen, tatemono_area, tochi_area,
+        property_obj, property_type, chikunen, tatemono_area,
         average_land_price, kouzou_str, combined_text, legal_furuya_feats.get("is_shigaika_chousei", 0.0)
     )
 
