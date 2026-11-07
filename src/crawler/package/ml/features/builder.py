@@ -4,6 +4,7 @@ Orchestrates domain-specific feature extraction submodules.
 """
 
 import logging
+import math
 
 from .appraisal import _calculate_appraisal_values, _calculate_tochi_appraisal_factors
 from .building import (
@@ -175,6 +176,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "population_density": pop_density,
         "potential_floor_area": potential_floor_area,
         "scale_discount": scale_discount,
+        "log_tochi_menseki": round(math.log(max(1.0, float(tochi_area))), 4),
+        "narrow_road_penalty": 0.80 if (float(road_width_val) > 0 and float(road_width_val) < 4.0) or float(setback_ratio) > 0 else 1.0,
         "zone_max_kenpei": zone_max_kenpei,
         "zone_max_youseki": zone_max_youseki,
         "kouzou_lifespan_ratio": kouzou_lifespan_ratio,

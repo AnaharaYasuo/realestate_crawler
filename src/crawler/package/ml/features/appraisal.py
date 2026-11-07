@@ -152,7 +152,8 @@ def calculate_appraisal_values(
     address1: str,
     address2: str
 ) -> AppraisalValues:
-    scale_discount = max(0.05, float((300.0 / tochi_area) ** 0.20)) if tochi_area > 300.0 else 1.0
+    base_scale_area = 300.0 if property_type == 'apartment' else 150.0
+    scale_discount = max(0.15, float((base_scale_area / tochi_area) ** 0.18)) if tochi_area > base_scale_area else 1.0
     potential_floor_area = area if property_type == 'mansion' else tochi_area * (max_youseki / 100.0)
 
     # 原価法
@@ -301,7 +302,8 @@ def calculate_tochi_appraisal_factors(
         )
 
     if scale_discount is None:
-        scale_discount = max(0.05, float((300.0 / tochi_area) ** 0.20)) if tochi_area > 300.0 else 1.0
+        base_scale_area = 300.0 if property_type == 'apartment' else 150.0
+        scale_discount = max(0.15, float((base_scale_area / tochi_area) ** 0.18)) if tochi_area > base_scale_area else 1.0
 
     (
         maguchi_val, road_width_val, road_direction_str,
