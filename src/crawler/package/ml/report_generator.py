@@ -595,6 +595,29 @@ def _detect_region_tag(address: str) -> str:
     return ""
 
 
+def _resolve_property_rent_mesh(prop: Any) -> list[dict[str, Any]]:
+    """物件の所在地・駅情報に基づき賃料メッシュRAG知識を取得する (Issue #1323)"""
+    pref = getattr(prop, "prefecture", "") or ""
+    city = getattr(prop, "city", "") or ""
+    station = getattr(prop, "station", "") or getattr(prop, "nearestStation", "") or ""
+    return search_rent_mesh_knowledge(prefecture=pref, city=city, station=station, top_k=2)
+
+
+def _execute_gemini_report_call(
+    prompt: str, api_key: str, primary_model: str
+) -> dict[str, Any] | None:
+    """主要モデルおよびフォールバックモデルでGemini APIを順次試行する"""
+    seen_models = set()
+    for m in [primary_model, *FALLBACK_MODELS]:
+        if not m or m in seen_models:
+            continue
+        seen_models.add(m)
+        report_data = _call_gemini_api(m, api_key, prompt)
+        if report_data:
+            return report_data
+    return None
+
+
 def generate_professional_and_danchou_report(
     eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str
 ) -> dict[str, Any]:
@@ -620,10 +643,7 @@ def generate_professional_and_danchou_report(
     appraisal_ctx = build_appraisal_context(prop, ptype_jp)
 
     # 3. 賃料・需給メッシュRAG知識の検索 (Issue #1323)
-    pref = getattr(prop, "prefecture", "") or ""
-    city = getattr(prop, "city", "") or ""
-    station = getattr(prop, "station", "") or getattr(prop, "nearestStation", "") or ""
-    rent_mesh_items = search_rent_mesh_knowledge(prefecture=pref, city=city, station=station, top_k=2)
+    rent_mesh_items = _resolve_property_rent_mesh(prop)
 
     if api_key:
         prompt = _build_rag_prompt(
@@ -633,15 +653,7 @@ def generate_professional_and_danchou_report(
             appraisal_ctx=appraisal_ctx,
             rent_mesh_items=rent_mesh_items
         )
-        models_to_try = [model_name, *FALLBACK_MODELS]
-        seen_models = set()
-        for m in models_to_try:
-            if not m or m in seen_models:
-                continue
-            seen_models.add(m)
-            report_data = _call_gemini_api(m, api_key, prompt)
-            if report_data:
-                break
+        report_data = _execute_gemini_report_call(prompt, api_key, model_name)
 
     if not report_data:
         # 中身の伴わない固定フォールバックは生成・保存しない（Issue #1191）
