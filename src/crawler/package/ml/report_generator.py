@@ -34,6 +34,10 @@ from package.ml.danchou_rag import (
     search_danchou_knowledge,
 )
 from package.ml.legal_rag import search_legal_knowledge
+from package.ml.rent_mesh_rag import (
+    format_rent_mesh_context,
+    search_rent_mesh_knowledge,
+)
 from package.utils.url_security import UrlSecurityValidator
 
 logger = logging.getLogger(__name__)
@@ -105,7 +109,8 @@ def _build_rag_prompt(
     eval_rec, prop, ptype_jp: str, asking_price_man: int,
     address: str, access: str, matched_kb: list, far_slack: float | None, matched_laws: list | None = None,
     site_text: str = "",
-    appraisal_ctx: dict | None = None
+    appraisal_ctx: dict | None = None,
+    rent_mesh_items: list | None = None
 ) -> str:
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
     tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
@@ -119,6 +124,10 @@ def _build_rag_prompt(
     legal_context = ""
     if matched_laws:
         legal_context = "\n【関係法令条文・都市特例条例（客観的法規制根拠）】\n" + "\n".join([f"・【{item.get('title')}】\n{item.get('body_text', '')[:400]}" for item in matched_laws])
+
+    rent_mesh_section = ""
+    if rent_mesh_items:
+        rent_mesh_section = "\n" + format_rent_mesh_context(rent_mesh_items)
 
     site_info_section = ""
     if site_text.strip():
@@ -156,6 +165,7 @@ def _build_rag_prompt(
 {future_historical_section}
 {appraisal_data_section}
 {site_info_section}
+{rent_mesh_section}
 {legal_context}
 【団長ナレッジベース（参考実戦哲学）】
 {kb_context}
@@ -165,7 +175,7 @@ def _build_rag_prompt(
 必ず以下のJSONフォーマットのみを返してください。Markdownのコードブロック(```json)は含めないでください。
 {{
   "investment_rating": "AAA" または "AA" または "A" または "B",
-  "area_evaluation": "【地域要因・需給評価】自治体の人口増減、平均所得、人口密度、周辺環境・ブランド力を踏まえた立地需給評価（1〜2文）。",
+  "area_evaluation": "【地域要因・需給評価】自治体の人口動態、周辺賃料相場・需給メッシュデータ、ブランド力を踏まえた立地需給・賃料下支え力評価（1〜2文）。",
   "station_evaluation": "【駅力・交通アクセス評価】最寄り駅の乗降客数規模、都心アクセス性、駅徒歩分数の希少性と生活利便性（1〜2文）。",
   "hazard_evaluation": "【自然・防災・ハザード評価】国交省ハザードリスク指標（浸水想定・土砂災害警戒区域）、地盤堅牢度を踏まえた災害脆弱性評価（1〜2文）。",
   "property_evaluation": "【物件スペック・価格歪み分析】道路付け（公道/私道・幅員）、土地形状、建物構造・築年、売出価格と積算・相場との乖離要因（1〜2文）。",
@@ -585,6 +595,29 @@ def _detect_region_tag(address: str) -> str:
     return ""
 
 
+def _resolve_property_rent_mesh(prop: Any) -> list[dict[str, Any]]:
+    """物件の所在地・駅情報に基づき賃料メッシュRAG知識を取得する (Issue #1323)"""
+    pref = getattr(prop, "prefecture", "") or ""
+    city = getattr(prop, "city", "") or ""
+    station = getattr(prop, "station", "") or getattr(prop, "nearestStation", "") or ""
+    return search_rent_mesh_knowledge(prefecture=pref, city=city, station=station, top_k=2)
+
+
+def _execute_gemini_report_call(
+    prompt: str, api_key: str, primary_model: str
+) -> dict[str, Any] | None:
+    """主要モデルおよびフォールバックモデルでGemini APIを順次試行する"""
+    seen_models = set()
+    for m in [primary_model, *FALLBACK_MODELS]:
+        if not m or m in seen_models:
+            continue
+        seen_models.add(m)
+        report_data = _call_gemini_api(m, api_key, prompt)
+        if report_data:
+            return report_data
+    return None
+
+
 def generate_professional_and_danchou_report(
     eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str
 ) -> dict[str, Any]:
@@ -609,22 +642,18 @@ def generate_professional_and_danchou_report(
     # 2. 地域・駅・ハザード・マンションレビュー等の客観的基礎データを統合収集 (Issue #1197)
     appraisal_ctx = build_appraisal_context(prop, ptype_jp)
 
+    # 3. 賃料・需給メッシュRAG知識の検索 (Issue #1323)
+    rent_mesh_items = _resolve_property_rent_mesh(prop)
+
     if api_key:
         prompt = _build_rag_prompt(
             eval_rec, prop, ptype_jp, asking_price_man, address, access, matched_kb, far_slack,
             matched_laws=matched_laws,
             site_text=site_text,
-            appraisal_ctx=appraisal_ctx
+            appraisal_ctx=appraisal_ctx,
+            rent_mesh_items=rent_mesh_items
         )
-        models_to_try = [model_name, *FALLBACK_MODELS]
-        seen_models = set()
-        for m in models_to_try:
-            if not m or m in seen_models:
-                continue
-            seen_models.add(m)
-            report_data = _call_gemini_api(m, api_key, prompt)
-            if report_data:
-                break
+        report_data = _execute_gemini_report_call(prompt, api_key, model_name)
 
     if not report_data:
         # 中身の伴わない固定フォールバックは生成・保存しない（Issue #1191）
