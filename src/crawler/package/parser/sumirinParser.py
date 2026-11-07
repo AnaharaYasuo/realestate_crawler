@@ -52,20 +52,37 @@ class SumirinParser(ParserBase):
         return "utf-8"
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
+        """物件詳細スペックテーブルから主要項目（所在地、価格、面積等）を辞書として抽出する。
+
+        店舗情報、問い合わせ先、フッターなどに含まれる補助テーブルは除外し、
+        物件概要のスペックのみを対象とする。
+        """
         resp_id = id(response)
         if not hasattr(self, '_scrape_specs_cache'):
             self._scrape_specs_cache = {}
         if resp_id in self._scrape_specs_cache:
             return self._scrape_specs_cache[resp_id]
 
+        def _is_excluded_element(tag) -> bool:
+            if not tag:
+                return False
+            classes = tag.get("class", [])
+            class_str = " ".join(classes).lower() if isinstance(classes, list) else str(classes).lower()
+            tag_id = str(tag.get("id", "")).lower()
+            keywords = ['shp', 'shop', 'branch', 'store', 'tenpo', 'inquiry', 'contact', 'footer', 'aside']
+            return any(k in class_str or k in tag_id for k in keywords)
+
         specs = {}
         for container in response.select('div.p-property-detail__table, table.p-property-detail__table, dl, table'):
-            # 店舗情報・問い合わせ・フッター等の dl/table を除外
-            if container.find_parent(class_=lambda x: x and any(k in str(x).lower() for k in ['shp', 'shop', 'branch', 'store', 'tenpo', 'inquiry', 'contact', 'footer', 'aside'])):
+            # container自身または親要素が店舗・問い合わせ・フッター情報である場合は除外
+            if _is_excluded_element(container) or container.find_parent(_is_excluded_element):
                 continue
             dts = container.select('dt, th')
             dds = container.select('dd, td')
             for dt, dd in zip(dts, dds):
+                # dt/dd 自体が店舗関連クラスで囲まれている場合も除外
+                if _is_excluded_element(dt) or _is_excluded_element(dd):
+                    continue
                 k = dt.get_text(strip=True).rstrip("：:")
                 v = dd.get_text(strip=True)
                 if k:
