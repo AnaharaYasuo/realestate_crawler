@@ -82,3 +82,28 @@ async def test_reguide_get_content_404_raises_listing_ended():
 
     with pytest.raises(ListingEndedException):
         await parser._getContent(mock_session, "https://www.re-guide.jp/investment/detail/12345")
+
+
+@pytest.mark.asyncio
+async def test_reguide_get_content_403_raises_access_blocked_after_retries():
+    """リガイドの403応答が連続した場合にAccessBlockedExceptionが送出されること (Issue #1310)"""
+    from unittest.mock import AsyncMock, MagicMock
+    from package.parser.baseParser import AccessBlockedException
+    parser = ReguideInvestmentParser()
+    mock_session = MagicMock()
+    mock_resp_403 = MagicMock()
+    mock_resp_403.status = 403
+
+    class MockContextManager:
+        async def __aenter__(self):
+            return mock_resp_403
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    mock_session.get = MagicMock(return_value=MockContextManager())
+
+    import unittest.mock as mock
+    with mock.patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(AccessBlockedException):
+            await parser._getContent(mock_session, "https://www.re-guide.jp/investment/list/")
+

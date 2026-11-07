@@ -1,13 +1,16 @@
+import logging
 from decimal import Decimal
 import re
 import urllib.parse
 from bs4 import BeautifulSoup
 from package.api.differential import ListItem
 from package.models.reguide import ReguideInvestment
-from package.parser.baseParser import SkipPropertyException
+from package.parser.baseParser import AccessBlockedException, ListingEndedException, SkipPropertyException
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
+
+logger = logging.getLogger(__name__)
 
 DIGIT_REGEX = re.compile(r"(\d+)")
 ALLOWED_DOMAIN = "re-guide.jp"
@@ -19,6 +22,34 @@ class ReguideInvestmentParser(InvestmentParser):
     BASE_URL = "https://www.re-guide.jp"
     MAX_CONSECUTIVE_TIMEOUTS = 5
     REQUEST_TIMEOUT_SEC = 25
+
+    @staticmethod
+    async def _handle_response_data(resp, url: str, attempt: int, max_attempts: int) -> bytes | None:
+        if resp.status in (200, 202):
+            data = await resp.read()
+            if len(data) >= 200:
+                return data
+            logger.warning(
+                "RE-Guide short response (%d bytes) for %s on attempt %d",
+                len(data),
+                url,
+                attempt + 1,
+            )
+            return None
+        if resp.status == 404:
+            raise ListingEndedException(f"RE-Guide 404 Listing Ended: {url}")
+        if resp.status == 403:
+            logger.warning("RE-Guide 403 Forbidden for %s on attempt %d", url, attempt + 1)
+            if attempt == max_attempts - 1:
+                raise AccessBlockedException(f"RE-Guide 403 Forbidden: {url}")
+            return None
+        logger.warning(
+            "RE-Guide unexpected status %d for %s on attempt %d",
+            resp.status,
+            url,
+            attempt + 1,
+        )
+        return None
 
     async def _getContent(self, session, url: str) -> bytes:
         headers = {
@@ -33,15 +64,13 @@ class ReguideInvestmentParser(InvestmentParser):
             try:
                 timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT_SEC, connect=10, sock_read=20)
                 async with session.get(url, headers=headers, timeout=timeout) as resp:
-                    if resp.status in (200, 202):
-                        data = await resp.read()
-                        if len(data) >= 200:
-                            return data
-                    elif resp.status == 404:
-                        from package.parser.baseParser import ListingEndedException
-                        raise ListingEndedException(f"RE-Guide 404 Listing Ended: {url}")
-            except Exception:
-                pass
+                    data = await self._handle_response_data(resp, url, attempt, max_attempts)
+                    if data is not None:
+                        return data
+            except (ListingEndedException, AccessBlockedException):
+                raise
+            except Exception as e:
+                logger.warning("RE-Guide fetch attempt %d failed for %s: %s", attempt + 1, url, e)
             if attempt < max_attempts - 1:
                 await asyncio.sleep(2.0 * (attempt + 1))
         return await super()._getContent(session, url)
