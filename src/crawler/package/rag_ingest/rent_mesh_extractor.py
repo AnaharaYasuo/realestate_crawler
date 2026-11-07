@@ -7,6 +7,7 @@ import datetime
 import hashlib
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
@@ -39,8 +40,10 @@ class MeshHtmlToMarkdownExtractor:
     """HTMLから余分なUIノイズを除去し、相場・需給情報をMarkdownおよび構造化チャンクに変換する"""
 
     def validate_url(self, url: str) -> None:
-        """健美家および禁止ドメインのチェック"""
-        if "kenbiya.com" in url.lower():
+        """健美家および禁止ドメインのチェック（ホスト名の正確なドメイン検証）"""
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname == "kenbiya.com" or hostname.endswith(".kenbiya.com"):
             raise KenbiyaBlockedException(f"Kenbiya access is strictly prohibited: {url}")
 
     def extract(
