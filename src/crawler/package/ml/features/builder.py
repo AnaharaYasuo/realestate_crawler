@@ -58,6 +58,26 @@ from .reference_data import (
 logger = logging.getLogger(__name__)
 
 
+def _first_valid_attr(obj, *names, default=''):
+    for name in names:
+        val = _get_attr(obj, name, None)
+        if val:
+            return val
+    return default
+
+
+def _extract_category_feature_updates(property_obj, combined_text, zone_name_prop) -> dict:
+    updates = {}
+    youto_val = _first_valid_attr(property_obj, 'youtoChiiki', default=str(zone_name_prop or ''))
+    updates.update(parse_youto_zone_features(youto_val))
+    madori_val = _first_valid_attr(property_obj, 'madori', 'roomLayout')
+    updates.update(parse_madori_layout_features(madori_val, combined_text))
+    floor_val = _first_valid_attr(property_obj, 'kai', 'floor', 'floorNumber', 'kaisu')
+    total_floor_val = _first_valid_attr(property_obj, 'chijo', 'totalFloor', 'totalFloors')
+    updates.update(parse_floor_features(floor_val, total_floor_val, combined_text))
+    return updates
+
+
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None, building_master_lookup=None):
     """
     共通特徴量エンジニアリング関数 (Djangoモデルオブジェクトまたは辞書に対応)
@@ -226,20 +246,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats.update(parse_chimoku_features(chimoku_str))
     feats.update(parse_kouzou_features(kouzou_str))
     feats.update(parse_company_features(company))
-    def _first_valid_attr(*names, default=''):
-        for name in names:
-            val = _get_attr(property_obj, name, None)
-            if val:
-                return val
-        return default
-
-    youto_val = _first_valid_attr('youtoChiiki', default=str(zone_name_prop or ''))
-    feats.update(parse_youto_zone_features(youto_val))
-    madori_val = _first_valid_attr('madori', 'roomLayout')
-    feats.update(parse_madori_layout_features(madori_val, combined_text))
-    floor_val = _first_valid_attr('kai', 'floor', 'floorNumber', 'kaisu')
-    total_floor_val = _first_valid_attr('chijo', 'totalFloor', 'totalFloors')
-    feats.update(parse_floor_features(floor_val, total_floor_val, combined_text))
+    feats.update(_extract_category_feature_updates(property_obj, combined_text, zone_name_prop))
 
     return feats
 
