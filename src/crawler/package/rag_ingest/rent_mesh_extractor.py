@@ -56,31 +56,32 @@ class MeshHtmlToMarkdownExtractor:
             lines.append("")
         return lines
 
+    def _convert_container_to_markdown(self, elem: Tag) -> List[str]:
+        nested_lines: List[str] = []
+        for child in elem.children:
+            if isinstance(child, Tag):
+                nested_lines.extend(self._convert_element_to_markdown(child))
+        if nested_lines:
+            return nested_lines
+        text = elem.get_text(strip=True)
+        if text and 20 <= len(text) <= 500:
+            return [f"{text}\n"]
+        return []
+
     def _convert_element_to_markdown(self, elem: Tag) -> List[str]:
         if elem.name in ["h1", "h2", "h3", "h4"]:
             text = elem.get_text(strip=True)
             if text:
-                level = elem.name[1]
-                prefix = "#" * int(level) + " "
+                prefix = "#" * int(elem.name[1]) + " "
                 return [f"\n{prefix}{text}\n"]
-        elif elem.name == "p":
+        if elem.name == "p":
             text = elem.get_text(strip=True)
             if text and len(text) > 5:
                 return [f"{text}\n"]
-        elif elem.name == "table":
+        if elem.name == "table":
             return self._convert_table_to_markdown(elem)
-        elif elem.name in ["section", "article", "div"]:
-            # 入れ子要素を再帰的または順次抽出
-            nested_lines: List[str] = []
-            for child in elem.children:
-                if isinstance(child, Tag):
-                    nested_lines.extend(self._convert_element_to_markdown(child))
-            if nested_lines:
-                return nested_lines
-            # 子タグがなく直接テキストを持つdiv
-            text = elem.get_text(strip=True)
-            if text and 20 <= len(text) <= 500:
-                return [f"{text}\n"]
+        if elem.name in ["section", "article", "div"]:
+            return self._convert_container_to_markdown(elem)
         return []
 
     def _extract_markdown_body(self, soup: BeautifulSoup, raw_title: str) -> str:
