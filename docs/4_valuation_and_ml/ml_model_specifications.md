@@ -147,6 +147,14 @@ OOF深層残差分析により判明した大面積帯（268㎡超）の単価�
    - `builtYear`や`buildDate`等のカラム名差異を網羅抽出。完全欠損時は0年（新築）ではなく保守的中間値（木造38年、RC32年）を補完。
 5. **想定純賃料還元価値アンカー (`income_approach_value`)**:
    - 立地・面積・構造・築年数に応じた想定月額賃料を地域期待利回り（Cap Rate 4.0%〜6.5%）で還元し、全物件種別における客観的経済価値アンカーとしてモデルへ供給。
+6. **戸建て低価格帯・築古過大評価防止 (`demolition_cost_discount`, `building_depreciation_ratio`) (Issue #1304)**:
+   - 木造戸建ての法定耐用年数（22年）超過後の建物残存価値の底打ちカーブ（`building_depreciation_ratio`）および、更地渡し・古家付き土地としての解体費用控除（`demolition_cost_discount`）を導入し、2,300万円以下低価格帯における過大バイアス（+57.9%）を是正。
+7. **マンション築古・駅遠過小評価是正 (`mansion_vintage_floor`, `scale_vintage_interaction`) (Issue #1305)**:
+   - 築30年超過後の減価底打ちスプライン特徴量（`mansion_vintage_floor`）および総戸数（スケールメリット）×築年数の交差項（`scale_vintage_interaction`）を導入し、築35年超の過小評価（-14.8%）および徒歩15分超の過小評価（-11.5%）を是正。
+8. **土地低価格帯・郊外低需要エリア補正 (`low_demand_land_discount`) (Issue #1306)**:
+   - 平均公示地価・路線価が著しく低いエリア（平米単価5万円以下）または市街化調整区域における需要減退を指数関数的に織り込む非線形減価特徴量（`low_demand_land_discount`）を導入し、1,800万円以下低価格帯の過大評価（+78.7%）を是正。
+9. **価格帯別不均一分散（Heteroskedasticity）に対応する学習時サンプル重み (`calculate_time_decay_weights`) (Issue #1307)**:
+   - 低価格帯のパーセント誤差（MAPE）に対するペナルティを高めるため、価格水準に応じた不均一分散調整重み（$\propto 1 / \sqrt{\ln(\max(e, \text{price\_man}))}$）を時間減衰重みに乗算し、低価格帯の学習精度を底上げ。
 
 ---
 

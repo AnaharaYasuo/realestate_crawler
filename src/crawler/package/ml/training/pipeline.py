@@ -77,7 +77,8 @@ def train_property_type(
     outliers_count = before_clean - after_clean
 
     dates = df["input_date"].values if "input_date" in df.columns else [None] * len(df)
-    sample_weights = calculate_time_decay_weights(dates)
+    prices_man = df["price"].values if "price" in df.columns else None
+    sample_weights = calculate_time_decay_weights(dates, prices_man=prices_man)
 
     # 一次モデルの訓練と保存
     first_cols = feature_sets[ptype]["first"]

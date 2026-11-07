@@ -37,11 +37,12 @@ def calculate_time_decay_weights(
     base_date: datetime.date | datetime.datetime | None = None,
     decay_rate: float = 0.0005,
     min_weight: float = 0.20,
+    prices_man: Any = None,
 ) -> np.ndarray:
     """
-    物件の掲載日からの経過日数に応じた時間減衰重みを算出する。
-    半減期約3.8年 (decay_rate=0.0005)、最低重み 0.20 (過度な情報損失防止)。
-    w = max(min_weight, exp(-decay_rate * delta_days))
+    物件の掲載日からの経過日数に応じた時間減衰重み、および
+    低価格帯の不均一分散（Heteroskedasticity: MAPEペナルティの低下）を是正する
+    価格感応重みを算出して乗算する (Issue #1307)。
     """
     if base_date is None:
         target_base = datetime.datetime.now(datetime.timezone.utc).date()
@@ -58,4 +59,17 @@ def calculate_time_decay_weights(
     weights = np.maximum(min_weight, weights)
     # 不正・欠損値は min_weight に置換
     weights = np.where(np.isnan(weights), min_weight, weights)
+
+    if prices_man is not None:
+        prices_arr = np.array(prices_man, dtype=np.float64)
+        valid_prices = np.where((prices_arr > 0) & (~np.isnan(prices_arr)), prices_arr, 3000.0)
+        log_p = np.log(np.maximum(10.0, valid_prices))
+        ref_log = float(np.log(3000.0))
+        w_price = np.sqrt(ref_log / log_p)
+        w_price = np.clip(w_price, 0.5, 2.0)
+        weights = weights * w_price
+        mean_w = np.mean(weights)
+        if mean_w > 0:
+            weights = weights / mean_w
+
     return weights.astype(np.float64)
