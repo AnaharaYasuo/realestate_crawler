@@ -51,7 +51,37 @@ class SumirinParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
+    @staticmethod
+    def _is_excluded_spec_element(tag) -> bool:
+        if not tag:
+            return False
+        classes = tag.get("class", [])
+        class_str = " ".join(classes).lower() if isinstance(classes, list) else str(classes).lower()
+        tag_id = str(tag.get("id", "")).lower()
+        keywords = ('shp', 'shop', 'branch', 'store', 'tenpo', 'inquiry', 'contact', 'footer', 'aside')
+        return any(k in class_str or k in tag_id for k in keywords)
+
+    def _extract_container_specs(self, container) -> dict:
+        if self._is_excluded_spec_element(container) or container.find_parent(self._is_excluded_spec_element):
+            return {}
+        result = {}
+        dts = container.select('dt, th')
+        dds = container.select('dd, td')
+        for dt, dd in zip(dts, dds):
+            if self._is_excluded_spec_element(dt) or self._is_excluded_spec_element(dd):
+                continue
+            k = dt.get_text(strip=True).rstrip("：:")
+            v = dd.get_text(strip=True)
+            if k:
+                result[k] = v
+        return result
+
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
+        """物件詳細スペックテーブルから主要項目（所在地、価格、面積等）を辞書として抽出する。
+
+        店舗情報、問い合わせ先、フッターなどに含まれる補助テーブルは除外し、
+        物件概要のスペックのみを対象とする。
+        """
         resp_id = id(response)
         if not hasattr(self, '_scrape_specs_cache'):
             self._scrape_specs_cache = {}
@@ -60,13 +90,7 @@ class SumirinParser(ParserBase):
 
         specs = {}
         for container in response.select('div.p-property-detail__table, table.p-property-detail__table, dl, table'):
-            dts = container.select('dt, th')
-            dds = container.select('dd, td')
-            for dt, dd in zip(dts, dds):
-                k = dt.get_text(strip=True).rstrip("：:")
-                v = dd.get_text(strip=True)
-                if k:
-                    specs[k] = v
+            specs.update(self._extract_container_specs(container))
 
         self._scrape_specs_cache[resp_id] = specs
         return specs
