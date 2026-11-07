@@ -69,3 +69,18 @@ rag/
   - `test_rent_mesh_schema.py`: 生成されたチャンクが `rag_knowledge_ingestion_spec.md` の必須項目をすべて満たしているか検証。
   - `test_mesh_html_extractor.py`: サンプルHTMLからノイズが除去され、相場情報が欠落なくMarkdown化されるかをテスト。
   - `test_kenbiya_exclusion_guard.py`: 健美家のURLやドメインが設定・キューに含まれた場合に自動検出し、例外を発生させてアクセスを拒絶する安全ガードテスト。
+  - `test_rent_mesh_qualitative_rag.py`: 物件の所在地・駅に応じた賃料・需給メッシュの検索・抽出およびAI定性評価プロンプト注入のテスト。
+
+## 7. AI定性評価（report_generator）へのRAG統合 (Issue #1323)
+蓄積された賃料・需給メッシュのRAGナレッジ（`rag/curated/statistics/`）は、AIによる定性評価レポート生成エンジン（`src/crawler/package/ml/report_generator.py`）で能動的に検索・注入される。
+
+1. **検索クエリおよびマッチングルール (`package.ml.rent_mesh_rag`)**:
+   - 物件の都道府県（`prefecture`）、市区町村（`city`）、最寄り駅（`station`）をキーに、最も近傍かつ高解像度な賃料・需給メッシュチャンクを検索・ロードする。
+   - GCS（`rag/curated/statistics/`）およびローカルキャッシュ（`src/crawler/data/rag/curated/statistics/`）に対応。
+2. **プロンプト注入 (`_build_rag_prompt`)**:
+   - プロンプトの客観データセクションに【周辺賃料相場・需給メッシュ（統計RAG）】として注入。
+   - 間取り別相場、駅徒歩別相場、賃貸需要・需給傾向をプロンプトに提示。
+3. **AI出力項目の強化**:
+   - 出力要件の `area_evaluation`（地域要因・需給評価）や `highest_and_best_use`（最有効使用・出口戦略）において、注入された賃料メッシュデータに基づく賃料下支え力や客付け難易度の具体的言及を指示。
+   - `eval_rec.rent_mesh_evaluation` または `area_evaluation` / `ai_evaluation_summary` に賃料メッシュ評価を統合反映。
+
