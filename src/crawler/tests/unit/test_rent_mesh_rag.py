@@ -16,22 +16,28 @@ SAMPLE_HOMES_HTML = """
   <h1>中目黒駅の家賃相場情報</h1>
   <p class="lead">中目黒駅（東京都目黒区）の家賃相場情報です。駅徒歩分数や間取りごとの賃料水準と市場動向を掲載しています。</p>
   
-  <h2>間取り別 家賃相場</h2>
-  <table class="price-table">
-    <thead>
-      <tr><th>間取り</th><th>マンション相場</th><th>アパート相場</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>ワンルーム</td><td>10.8万円</td><td>8.9万円</td></tr>
-      <tr><td>1K・1DK</td><td>11.5万円</td><td>9.4万円</td></tr>
-      <tr><td>1LDK・2K・2DK</td><td>19.8万円</td><td>15.2万円</td></tr>
-    </tbody>
-  </table>
+  <section class="price-section">
+    <h2>間取り別 家賃相場</h2>
+    <div class="table-wrapper">
+      <table class="price-table">
+        <thead>
+          <tr><th>間取り</th><th>マンション相場</th><th>アパート相場</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ワンルーム</td><td>10.8万円</td><td>8.9万円</td></tr>
+          <tr><td>1K・1DK</td><td>11.5万円</td><td>9.4万円</td></tr>
+          <tr><td>1LDK・2K・2DK</td><td>19.8万円</td><td>15.2万円</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-  <h2>駅徒歩分数別の相場傾向</h2>
-  <div class="walk-desc">
-    徒歩5分以内の物件は単身層・DINKS層の需要が極めて高く、徒歩10分超と比べて賃料維持率が約15%高い傾向にあります。
-  </div>
+  <article class="walk-section">
+    <h2>駅徒歩分数別の相場傾向</h2>
+    <div class="walk-desc">
+      徒歩5分以内の物件は単身層・DINKS層の需要が極めて高く、徒歩10分超と比べて賃料維持率が約15%高い傾向にあります。
+    </div>
+  </article>
 </main>
 <footer><p>Copyright 2026</p></footer>
 </body>
@@ -42,6 +48,10 @@ def test_kenbiya_exclusion_guard():
     extractor = MeshHtmlToMarkdownExtractor()
     with pytest.raises(KenbiyaBlockedException, match="Kenbiya access is strictly prohibited"):
         extractor.validate_url("https://www.kenbiya.com/price/tokyo/")
+
+    with pytest.raises(KenbiyaBlockedException, match="Kenbiya access is strictly prohibited"):
+        extractor.validate_url("https://www.kenbiya.com./price/tokyo/")
+
 
 def test_extract_markdown_and_chunk():
     extractor = MeshHtmlToMarkdownExtractor()

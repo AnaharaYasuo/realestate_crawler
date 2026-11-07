@@ -46,7 +46,7 @@ class RentMeshPipeline:
                 raw_path = f"rag/raw/rent_mesh/source={source_id}/pref={prefecture}/{chunk.id}.html"
                 self.storage.upload_bytes(
                     data=html_content.encode("utf-8"),
-                    blob_path=raw_path,
+                    key=raw_path,
                     content_type="text/html; charset=utf-8",
                 )
             except Exception:
@@ -55,13 +55,16 @@ class RentMeshPipeline:
         return chunk
 
     def upload_chunk_to_gcs(self, chunk: RentMeshChunk) -> str:
-        """構造化チャンクを GCS の rag/curated/statistics/ 配下に保存。"""
+        """
+        構造化チャンクを GCS の rag/curated/statistics/ 配下に保存。
+        上書きによる既存メッシュ損失を防ぐため、チャンク固有のIDプレフィックス付きで保存。
+        """
         pref = chunk.metadata.get("prefecture", "japan")
-        curated_blob = f"rag/curated/statistics/rent_mesh_{pref}.jsonl"
+        curated_blob = f"rag/curated/statistics/pref={pref}/{chunk.id}.jsonl"
 
         jsonl_line = chunk.model_dump_json() + "\n"
         return self.storage.upload_bytes(
             data=jsonl_line.encode("utf-8"),
-            blob_path=curated_blob,
+            key=curated_blob,
             content_type="application/x-ndjson",
         )

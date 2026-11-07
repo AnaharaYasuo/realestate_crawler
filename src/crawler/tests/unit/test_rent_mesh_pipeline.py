@@ -42,7 +42,10 @@ def test_pipeline_streaming_and_kenbiya_guard():
     assert chunk is not None
     assert chunk.metadata["station"] == "新宿"
     
-    # GCSへのチャンクアップロード呼び出し確認
+    # GCSへのチャンクアップロード呼び出し確認（key 引数の使用と上書き防止プレフィックス検証）
     uploaded_path = pipeline.upload_chunk_to_gcs(chunk)
     assert uploaded_path == "gs://test-bucket/rag/test.jsonl"
     assert mock_storage.upload_bytes.call_count == 1
+    call_kwargs = mock_storage.upload_bytes.call_args.kwargs
+    assert "key" in call_kwargs
+    assert f"rag/curated/statistics/pref=東京都/{chunk.id}.jsonl" == call_kwargs["key"]

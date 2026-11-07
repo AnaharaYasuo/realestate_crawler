@@ -37,9 +37,9 @@ class MeshHtmlToMarkdownExtractor:
     """HTMLから余分なUIノイズを除去し、相場・需給情報をMarkdownおよび構造化チャンクに変換する。"""
 
     def validate_url(self, url: str) -> None:
-        """健美家および禁止ドメインのチェック。"""
+        """健美家および禁止ドメインのチェック（末尾ドットも正規化）。"""
         parsed = urlparse(url)
-        hostname = (parsed.hostname or "").lower()
+        hostname = (parsed.hostname or "").lower().rstrip(".")
         if hostname == "kenbiya.com" or hostname.endswith(".kenbiya.com"):
             raise KenbiyaBlockedException(f"Kenbiya access is strictly prohibited: {url}")
 
@@ -57,10 +57,11 @@ class MeshHtmlToMarkdownExtractor:
         return lines
 
     def _convert_element_to_markdown(self, elem: Tag) -> List[str]:
-        if elem.name in ["h2", "h3"]:
+        if elem.name in ["h1", "h2", "h3", "h4"]:
             text = elem.get_text(strip=True)
             if text:
-                prefix = "## " if elem.name == "h2" else "### "
+                level = elem.name[1]
+                prefix = "#" * int(level) + " "
                 return [f"\n{prefix}{text}\n"]
         elif elem.name == "p":
             text = elem.get_text(strip=True)
@@ -68,19 +69,27 @@ class MeshHtmlToMarkdownExtractor:
                 return [f"{text}\n"]
         elif elem.name == "table":
             return self._convert_table_to_markdown(elem)
-        elif elem.name == "div":
+        elif elem.name in ["section", "article", "div"]:
+            # 入れ子要素を再帰的または順次抽出
+            nested_lines: List[str] = []
+            for child in elem.children:
+                if isinstance(child, Tag):
+                    nested_lines.extend(self._convert_element_to_markdown(child))
+            if nested_lines:
+                return nested_lines
+            # 子タグがなく直接テキストを持つdiv
             text = elem.get_text(strip=True)
             if text and 20 <= len(text) <= 500:
                 return [f"{text}\n"]
         return []
 
     def _extract_markdown_body(self, soup: BeautifulSoup, raw_title: str) -> str:
-        target_container = soup.find("main") or soup.find("body") or soup
+        target_container = soup.find("main") or soup.find("article") or soup.find("body") or soup
         markdown_lines: List[str] = []
         if raw_title:
             markdown_lines.append(f"# {raw_title}\n")
 
-        for elem in target_container.find_all(["h2", "h3", "p", "table", "div"], recursive=False):
+        for elem in target_container.children:
             if isinstance(elem, Tag):
                 markdown_lines.extend(self._convert_element_to_markdown(elem))
 
