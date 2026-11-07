@@ -1,9 +1,5 @@
-"""
-全国賃料・需給メッシュのRAGパイプライン統合マネージャー
-(GCSアップロード、健美家除外ガード、既存RAG形式互換)
-"""
+"""全国賃料・需給メッシュのRAGパイプライン統合マネージャー。"""
 
-import json
 import logging
 from typing import Optional
 from package.rag_ingest.rent_mesh_extractor import (
@@ -31,7 +27,7 @@ class RentMeshPipeline:
         source_id: str = "market_data",
         archive_raw_html: bool = False,
     ) -> Optional[RentMeshChunk]:
-        """ページHTMLを安全に抽出し、チャンク化（健美家は自動除外）"""
+        """ページHTMLを安全に抽出し、チャンク化（健美家は自動除外）。"""
         try:
             chunk = self.extractor.extract(
                 url=url,
@@ -42,7 +38,7 @@ class RentMeshPipeline:
                 source_id=source_id,
             )
         except KenbiyaBlockedException as e:
-            logger.warning(f"Blocked URL bypassed safely: {e}")
+            logger.warning("Blocked URL bypassed safely: %s", e)
             return None
 
         if archive_raw_html and self.storage:
@@ -53,13 +49,13 @@ class RentMeshPipeline:
                     blob_path=raw_path,
                     content_type="text/html; charset=utf-8",
                 )
-            except Exception as e:
-                logger.error(f"Failed to archive raw HTML for {url}: {e}")
+            except Exception:
+                logger.exception("Failed to archive raw HTML for %s", url)
 
         return chunk
 
     def upload_chunk_to_gcs(self, chunk: RentMeshChunk) -> str:
-        """構造化チャンクを GCS の rag/curated/statistics/ 配下に保存"""
+        """構造化チャンクを GCS の rag/curated/statistics/ 配下に保存。"""
         pref = chunk.metadata.get("prefecture", "japan")
         curated_blob = f"rag/curated/statistics/rent_mesh_{pref}.jsonl"
 

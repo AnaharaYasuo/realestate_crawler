@@ -1,19 +1,16 @@
-"""
-全国賃料・需給メッシュデータ抽出およびチャンク化モジュール
-(nationwide_rent_mesh_rag_spec.md に準拠)
-"""
+"""全国賃料・需給メッシュデータ抽出およびチャンク化モジュール。"""
 
 import datetime
 import hashlib
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel, Field
 
 
 class KenbiyaBlockedException(Exception):
-    """健美家（アクセス制限あり）へのアクセスを禁止する例外"""
+    """健美家（アクセス制限あり）へのアクセスを禁止する例外。"""
     pass
 
 
@@ -37,14 +34,57 @@ class RentMeshChunk(BaseModel):
 
 
 class MeshHtmlToMarkdownExtractor:
-    """HTMLから余分なUIノイズを除去し、相場・需給情報をMarkdownおよび構造化チャンクに変換する"""
+    """HTMLから余分なUIノイズを除去し、相場・需給情報をMarkdownおよび構造化チャンクに変換する。"""
 
     def validate_url(self, url: str) -> None:
-        """健美家および禁止ドメインのチェック（ホスト名の正確なドメイン検証）"""
+        """健美家および禁止ドメインのチェック。"""
         parsed = urlparse(url)
         hostname = (parsed.hostname or "").lower()
         if hostname == "kenbiya.com" or hostname.endswith(".kenbiya.com"):
             raise KenbiyaBlockedException(f"Kenbiya access is strictly prohibited: {url}")
+
+    def _convert_table_to_markdown(self, table: Tag) -> List[str]:
+        lines: List[str] = []
+        rows = table.find_all("tr")
+        for i, row in enumerate(rows):
+            cols = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
+            if cols:
+                lines.append("| " + " | ".join(cols) + " |")
+                if i == 0:
+                    lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
+        if lines:
+            lines.append("")
+        return lines
+
+    def _convert_element_to_markdown(self, elem: Tag) -> List[str]:
+        if elem.name in ["h2", "h3"]:
+            text = elem.get_text(strip=True)
+            if text:
+                prefix = "## " if elem.name == "h2" else "### "
+                return [f"\n{prefix}{text}\n"]
+        elif elem.name == "p":
+            text = elem.get_text(strip=True)
+            if text and len(text) > 5:
+                return [f"{text}\n"]
+        elif elem.name == "table":
+            return self._convert_table_to_markdown(elem)
+        elif elem.name == "div":
+            text = elem.get_text(strip=True)
+            if text and 20 <= len(text) <= 500:
+                return [f"{text}\n"]
+        return []
+
+    def _extract_markdown_body(self, soup: BeautifulSoup, raw_title: str) -> str:
+        target_container = soup.find("main") or soup.find("body") or soup
+        markdown_lines: List[str] = []
+        if raw_title:
+            markdown_lines.append(f"# {raw_title}\n")
+
+        for elem in target_container.find_all(["h2", "h3", "p", "table", "div"], recursive=False):
+            if isinstance(elem, Tag):
+                markdown_lines.extend(self._convert_element_to_markdown(elem))
+
+        return "\n".join(markdown_lines).strip()
 
     def extract(
         self,
@@ -59,57 +99,17 @@ class MeshHtmlToMarkdownExtractor:
         self.validate_url(url)
 
         soup = BeautifulSoup(html_content, "html.parser")
-
-        # 不要なタグを除去
         for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "iframe"]):
             tag.decompose()
 
-        # タイトル取得
         title_tag = soup.find("h1") or soup.find("title")
         raw_title = title_tag.get_text(strip=True) if title_tag else "地域賃料相場・需給動向"
 
-        # 地域情報の正規化
         region_parts = [p for p in [prefecture, city, station] if p]
         region_str = "".join(region_parts)
 
-        # 本文・テーブル・テキストのMarkdown化
-        # mainタグがあれば優先、無ければbody
-        target_container = soup.find("main") or soup.find("body") or soup
+        body_text = self._extract_markdown_body(soup, raw_title)
 
-        markdown_lines: List[str] = []
-        if raw_title:
-            markdown_lines.append(f"# {raw_title}\n")
-
-        # 主要な見出しやパラグラフ、テーブルを走査
-        for elem in target_container.find_all(["h2", "h3", "p", "table", "div"], recursive=False):
-            if elem.name in ["h2", "h3"]:
-                text = elem.get_text(strip=True)
-                if text:
-                    prefix = "## " if elem.name == "h2" else "### "
-                    markdown_lines.append(f"\n{prefix}{text}\n")
-            elif elem.name == "p":
-                text = elem.get_text(strip=True)
-                if text and len(text) > 5:
-                    markdown_lines.append(f"{text}\n")
-            elif elem.name == "table":
-                # テーブルを簡易Markdown表に変換
-                rows = elem.find_all("tr")
-                for i, row in enumerate(rows):
-                    cols = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
-                    if cols:
-                        markdown_lines.append("| " + " | ".join(cols) + " |")
-                        if i == 0:
-                            markdown_lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
-                markdown_lines.append("")
-            elif elem.name == "div":
-                text = elem.get_text(strip=True)
-                # ノイズが少なく適度な長さのテキストを抽出
-                if text and 20 <= len(text) <= 500:
-                    markdown_lines.append(f"{text}\n")
-
-        body_text = "\n".join(markdown_lines).strip()
-
-        # エッセンス（要約）の自動生成（先頭400文字程度）
         cleaned_summary = re.sub(r"[#|\n\-]", " ", body_text)
         essence = re.sub(r"\s+", " ", cleaned_summary).strip()[:350]
 
