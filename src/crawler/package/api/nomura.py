@@ -80,8 +80,8 @@ class ParseNomuraMansionListFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraMansionParser("")
     def _getParserFunc(self): return self.parser.parsePropertyListPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 360
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_DETAIL_GCP
@@ -153,8 +153,8 @@ class ParseNomuraKodateListFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraKodateParser("")
     def _getParserFunc(self): return self.parser.parsePropertyListPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 360
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_DETAIL_GCP
@@ -226,8 +226,8 @@ class ParseNomuraTochiListFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraTochiParser("")
     def _getParserFunc(self): return self.parser.parsePropertyListPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 360
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_DETAIL_GCP
