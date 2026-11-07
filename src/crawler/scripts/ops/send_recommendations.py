@@ -399,7 +399,8 @@ def _format_access_and_area(prop) -> tuple:
     area_info = " / ".join(area_parts) if area_parts else "-"
     return access, area_info
 
-def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
+def _extract_property_display_info(prop, eval_rec) -> tuple[str, int, float, str, str]:
+    """物件表示用の共通情報（ptype_jp, asking_price_man, pred_price, address, access）を抽出する"""
     asking_price = getattr(prop, "price", 0)
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
@@ -416,12 +417,17 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         "investment": "投資用物件"
     }.get(eval_rec.property_type, eval_rec.property_type)
 
-    # 住所の全フィールド統合フォールバック
     addr_parts = [clean_val(getattr(prop, f"address{i}", "")) for i in ["", "1", "2", "3", "Kyoto"]]
     addr_valid = [p for p in addr_parts if p and p != "-"]
     address = " ".join(addr_valid) if addr_valid else "住所情報なし"
 
-    access, area_info = _format_access_and_area(prop)
+    access, _ = _format_access_and_area(prop)
+    return ptype_jp, asking_price_man, pred_price, address, access
+
+
+def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_data: dict | None = None) -> str:
+    ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
+    _, area_info = _format_access_and_area(prop)
     chikunen = clean_val(getattr(prop, "chikunengetsuStr", getattr(prop, "chikunenki", "")))
     madori = clean_val(getattr(prop, "madori", ""))
     kenpei = clean_val(getattr(prop, "kenpeiStr", getattr(prop, "kenpei", "")))
@@ -432,16 +438,17 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
     diff_man = int(pred_price - asking_price_man) if pred_price > 0 else 0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0 if pred_price > 0 else 0.0
 
-    # 【通知対象限定】プロ鑑定 ＆ 団長RAG高度レポートの生成とDB永続化 (Issue #1175)
-    report_data = generate_professional_and_danchou_report(
-        eval_rec=eval_rec,
-        prop=prop,
-        ptype_jp=ptype_jp,
-        asking_price_man=asking_price_man,
-        pred_price=pred_price,
-        address=address,
-        access=access
-    )
+    # レポートが渡されていない場合は生成、渡されている場合は再利用 (Issue #1314)
+    if report_data is None:
+        report_data = generate_professional_and_danchou_report(
+            eval_rec=eval_rec,
+            prop=prop,
+            ptype_jp=ptype_jp,
+            asking_price_man=asking_price_man,
+            pred_price=pred_price,
+            address=address,
+            access=access
+        )
 
     rating_str = f" [{report_data.get('investment_rating')}]" if report_data and report_data.get("investment_rating") else ""
 
@@ -514,9 +521,9 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
     )
     return msg
 
-def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
+def _dispatch_single_recommendation(eval_rec, prop, reason: str, report_data: dict | None = None) -> bool:
     p_name = clean_val(getattr(prop, "propertyName", "不明な物件名"))
-    msg = _build_recommendation_msg(eval_rec, prop, reason, p_name)
+    msg = _build_recommendation_msg(eval_rec, prop, reason, p_name, report_data=report_data)
     channel_id = _get_target_slack_channel(eval_rec, prop, p_name)
 
     logger.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
@@ -713,13 +720,26 @@ def send_recommendations():
     # Stage 2: AI定性評価・レポート生成と永続化（レートリミット対策インターバル付き）
     # 既にレポート生成済みの場合はスキップし、未生成のものにAPIコールを実行
     eval_index = 0
+    report_cache: dict[str, dict] = {}
+
     for cat, cands in candidates_by_category.items():
         for priority, eval_rec, prop, reason in cands:
             eval_index += 1
             # レポート未生成（または未保存）の場合のみAI定性評価を実行
             if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
                 try:
-                    generate_professional_and_danchou_report(eval_rec, prop=prop)
+                    ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
+                    rep = generate_professional_and_danchou_report(
+                        eval_rec=eval_rec,
+                        prop=prop,
+                        ptype_jp=ptype_jp,
+                        asking_price_man=asking_price_man,
+                        pred_price=pred_price,
+                        address=address,
+                        access=access,
+                    )
+                    if rep:
+                        report_cache[eval_rec.property_url] = rep
                 except Exception as e:
                     logger.warning("Error generating report for %s: %s", eval_rec.property_url, e)
                 # レートリミットを考慮したインターバル待機 (Issue #1311)
@@ -738,7 +758,8 @@ def send_recommendations():
     sent_count = 0
     channel_counts: dict[str, int] = {}
     for _, eval_rec, prop, reason in top_candidates:
-        if _dispatch_single_recommendation(eval_rec, prop, reason):
+        cached_rep = report_cache.get(eval_rec.property_url)
+        if _dispatch_single_recommendation(eval_rec, prop, reason, report_data=cached_rep):
             sent_count += 1
             metrics.record_processed(1)
             ptype_key = eval_rec.property_type.lower().replace("_", "")
