@@ -12,6 +12,7 @@ from .building import (
     _extract_building_master_and_amenity_features,
     _prefetch_building_masters,
 )
+from .bias_correction import calculate_bias_correction_features
 from .feature_sets import FEATURE_SETS
 from .legal_furuya import (
     _extract_combined_text_for_prop,
@@ -152,6 +153,11 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         area, tatemono_area, tochi_area, chikunen, scale_discount
     )
 
+    bias_feats = calculate_bias_correction_features(
+        property_obj, property_type, chikunen, tatemono_area, tochi_area,
+        average_land_price, kouzou_str, combined_text, legal_furuya_feats.get("is_shigaika_chousei", 0.0)
+    )
+
     feats = {
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
         "tochi_menseki": tochi_area,
@@ -198,6 +204,11 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "scale_discount": scale_discount,
         "log_tochi_menseki": round(math.log(max(1.0, float(tochi_area))), 4),
         "narrow_road_penalty": 0.80 if (float(road_width_val) > 0 and float(road_width_val) < 4.0) or float(setback_ratio) > 0 else 1.0,
+        "building_depreciation_ratio": bias_feats["building_depreciation_ratio"],
+        "demolition_cost_discount": bias_feats["demolition_cost_discount"],
+        "mansion_vintage_floor": bias_feats["mansion_vintage_floor"],
+        "scale_vintage_interaction": bias_feats["scale_vintage_interaction"],
+        "low_demand_land_discount": bias_feats["low_demand_land_discount"],
         "zone_max_kenpei": zone_max_kenpei,
         "zone_max_youseki": zone_max_youseki,
         "kouzou_lifespan_ratio": kouzou_lifespan_ratio,
