@@ -74,6 +74,7 @@ def _load_rent_mesh_from_gcs() -> list[dict[str, Any]]:
     if not gcs_bucket:
         return []
     try:
+        from google.auth.exceptions import GoogleAuthError
         from google.cloud import storage
         client = storage.Client()
         bucket = client.bucket(gcs_bucket)
@@ -83,7 +84,7 @@ def _load_rent_mesh_from_gcs() -> list[dict[str, Any]]:
                 content = blob.download_as_text(encoding="utf-8")
                 items.extend(_parse_jsonl_content(content))
         return items
-    except (OSError, RuntimeError) as e:
+    except (OSError, RuntimeError, GoogleAuthError) as e:
         logger.warning("GCS rent mesh fetch failed: %s", e)
         return []
 
