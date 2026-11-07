@@ -60,6 +60,9 @@ class SumirinParser(ParserBase):
 
         specs = {}
         for container in response.select('div.p-property-detail__table, table.p-property-detail__table, dl, table'):
+            # 店舗情報・問い合わせ・フッター等の dl/table を除外
+            if container.find_parent(class_=lambda x: x and any(k in str(x).lower() for k in ['shp', 'shop', 'branch', 'store', 'tenpo', 'inquiry', 'contact', 'footer', 'aside'])):
+                continue
             dts = container.select('dt, th')
             dds = container.select('dd, td')
             for dt, dd in zip(dts, dds):
