@@ -703,6 +703,9 @@ def send_recommendations():
     stage1_summary = ", ".join(f"{k}: {len(v)}件" for k, v in candidates_by_category.items())
     logger.info(f"Stage 1 screening: Picked {stage1_total} properties ({stage1_summary})")
     _notify_status(
+        f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {stage1_total} 件を一次選抜しました。"
+    )
+    _notify_status(
         f"🎯 【一次スクリーニング完了】 ML割安度により計 {stage1_total} 件を抽出しました（{stage1_summary}）。\n"
         f"これよりAI定性評価（多面プロ鑑定・団長講評・レーティング）による二次スクリーニングを実行します..."
     )
