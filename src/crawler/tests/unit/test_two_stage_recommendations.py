@@ -87,3 +87,34 @@ def test_select_two_stage_recommendations_filters_and_limits():
     assert cat_counts["kodate"] == 5
     assert cat_counts["tochi"] == 5
     assert cat_counts["investment"] == 5
+
+
+def test_extract_property_display_info_and_report_args():
+    """物件表示用情報の抽出およびレポート生成関数の引数整合性を検証 (Issue #1314)"""
+    from scripts.ops.send_recommendations import _extract_property_display_info
+
+    prop = MagicMock()
+    prop.price = 35000000
+    prop.address = "東京都世田谷区桜丘4丁目"
+    for i in ["", "1", "2", "3", "Kyoto"]:
+        setattr(prop, f"address{i}", "東京都世田谷区桜丘4丁目" if i == "" else None)
+    for i in range(1, 4):
+        setattr(prop, f"railway{i}", None)
+        setattr(prop, f"station{i}", None)
+        setattr(prop, f"bus{i}", None)
+        setattr(prop, f"busStation{i}", None)
+        setattr(prop, f"railwayWalkMinute{i}Str", None)
+    prop.traffic = "小田急線 千歳船橋駅 徒歩10分"
+
+    eval_rec = MagicMock()
+    eval_rec.property_type = "mansion"
+    eval_rec.first_stage_predicted_price = 4500
+    eval_rec.second_stage_predicted_price = None
+
+    ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
+
+    assert ptype_jp == "中古マンション"
+    assert asking_price_man == 3500
+    assert pred_price == 4500.0
+    assert "世田谷区" in address
+    assert "千歳船橋駅" in access
