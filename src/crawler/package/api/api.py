@@ -1572,9 +1572,11 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         try:
             parser_func = self._getParserFunc()
             chunk_buffer = []
+            total_streamed_items = 0
             if parser_func:
                 async for detail_url in parser_func(response):
                     chunk_buffer.append(detail_url)
+                    total_streamed_items += 1
                     if len(chunk_buffer) >= 200:
                         chunk_buffer = await self._flush_middle_page_chunk(chunk_buffer, all_results)
 
@@ -1583,6 +1585,16 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 await self._flush_middle_page_chunk(chunk_buffer, all_results)
             else:
                 self._touch_watchdog_progress()
+
+            if total_streamed_items == 0:
+                logger.warning("Zero items parsed from middle page: %s", current_url)
+                raw_html_content = str(response) if response is not None else None
+                await self._save_error_html_by_url(
+                    current_url,
+                    self.__class__.__name__,
+                    f"Zero items parsed from middle page: {current_url}",
+                    raw_html=raw_html_content,
+                )
 
             return await self._extract_next_page_url(response, current_url)
         except Exception as e:
