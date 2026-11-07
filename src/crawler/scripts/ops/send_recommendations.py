@@ -154,6 +154,76 @@ def is_investment_type(property_type: str | None) -> bool:
     ptype_clean = property_type.lower().replace("_", "")
     return ptype_clean in INVESTMENT_PROPERTY_TYPES or "invest" in ptype_clean
 
+
+def _get_property_category(ptype: str | None) -> str:
+    """
+    物件種別を二段階スクリーニング用の主要4大カテゴリに分類する (Issue #1311)
+    - mansion: 区分マンション
+    - kodate: 戸建て（実需）
+    - tochi: 土地
+    - investment: 投資用全般（一棟アパート・マンション、収益戸建て等）
+    """
+    if not ptype:
+        return "other"
+    t = ptype.lower().replace("_", "")
+    if is_investment_type(t):
+        return "investment"
+    if "mansion" in t:
+        return "mansion"
+    if "kodate" in t or "house" in t:
+        return "kodate"
+    if "tochi" in t or "land" in t:
+        return "tochi"
+    return "other"
+
+
+def _rank_by_qualitative_score(eval_rec, ml_priority: float = 0.0) -> float:
+    """
+    定性レーティング(AAA/AA/A/B)およびML割安度優先度による複合スコアを算出する (Issue #1311)
+    AI定性コメント・レーティングを主軸としつつ、ML定量優先度を加味する。
+    - AAA: 1000点ベース
+    - AA:  800点ベース
+    - A:   600点ベース
+    - B:   400点ベース
+    - その他/未設定: 200点ベース
+    """
+    rating = getattr(eval_rec, "investment_rating", "") or ""
+    rating_scores = {
+        "AAA": 1000.0,
+        "AA": 800.0,
+        "A": 600.0,
+        "B": 400.0,
+    }
+    base_rating_score = rating_scores.get(rating, 200.0)
+    # ML優先度（通常 20.0〜50.0 程度）を加算して同レーティング内での順位を決定
+    return base_rating_score + float(ml_priority or 0.0)
+
+
+def _select_two_stage_recommendations(
+    candidates_by_category: dict[str, list],
+    quota_per_category: int = 5,
+) -> list:
+    """
+    二次スクリーニング（定性評価スコアリング）に基づき、各カテゴリごとに上位 quota_per_category 件を選抜する (Issue #1311)
+    戻り値: [(ml_priority, eval_rec, prop, reason), ...] (全体配信リスト)
+    """
+    final_selected = []
+    category_order = ["mansion", "kodate", "tochi", "investment"]
+
+    for cat in category_order:
+        cands = candidates_by_category.get(cat, [])
+        if not cands:
+            continue
+        # 定性評価スコア順に降順ソート
+        cands.sort(
+            key=lambda x: _rank_by_qualitative_score(x[1], ml_priority=x[0]),
+            reverse=True,
+        )
+        selected_for_cat = cands[:quota_per_category]
+        final_selected.extend(selected_for_cat)
+
+    return final_selected
+
 def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     asking_price = getattr(prop, "price", 0) if prop else 0
     asking_price_man = normalize_asking_price_man(asking_price)
@@ -611,11 +681,58 @@ def send_recommendations():
         logger.info("\n" + banner)
         return
 
+    # Stage 1: 物件種別ごとに割安度上位50件を抽出 (Issue #1311)
+    STAGE1_PER_CATEGORY_LIMIT = 50
+    STAGE2_PER_CATEGORY_QUOTA = 5
+
+    candidates_by_category: dict[str, list] = {
+        "mansion": [],
+        "kodate": [],
+        "tochi": [],
+        "investment": [],
+    }
+
+    # 各カテゴリごとに優先度順ソート
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
-    top_candidates = _select_balanced_recommendations(matched_candidates, quota=15, min_investment_quota=3)
-    logger.info(f"Filtered {len(matched_candidates)} recommendation candidates down to top {len(top_candidates)} items.")
+    for c in matched_candidates:
+        cat = _get_property_category(c[1].property_type)
+        if cat in candidates_by_category and len(candidates_by_category[cat]) < STAGE1_PER_CATEGORY_LIMIT:
+            candidates_by_category[cat].append(c)
+
+    stage1_total = sum(len(v) for v in candidates_by_category.values())
+    stage1_summary = ", ".join(f"{k}: {len(v)}件" for k, v in candidates_by_category.items())
+    logger.info(f"Stage 1 screening: Picked {stage1_total} properties ({stage1_summary})")
     _notify_status(
-        f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {len(top_candidates)} 件を各Slackチャンネルへ配信します。"
+        f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {stage1_total} 件を一次選抜しました。"
+    )
+    _notify_status(
+        f"🎯 【一次スクリーニング完了】 ML割安度により計 {stage1_total} 件を抽出しました（{stage1_summary}）。\n"
+        f"これよりAI定性評価（多面プロ鑑定・団長講評・レーティング）による二次スクリーニングを実行します..."
+    )
+
+    # Stage 2: AI定性評価・レポート生成と永続化（レートリミット対策インターバル付き）
+    # 既にレポート生成済みの場合はスキップし、未生成のものにAPIコールを実行
+    eval_index = 0
+    for cat, cands in candidates_by_category.items():
+        for priority, eval_rec, prop, reason in cands:
+            eval_index += 1
+            # レポート未生成（または未保存）の場合のみAI定性評価を実行
+            if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
+                try:
+                    generate_professional_and_danchou_report(eval_rec, prop=prop)
+                except Exception as e:
+                    logger.warning("Error generating report for %s: %s", eval_rec.property_url, e)
+                # レートリミットを考慮したインターバル待機 (Issue #1311)
+                time.sleep(1.2)
+
+    # 二次スクリーニング：定性評価スコアを加味したカテゴリ別上位5件の選抜
+    top_candidates = _select_two_stage_recommendations(
+        candidates_by_category,
+        quota_per_category=STAGE2_PER_CATEGORY_QUOTA,
+    )
+    logger.info(f"Stage 2 screening: Selected final {len(top_candidates)} recommendation properties.")
+    _notify_status(
+        f"✨ 【二次スクリーニング完了】 AI定性評価・レーティングに基づき最終配信対象 {len(top_candidates)} 件を選抜しました。各Slackチャンネルへ配信します。"
     )
 
     sent_count = 0
