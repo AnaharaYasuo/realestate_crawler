@@ -141,6 +141,7 @@ class OdakyuParser(ParserBase):
         # 交通
         traffic_lines = self._parseTrafficLines(response)
         self._populateTraffic(item, traffic_lines)
+        self._apply_odakyu_access_routes(item, traffic_lines)
 
         # 共通スペック
         specs = self._get_specs(response)
@@ -175,21 +176,115 @@ class OdakyuParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    def _parseTrafficLines(self, response: BeautifulSoup):
+    @staticmethod
+    def _split_odakyu_traffic_text(access_str: str) -> list[str]:
+        if not access_str:
+            return []
+        text = re.sub(r"((?:徒歩|停歩|歩)\s*[0-9０-９]{1,3}\s*分)(?=\S)", r"\1\n", access_str)
+        raw_lines = [ln.strip() for ln in re.split(r"[\r\n]+", text) if ln.strip()]
         traffic_lines = []
-        specs = self._get_specs(response)
-        access_str = specs.get("交通", "")
-        if access_str:
-            parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
+        for raw_line in raw_lines:
+            parts = [p.strip() for p in re.split(r"[、\s]+", raw_line) if p.strip()]
             current_line = []
             for part in parts:
                 current_line.append(part)
-                if "徒歩" in part and "分" in part:
+                if ("徒歩" in part or "停歩" in part) and "分" in part:
                     traffic_lines.append(" ".join(current_line))
                     current_line = []
             if current_line:
                 traffic_lines.append(" ".join(current_line))
         return traffic_lines
+
+    @staticmethod
+    def _extract_dd_lines(dd) -> list[str]:
+        dd_copy = BeautifulSoup(str(dd), "html.parser")
+        for br in dd_copy.find_all("br"):
+            br.replace_with("\n")
+        return [
+            re.sub(r"\s+", " ", ln).strip()
+            for ln in dd_copy.get_text().splitlines()
+            if ln.strip()
+        ]
+
+    def _parseTrafficLines(self, response: BeautifulSoup):
+        best_lines: list[str] = []
+        for dl in response.find_all("dl"):
+            if self._is_in_noise_container(dl):
+                continue
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                if dt.get_text(strip=True) != "交通":
+                    continue
+                lines: list[str] = []
+                for rl in self._extract_dd_lines(dd):
+                    lines.extend(self._split_odakyu_traffic_text(rl))
+                if len(lines) >= len(best_lines):
+                    best_lines = lines
+        if best_lines:
+            return best_lines
+        specs = self._get_specs(response)
+        return self._split_odakyu_traffic_text(specs.get("交通", ""))
+
+    @classmethod
+    def _apply_odakyu_station_from_brackets(cls, item, line: str, idx: int) -> None:
+        if "「" not in line or "」" not in line:
+            return
+        left = line.find("「")
+        right = line.find("」", left)
+        if right <= left:
+            return
+        r_name = line[:left].strip()
+        s_name = cls._normalize_station_name(line[left + 1 : right])
+        if r_name and hasattr(item, f"railway{idx}"):
+            setattr(item, f"railway{idx}", r_name)
+        if s_name and hasattr(item, f"station{idx}"):
+            setattr(item, f"station{idx}", s_name)
+
+    @classmethod
+    def _apply_odakyu_walk_for_route(cls, item, line: str, idx: int) -> None:
+        walk_str = cls._extract_walk_minutes(line)
+        if walk_str:
+            if hasattr(item, f"railwayWalkMinute{idx}"):
+                setattr(item, f"railwayWalkMinute{idx}", int(walk_str))
+            if hasattr(item, f"railwayWalkMinute{idx}Str"):
+                setattr(item, f"railwayWalkMinute{idx}Str", walk_str)
+        elif "バス" in line and getattr(item, f"railwayWalkMinute{idx}", None):
+            setattr(item, f"railwayWalkMinute{idx}", None)
+            if hasattr(item, f"railwayWalkMinute{idx}Str"):
+                setattr(item, f"railwayWalkMinute{idx}Str", "")
+
+    @classmethod
+    def _apply_odakyu_bus_for_route(cls, item, line: str, idx: int) -> None:
+        if "バス" not in line:
+            return
+        m_bus = re.search(r"バス\s*([0-9０-９]{1,3})\s*分", line)
+        if m_bus:
+            b_str = m_bus.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
+            if hasattr(item, f"busUse{idx}"):
+                setattr(item, f"busUse{idx}", 1)
+            if hasattr(item, f"busWalkMinute{idx}"):
+                setattr(item, f"busWalkMinute{idx}", int(b_str))
+            if hasattr(item, f"busWalkMinute{idx}Str"):
+                setattr(item, f"busWalkMinute{idx}Str", b_str)
+        stop = cls._extract_bus_stop_from_text(line)
+        if stop and hasattr(item, f"busStation{idx}"):
+            setattr(item, f"busStation{idx}", stop)
+
+    @classmethod
+    def _apply_odakyu_route(cls, item, line: str, idx: int) -> None:
+        if hasattr(item, f"transfer{idx}"):
+            setattr(item, f"transfer{idx}", line)
+        cls._apply_odakyu_station_from_brackets(item, line, idx)
+        cls._apply_odakyu_walk_for_route(item, line, idx)
+        cls._apply_odakyu_bus_for_route(item, line, idx)
+
+    @classmethod
+    def _apply_odakyu_access_routes(cls, item, traffic_lines: list[str]) -> None:
+        if not traffic_lines:
+            return
+        if hasattr(item, "railwayCount"):
+            item.railwayCount = len(traffic_lines)
+        for idx, line in enumerate(traffic_lines[:5], start=1):
+            cls._apply_odakyu_route(item, line, idx)
 
     def _parseImages(self, response: BeautifulSoup):
         images = []
@@ -669,14 +764,19 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.address1, item.address2, item.address3 = self._split_address(item.address)
         traffic_str = self._invest_card_traffic(block)
         if traffic_str:
-            item.traffic = traffic_str
-            self._populateTraffic(item, [traffic_str])
+            self._apply_invest_card_traffic(item, traffic_str)
         if not focus_id:
             cb = block.select_one(self.CB_SELECTOR)
             if cb:
                 focus_id = (cb.get("value") or "").strip()
         if focus_id:
             item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
+
+    def _apply_invest_card_traffic(self, item, traffic_text: str) -> None:
+        item.traffic = traffic_text
+        lines = self._split_odakyu_traffic_text(traffic_text) or [traffic_text]
+        self._populateTraffic(item, lines)
+        self._apply_odakyu_access_routes(item, lines)
 
     def _fill_invest_card_specs(self, item, block) -> None:
         for dl in block.select(".estate-info-list dl"):
@@ -695,8 +795,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.tochiMensekiStr = dd_text
             item.tochiMenseki = converter.parse_menseki(dd_text)
         elif "交通" in dt_text and not getattr(item, "traffic", None):
-            item.traffic = dd_text
-            self._populateTraffic(item, [dd_text])
+            self._apply_invest_card_traffic(item, dd_text)
         elif "間取り" in dt_text and not getattr(item, "madori", None):
             item.madori = dd_text
         elif "階数" in dt_text and not getattr(item, "kaisuStr", None):
