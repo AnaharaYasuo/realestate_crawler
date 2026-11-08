@@ -757,9 +757,9 @@ def _calculate_desk_setback(property_obj: Any) -> float:
     raw_setsudou_temp = f"{s1} {s2}".strip()
 
     if not road_width_temp:
-        road_width_temp = _regex_extract_float(r'(?:幅員|幅)?\s*(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
+        road_width_temp = _regex_extract_float(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
     if not maguchi_temp:
-        maguchi_temp = _regex_extract_float(r'(?:間口|接面|接道)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
+        maguchi_temp = _regex_extract_float(r'(?:間口|接面|接道)\s{0,3}(?:約\s{0,3})?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
 
     maguchi_val_temp = safe_float(maguchi_temp, 6.0)
     road_width_val_temp = safe_float(road_width_temp, 4.0)

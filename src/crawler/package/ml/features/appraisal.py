@@ -204,11 +204,11 @@ def _fallback_road_dimensions(raw_setsudou: str, road_width: Any, maguchi: Any) 
     if not raw_setsudou:
         return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
     if not road_width:
-        m_width = re.search(r'(?:幅員|幅)?\s*(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
+        m_width = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
         if m_width:
             road_width = safe_float(m_width.group(1), None)
     if not maguchi:
-        m_maguchi = re.search(r'(?:間口|接面|接道)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
+        m_maguchi = re.search(r'(?:間口|接面|接道)\s{0,3}(?:約\s{0,3})?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
         if m_maguchi:
             maguchi = safe_float(m_maguchi.group(1), None)
     return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
