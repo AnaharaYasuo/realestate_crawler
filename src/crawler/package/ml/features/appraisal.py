@@ -172,7 +172,12 @@ def calculate_appraisal_values(
     cost_approach_value = land_value + building_value
 
     # 取引事例比較法
-    eval_area = area if property_type == 'mansion' else tatemono_area
+    if property_type == 'mansion':
+        eval_area = area
+    elif property_type == 'tochi':
+        eval_area = tochi_area
+    else:
+        eval_area = tatemono_area
     eval_area = 50.0 if eval_area <= 0 else eval_area
     mkt_comparison_val = calculate_mkt_comparison_value(
         mkt_comparison_master, address1, address2, property_type, chikunen, eval_area, average_land_price
@@ -199,11 +204,11 @@ def _fallback_road_dimensions(raw_setsudou: str, road_width: Any, maguchi: Any) 
     if not raw_setsudou:
         return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
     if not road_width:
-        m_width = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
+        m_width = re.search(r'(?:幅員|幅)?\s*(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
         if m_width:
             road_width = safe_float(m_width.group(1), None)
     if not maguchi:
-        m_maguchi = re.search(r'(?:間口|接面)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
+        m_maguchi = re.search(r'(?:間口|接面|接道)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
         if m_maguchi:
             maguchi = safe_float(m_maguchi.group(1), None)
     return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
@@ -226,13 +231,13 @@ def _fallback_road_classification(raw_setsudou: str, direction_str: str, type_st
 
 
 def _extract_road_specs(property_obj: Any) -> tuple[float, float, str, str, str, str]:
-    maguchi = _get_attr(property_obj, 'maguchi', None)
-    road_width = _find_first_attr(property_obj, ('roadWidth', 'douroHaba'))
+    maguchi = _find_first_attr(property_obj, ('maguchi', 'setsumen', 'maguchiStr', 'setsumenStr'))
+    road_width = _find_first_attr(property_obj, ('roadWidth', 'douroHaba', 'roadWidthStr', 'douroHabaStr'))
     road_dir = str(_find_first_attr(property_obj, ('roadDirection', 'douroMuki')) or '')
     road_type = str(_find_first_attr(property_obj, ('roadType', 'douroKubun')) or '')
-    road_structure = str(_find_first_attr(property_obj, ('roadStructure', 'setsudou')) or '')
-    chimoku = str(_get_attr(property_obj, 'chimoku', '') or '')
-    raw_setsudou = str(_get_attr(property_obj, 'setsudou', '') or '')
+    road_structure = str(_find_first_attr(property_obj, ('roadStructure', 'setsudou', 'douro')) or '')
+    chimoku = str(_find_first_attr(property_obj, ('chimoku', 'chimokuChisei')) or '')
+    raw_setsudou = f"{_get_attr(property_obj, 'setsudou', '') or ''} {_get_attr(property_obj, 'douro', '') or ''}".strip()
 
     road_width_val, maguchi_val = _fallback_road_dimensions(raw_setsudou, road_width, maguchi)
     road_dir, road_type = _fallback_road_classification(raw_setsudou, road_dir, road_type)
