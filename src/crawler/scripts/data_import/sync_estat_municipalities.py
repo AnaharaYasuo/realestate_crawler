@@ -101,27 +101,58 @@ def sync_municipalities(csv_path: str = None) -> int:
     全国1,741自治体の所得・人口データをDB（MunicipalPotential）に全量投入・洗い替えする。
     """
     logger.info("Starting synchronization of nationwide municipal potentials...")
-    try:
-        wb = download_soumu_tax_workbook()
-        records = parse_soumu_tax_data(wb)
-    except Exception as e:
-        logger.error("Failed to download or parse Soumu Excel: %s. Using local fallback...", e)
-        records = []
+    records = []
+    if csv_path and os.path.exists(csv_path):
+        import csv
+        logger.info("Loading municipal potential data from local CSV: %s...", csv_path)
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                records.append({
+                    "prefecture": row["prefecture"].strip(),
+                    "city": row["city"].strip(),
+                    "average_income": int(row.get("average_income", "0").strip()),
+                    "total_population": int(row["total_population"].strip()) if row.get("total_population") else None,
+                    "population_growth_rate": Decimal(row.get("population_growth_rate", "0.0").strip()),
+                    "income_growth_rate": Decimal(row.get("income_growth_rate", "0.0").strip()) if row.get("income_growth_rate") else Decimal("0.0"),
+                    "population_density": Decimal(row.get("population_density", "0.0").strip()) if row.get("population_density") else None,
+                })
+    else:
+        try:
+            wb = download_soumu_tax_workbook()
+            records = parse_soumu_tax_data(wb)
+        except Exception as e:
+            logger.error("Failed to download or parse Soumu Excel: %s. Using local fallback...", e)
+            records = []
 
     if not records:
         raise RuntimeError("No municipal records retrieved from Soumu data source.")
+
+    # 社人研将来人口推計（2025年変化率）を事前ルックアップして実人口増減率を反映 (Issue #1242)
+    futures = {}
+    try:
+        from package.models.evaluation import MunicipalFuturePotential
+        futures = {
+            (m.prefecture, m.city): m.pop_change_rate_from_2020
+            for m in MunicipalFuturePotential.objects.filter(target_year=2025)
+        }
+    except Exception as e:
+        logger.warning("Could not load MunicipalFuturePotential for growth rates: %s", e)
 
     created_count = 0
     updated_count = 0
 
     for m in records:
+        key = (m["prefecture"], m["city"])
+        growth_rate = futures.get(key, m["population_growth_rate"])
+
         _, created = MunicipalPotential.objects.update_or_create(
             prefecture=m["prefecture"],
             city=m["city"],
             defaults={
                 "average_income": m["average_income"],
                 "total_population": m["total_population"],
-                "population_growth_rate": m["population_growth_rate"],
+                "population_growth_rate": growth_rate,
                 "income_growth_rate": m["income_growth_rate"],
                 "population_density": m["population_density"],
             }
