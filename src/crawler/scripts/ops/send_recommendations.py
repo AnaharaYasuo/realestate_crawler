@@ -177,26 +177,47 @@ def _get_property_category(ptype: str | None) -> str:
     return "other"
 
 
-def _rank_by_qualitative_score(eval_rec, ml_priority: float = 0.0) -> float:
+def _rank_by_capital_gain_score(eval_rec, ml_priority: float = 0.0, cached_report: dict | None = None) -> float:
     """
-    定性レーティング(AAA/AA/A/B)およびML割安度優先度による複合スコアを算出する (Issue #1311)
-    AI定性コメント・レーティングを主軸としつつ、ML定量優先度を加味する。
-    - AAA: 1000点ベース
-    - AA:  800点ベース
-    - A:   600点ベース
-    - B:   400点ベース
-    - その他/未設定: 200点ベース
+    ML理論価格アンカリングを排除し、AI目利きによるキャピタルゲインポテンシャルを最優先にスコアリングする (Issue #1333)
+    ML理論価格に基づくml_priorityは加算せず、AIが独自に算定したキャピタルゲインスコアおよび定性レーティングで評価する。
+    - 定性レーティングベース:
+      AAA: 400点, AA: 300点, A: 200点, B: 100点, 未設定: 50点
+    - キャピタルゲインスコア加算 (0〜100点):
+      cached_report や eval_rec に記録された AI capital_gain_score を加算。
+    - 最大500点満点でキャピタルゲイン期待度の高い物件を最上位選抜。
     """
     rating = getattr(eval_rec, "investment_rating", "") or ""
+    if cached_report and not rating:
+        rating = cached_report.get("investment_rating", "")
+
     rating_scores = {
-        "AAA": 1000.0,
-        "AA": 800.0,
-        "A": 600.0,
-        "B": 400.0,
+        "AAA": 400.0,
+        "AA": 300.0,
+        "A": 200.0,
+        "B": 100.0,
     }
-    base_rating_score = rating_scores.get(rating, 200.0)
-    # ML優先度（通常 20.0〜50.0 程度）を加算して同レーティング内での順位を決定
-    return base_rating_score + float(ml_priority or 0.0)
+    base_score = rating_scores.get(rating, 50.0)
+
+    # AI キャピタルゲインスコア (0〜100点)
+    cg_score = 0.0
+    if cached_report and "capital_gain_score" in cached_report:
+        try:
+            cg_score = float(cached_report["capital_gain_score"])
+        except (ValueError, TypeError):
+            pass
+    elif hasattr(eval_rec, "capital_gain_score") and getattr(eval_rec, "capital_gain_score", None) is not None:
+        try:
+            cg_score = float(eval_rec.capital_gain_score)
+        except (ValueError, TypeError):
+            pass
+
+    return base_score + cg_score
+
+
+def _rank_by_qualitative_score(eval_rec, ml_priority: float = 0.0) -> float:
+    """後方互換用エイリアス (Issue #1333)"""
+    return _rank_by_capital_gain_score(eval_rec, ml_priority=0.0)
 
 
 def _select_two_stage_recommendations(
@@ -214,9 +235,9 @@ def _select_two_stage_recommendations(
         cands = candidates_by_category.get(cat, [])
         if not cands:
             continue
-        # 定性評価スコア順に降順ソート
+        # キャピタルゲイン優先スコア順に降順ソート (ML理論価格ml_priorityは排除)
         cands.sort(
-            key=lambda x: _rank_by_qualitative_score(x[1], ml_priority=x[0]),
+            key=lambda x: _rank_by_capital_gain_score(x[1]),
             reverse=True,
         )
         selected_for_cat = cands[:quota_per_category]
@@ -445,7 +466,6 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
             prop=prop,
             ptype_jp=ptype_jp,
             asking_price_man=asking_price_man,
-            pred_price=pred_price,
             address=address,
             access=access
         )
@@ -504,6 +524,21 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
             msg += f"\n🏗 [5. 物件スペック・価格歪み分析]\n{prop_eval}\n"
         elif summary and not area_eval:
             msg += f"\n【AI総括サマリー】\n{summary}\n"
+
+        cg_persp = report_data.get("capital_gain_perspective", "")
+        cg_score = report_data.get("capital_gain_score")
+        fair_price = report_data.get("ai_fair_price_man")
+        if cg_persp or cg_score is not None or fair_price is not None:
+            msg += "\n📈 [6. キャピタルゲイン・値上がり益査定（AI独自目利き）]\n"
+            if cg_score is not None:
+                msg += f"・キャピタルゲイン期待スコア: {cg_score}/100\n"
+            if fair_price is not None:
+                try:
+                    msg += f"・AI客観想定適正価格: {int(fair_price):,}万円\n"
+                except (ValueError, TypeError):
+                    msg += f"・AI客観想定適正価格: {fair_price}万円\n"
+            if cg_persp:
+                msg += f"・査定講評: {cg_persp}\n"
             
         if hbu:
             msg += f"\n🏛 [最有効使用・出口戦略]\n{hbu}\n"
@@ -759,7 +794,6 @@ def send_recommendations():
                         prop=prop,
                         ptype_jp=ptype_jp,
                         asking_price_man=asking_price_man,
-                        pred_price=pred_price,
                         address=address,
                         access=access,
                     )

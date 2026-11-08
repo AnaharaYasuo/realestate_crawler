@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from scripts.ops.send_recommendations import (
     _get_property_category,
+    _rank_by_capital_gain_score,
     _rank_by_qualitative_score,
     _select_two_stage_recommendations,
 )
@@ -19,31 +20,47 @@ def test_get_property_category():
     assert _get_property_category("other_unknown") == "other"
 
 
-def test_rank_by_qualitative_score():
-    """定性レーティング(AAA/AA/A/B)およびML割安度優先度による複合スコアリングを検証"""
-    # 候補1: AAA, ML優先度 30.0 -> 定性重視で上位
-    rec_aaa = MagicMock()
-    rec_aaa.investment_rating = "AAA"
-    score_aaa = _rank_by_qualitative_score(rec_aaa, ml_priority=30.0)
+def test_rank_by_capital_gain_score_and_qualitative_score():
+    """ML理論価格アンカリングを排除し、AIキャピタルゲインスコアおよび定性レーティング優先を検証 (Issue #1333)"""
+    # 候補1: AAA評価 + AIキャピタルゲインスコア 95点 -> 400 + 95 = 495点
+    rec1 = MagicMock()
+    rec1.investment_rating = "AAA"
+    rec1.capital_gain_score = 95.0
+    score1 = _rank_by_capital_gain_score(rec1)
 
-    # 候補2: AA, ML優先度 35.0
-    rec_aa = MagicMock()
-    rec_aa.investment_rating = "AA"
-    score_aa = _rank_by_qualitative_score(rec_aa, ml_priority=35.0)
+    # 候補2: AAA評価 + AIキャピタルゲインスコア 70点 -> 400 + 70 = 470点
+    rec2 = MagicMock()
+    rec2.investment_rating = "AAA"
+    rec2.capital_gain_score = 70.0
+    score2 = _rank_by_capital_gain_score(rec2)
 
-    # 候補3: A, ML優先度 40.0
-    rec_a = MagicMock()
-    rec_a.investment_rating = "A"
-    score_a = _rank_by_qualitative_score(rec_a, ml_priority=40.0)
+    # 候補3: AA評価 + AIキャピタルゲインスコア 90点 -> 300 + 90 = 390点
+    rec3 = MagicMock()
+    rec3.investment_rating = "AA"
+    rec3.capital_gain_score = 90.0
+    score3 = _rank_by_capital_gain_score(rec3)
 
-    # 候補4: B, ML優先度 50.0
-    rec_b = MagicMock()
-    rec_b.investment_rating = "B"
-    score_b = _rank_by_qualitative_score(rec_b, ml_priority=50.0)
+    # 候補4: A評価 + AIキャピタルゲインスコア 50点 -> 200 + 50 = 250点
+    rec4 = MagicMock()
+    rec4.investment_rating = "A"
+    rec4.capital_gain_score = 50.0
+    score4 = _rank_by_capital_gain_score(rec4)
 
-    assert score_aaa > score_aa
-    assert score_aa > score_a
-    assert score_a > score_b
+    # 候補5: 未評価 (ratingなし, cg_scoreなし) -> 50点 (ML理論価格による加算は一切行われない)
+    rec5 = MagicMock()
+    rec5.investment_rating = None
+    rec5.capital_gain_score = None
+    # ml_priority=999.0 を渡しても反映されない
+    score5 = _rank_by_capital_gain_score(rec5, ml_priority=999.0)
+
+    assert score1 > score2
+    assert score2 > score3
+    assert score3 > score4
+    assert score4 > score5
+    assert score5 == 50.0
+
+    # 後方互換性エイリアス _rank_by_qualitative_score の検証
+    assert _rank_by_qualitative_score(rec1) == score1
 
 
 def test_select_two_stage_recommendations_filters_and_limits():
@@ -62,10 +79,11 @@ def test_select_two_stage_recommendations_filters_and_limits():
             eval_rec.id = f"{cat}_{i}"
             eval_rec.property_url = f"https://example.com/{cat}/{i}"
             eval_rec.property_type = cat
-            # 上位5件にAAA、次がAA、Aと設定
+            # 上位5件に高いキャピタルゲインスコアと高レーティングを設定
             eval_rec.investment_rating = "AAA" if i < 3 else ("AA" if i < 6 else "A")
+            eval_rec.capital_gain_score = 90.0 - (i * 5)
             prop = MagicMock()
-            ml_priority = 30.0 - i
+            ml_priority = 10.0 + i  # ML理論価格優先度は逆転していても無視される
             reason = "割安"
             candidates_by_category[cat].append((ml_priority, eval_rec, prop, reason))
 
@@ -88,24 +106,28 @@ def test_select_two_stage_recommendations_filters_and_limits():
     assert cat_counts["tochi"] == 5
     assert cat_counts["investment"] == 5
 
+    # 各カテゴリ内でキャピタルゲインスコア上位が選出されていること (i=0が1位)
+    for cat in ["mansion", "kodate", "tochi", "investment"]:
+        cat_selected = [item for item in selected if _get_property_category(item[1].property_type) == cat]
+        assert cat_selected[0][1].id == f"{cat}_0"
 
-def test_select_two_stage_recommendations_prioritizes_existing_rating_and_ml_priority():
-    """未評価（rating なし）と評価済み（rating あり）が混在する場合のスコアリング順序を検証"""
+
+def test_select_two_stage_recommendations_prioritizes_ai_capital_gain():
+    """未評価（rating なし）とAI評価済み（capital_gain_scoreあり）が混在する場合のスコアリング順序を検証"""
     candidates_by_category = {
         "mansion": [
-            # 1. 未評価だがML割安度が極めて高い (ml_priority=50.0 -> スコア 200 + 50 = 250)
-            (50.0, MagicMock(id=1, property_type="mansion", investment_rating=None), MagicMock(), "超割安"),
-            # 2. AAA評価 (rating=AAA, ml_priority=25.0 -> スコア 1000 + 25 = 1025)
-            (25.0, MagicMock(id=2, property_type="mansion", investment_rating="AAA"), MagicMock(), "AAA"),
-            # 3. 未評価 (ml_priority=30.0 -> スコア 200 + 30 = 230)
-            (30.0, MagicMock(id=3, property_type="mansion", investment_rating=""), MagicMock(), "割安"),
+            # 1. 未評価 (ml_priority=50.0だがスコアは50点)
+            (50.0, MagicMock(id=1, property_type="mansion", investment_rating=None, capital_gain_score=None), MagicMock(), "超割安"),
+            # 2. AAA評価 + 高キャピタルゲイン (rating=AAA, cg_score=90 -> 490点)
+            (25.0, MagicMock(id=2, property_type="mansion", investment_rating="AAA", capital_gain_score=90.0), MagicMock(), "AAA"),
+            # 3. 未評価 (ml_priority=30.0 -> 50点)
+            (30.0, MagicMock(id=3, property_type="mansion", investment_rating="", capital_gain_score=None), MagicMock(), "割安"),
         ]
     }
     selected = _select_two_stage_recommendations(candidates_by_category, quota_per_category=2)
     assert len(selected) == 2
-    # 1位はAAA (id=2), 2位は未評価だが高ML優先度 (id=1)
+    # 1位はAAA + 高キャピタルゲイン (id=2)
     assert selected[0][1].id == 2
-    assert selected[1][1].id == 1
 
 
 def test_extract_property_display_info_and_report_args():
@@ -152,6 +174,7 @@ def test_send_recommendations_lazy_report_generation_and_timeout():
         rec.property_type = "mansion"
         rec.investment_rating = None
         rec.ai_evaluation_summary = None
+        rec.capital_gain_score = None
         rec.is_slack_notified = False
         rec.is_published = True
         rec.needs_recrawl = False
