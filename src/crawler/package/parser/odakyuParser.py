@@ -258,7 +258,7 @@ class OdakyuParser(ParserBase):
             return
         m_bus = re.search(r"バス\s*([0-9０-９]{1,3})\s*分", line)
         if m_bus:
-            b_str = m_bus.group(1).translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+            b_str = m_bus.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
             if hasattr(item, f"busUse{idx}"):
                 setattr(item, f"busUse{idx}", 1)
             if hasattr(item, f"busWalkMinute{idx}"):
@@ -764,16 +764,19 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.address1, item.address2, item.address3 = self._split_address(item.address)
         traffic_str = self._invest_card_traffic(block)
         if traffic_str:
-            item.traffic = traffic_str
-            lines = self._split_odakyu_traffic_text(traffic_str) or [traffic_str]
-            self._populateTraffic(item, lines)
-            self._apply_odakyu_access_routes(item, lines)
+            self._apply_invest_card_traffic(item, traffic_str)
         if not focus_id:
             cb = block.select_one(self.CB_SELECTOR)
             if cb:
                 focus_id = (cb.get("value") or "").strip()
         if focus_id:
             item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
+
+    def _apply_invest_card_traffic(self, item, traffic_text: str) -> None:
+        item.traffic = traffic_text
+        lines = self._split_odakyu_traffic_text(traffic_text) or [traffic_text]
+        self._populateTraffic(item, lines)
+        self._apply_odakyu_access_routes(item, lines)
 
     def _fill_invest_card_specs(self, item, block) -> None:
         for dl in block.select(".estate-info-list dl"):
@@ -792,10 +795,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.tochiMensekiStr = dd_text
             item.tochiMenseki = converter.parse_menseki(dd_text)
         elif "交通" in dt_text and not getattr(item, "traffic", None):
-            item.traffic = dd_text
-            lines = self._split_odakyu_traffic_text(dd_text) or [dd_text]
-            self._populateTraffic(item, lines)
-            self._apply_odakyu_access_routes(item, lines)
+            self._apply_invest_card_traffic(item, dd_text)
         elif "間取り" in dt_text and not getattr(item, "madori", None):
             item.madori = dd_text
         elif "階数" in dt_text and not getattr(item, "kaisuStr", None):
