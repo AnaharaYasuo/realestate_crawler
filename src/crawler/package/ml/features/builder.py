@@ -33,6 +33,7 @@ from .parsers import (
     parse_company_features,
     parse_floor_features,
     parse_kouzou_features,
+    parse_land_specific_features,
     parse_madori_layout_features,
     parse_road_direction_features,
     parse_road_structure_features,
@@ -92,6 +93,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     chikunen, is_chikunen_unknown = _calculate_chikunen_feature(property_obj, property_type, eval_base_date)
     walk_min, bus_min, bus_walk, bus_use = _extract_traffic_and_walk_min(property_obj)
     area, tatemono_area, tochi_area, setback_ratio_temp = _calculate_area_and_setback(property_obj, property_type)
+    if property_type == 'tochi':
+        area = tochi_area
 
     pop_growth, income, total_population, income_growth_rate, pop_density = _query_municipal_potential(address1, address2)
     passenger_volume = _query_station_volume(station1)
@@ -257,6 +260,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats.update(parse_chimoku_features(chimoku_str))
     feats.update(parse_kouzou_features(kouzou_str))
     feats.update(parse_company_features(company))
+    feats.update(parse_land_specific_features(property_obj, combined_text))
     feats.update(_extract_category_feature_updates(property_obj, combined_text, zone_name_prop))
 
     return feats

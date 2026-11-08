@@ -8,6 +8,11 @@ from decimal import Decimal
 from typing import Any
 
 
+_KOUZOU_STEEL_KEYWORDS = ('鉄骨', '重量鉄骨', '軽量鉄骨', 'S造')
+_KOUZOU_RC_KEYWORDS = ('RC', '鉄筋コンクリート', '鉄筋', 'PC', 'プレキャスト')
+_KOUZOU_S_FALLBACK_KEYWORDS = ('コンクリート', 'ブロック', 'ALC')
+
+
 def parse_kouzou(kouzou_str: str | None) -> str:
     """構造文字列から構造カテゴリを分類 (全角・表記揺れをNFKC正規化) (Issue #1281)"""
     if not kouzou_str:
@@ -16,15 +21,13 @@ def parse_kouzou(kouzou_str: str | None) -> str:
     # 鉄骨造（PC板葺）など屋根・外壁付属のPC/ALCが主構造に誤判定されるのを防ぐため、主構造のS/RCを先見
     if 'SRC' in k_norm or '鉄骨鉄筋' in k_norm:
         return 'SRC'
-    if '鉄骨' in k_norm or '重量鉄骨' in k_norm or '軽量鉄骨' in k_norm or 'S造' in k_norm or k_norm.startswith('S'):
-        if '軽量' in k_norm or 'LS' in k_norm:
-            return 'LS'
-        return 'S'
-    if 'RC' in k_norm or '鉄筋コンクリート' in k_norm or '鉄筋' in k_norm or 'PC' in k_norm or 'プレキャスト' in k_norm:
+    if any(kw in k_norm for kw in _KOUZOU_STEEL_KEYWORDS) or k_norm.startswith('S'):
+        return 'LS' if ('軽量' in k_norm or 'LS' in k_norm) else 'S'
+    if any(kw in k_norm for kw in _KOUZOU_RC_KEYWORDS):
         return 'RC'
     if '木' in k_norm or 'W造' in k_norm:
         return 'W'
-    if 'コンクリート' in k_norm or 'ブロック' in k_norm or 'ALC' in k_norm:
+    if any(kw in k_norm for kw in _KOUZOU_S_FALLBACK_KEYWORDS):
         return 'S'
     return 'default'
 
@@ -405,9 +408,9 @@ def calculate_chikunen(chikunengetsu: Any, base_date: datetime.date | None = Non
         return (base_date - dt).days / 365.25
 
     if isinstance(chikunengetsu, str):
-        dt = _parse_wareki_date(chikunengetsu) or _parse_seireki_date(chikunengetsu)
-        if dt:
-            return (base_date - dt).days / 365.25
+        parsed_dt = _parse_wareki_date(chikunengetsu) or _parse_seireki_date(chikunengetsu)
+        if parsed_dt:
+            return (base_date - parsed_dt).days / 365.25
         return 20.0
 
     return 20.0
@@ -731,28 +734,111 @@ def _extract_setback_from_text(property_obj: Any) -> float:
     return 0.0
 
 
+def _first_non_empty_attr(property_obj: Any, attrs: tuple[str, ...]) -> Any:
+    for a in attrs:
+        v = _get_attr(property_obj, a, None)
+        if v:
+            return v
+    return None
+
+
+def _regex_extract_float(pattern: str, text: str) -> float | None:
+    if not text:
+        return None
+    m = re.search(pattern, text)
+    return safe_float(m.group(1), 0.0) if m else None
+
+
 def _calculate_desk_setback(property_obj: Any) -> float:
-    maguchi_temp = _get_attr(property_obj, 'maguchi', None)
-    road_width_temp = _get_attr(property_obj, 'roadWidth', None) or _get_attr(property_obj, 'douroHaba', None)
-    raw_setsudou_temp = _get_attr(property_obj, 'setsudou', '') or ''
+    maguchi_temp = _first_non_empty_attr(property_obj, ('maguchi', 'setsumen', 'maguchiStr', 'setsumenStr'))
+    road_width_temp = _first_non_empty_attr(property_obj, ('roadWidth', 'douroHaba', 'roadWidthStr', 'douroHabaStr'))
+    s1 = str(_get_attr(property_obj, 'setsudou', '') or '')
+    s2 = str(_get_attr(property_obj, 'douro', '') or '')
+    raw_setsudou_temp = f"{s1} {s2}".strip()
 
-    if not road_width_temp and raw_setsudou_temp:
-        m_width = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
-        if m_width:
-            road_width_temp = safe_float(m_width.group(1), 0.0)
-
-    if not maguchi_temp and raw_setsudou_temp:
-        m_maguchi = re.search(r'(?:間口|接面)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
-        if m_maguchi:
-            maguchi_temp = safe_float(m_maguchi.group(1), 0.0)
+    if not road_width_temp:
+        road_width_temp = _regex_extract_float(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
+    if not maguchi_temp:
+        maguchi_temp = _regex_extract_float(r'(?:間口|接面|接道)\s{0,3}(?:約\s{0,3})?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou_temp)
 
     maguchi_val_temp = safe_float(maguchi_temp, 6.0)
     road_width_val_temp = safe_float(road_width_temp, 4.0)
 
     if road_width_val_temp < 4.0:
-        setback_width_temp = (4.0 - road_width_val_temp) / 2.0
-        return maguchi_val_temp * setback_width_temp
+        return maguchi_val_temp * ((4.0 - road_width_val_temp) / 2.0)
     return 0.0
+
+
+def _evaluate_kenchiku_joken(property_obj: Any, combined_text: str) -> float:
+    kj_raw = str(_get_attr(property_obj, 'kenchikuJoken', '') or '').strip()
+    check_text = f"{kj_raw} {combined_text}"
+    if any(k in check_text for k in ("建築条件無", "建築条件なし", "建築条件ナシ", "条件無し", "条件なし")):
+        return 0.0
+    if kj_raw in ("無", "なし", "ナシ", "-", "－"):
+        return 0.0
+    if any(k in check_text for k in ("建築条件付", "建築条件あり", "建築条件有")) or kj_raw in ("有", "あり", "付"):
+        return 1.0
+    return 0.0
+
+
+def _evaluate_chisei_terrain(property_obj: Any, combined_text: str) -> tuple[float, float]:
+    c1 = str(_get_attr(property_obj, 'chisei', '') or '')
+    c2 = str(_get_attr(property_obj, 'chimokuChisei', '') or '')
+    check_text = f"{c1} {c2} {combined_text}".strip()
+    if any(k in check_text for k in ("傾斜", "法面", "のり面", "がけ", "崖", "急傾斜", "山岳", "擁壁")):
+        return 0.78, 0.0
+    if any(k in check_text for k in ("ひな段", "雛段", "高台", "段差", "高低差")):
+        return 0.92, 0.0
+    if "低地" in check_text or "窪地" in check_text:
+        return 0.88, 0.0
+    return 1.00, 1.0
+
+
+def _evaluate_bouka_score(property_obj: Any, combined_text: str) -> float:
+    b1 = str(_get_attr(property_obj, 'boukaChiiki', '') or '')
+    b2 = str(_get_attr(property_obj, 'chiikiChiku', '') or '')
+    bouka_raw = f"{b1} {b2}".strip()
+    check_bouka = f"{bouka_raw} {combined_text}"
+    if "準防火" in check_bouka:
+        return 1.00
+    if "防火地域" in check_bouka or bouka_raw == "防火":
+        return 1.05
+    if "22条" in check_bouka or "２２条" in check_bouka:
+        return 0.97
+    return 0.98
+
+
+_EMPTY_PR_TOKENS = ("無", "なし", "ナシ", "-", "－", "0", "0㎡", "0.0㎡")
+
+
+def _evaluate_private_road_burden(property_obj: Any, combined_text: str) -> float:
+    shido_area = safe_float(_get_attr(property_obj, 'shidoMenseki', None), 0.0)
+    if shido_area and shido_area > 0.0:
+        return 1.0
+    pr_raw = str(_first_non_empty_attr(property_obj, ('privateRoadBurden', 'shidoMensekiStr')) or '').strip()
+    if pr_raw and pr_raw not in _EMPTY_PR_TOKENS and "無" not in pr_raw and "なし" not in pr_raw:
+        return 1.0
+    if "私道負担有" in combined_text or "私道負担あり" in combined_text:
+        return 1.0
+    return 0.0
+
+
+def _evaluate_bouka_and_private_road(property_obj: Any, combined_text: str) -> tuple[float, float]:
+    return _evaluate_bouka_score(property_obj, combined_text), _evaluate_private_road_burden(property_obj, combined_text)
+
+
+def parse_land_specific_features(property_obj: Any, combined_text: str = "") -> dict[str, float]:
+    """土地・戸建て固有の価格決定要因（建築条件・地勢・防火規制・私道負担）を数値特徴量化 (Issue #1338)"""
+    has_kj = _evaluate_kenchiku_joken(property_obj, combined_text)
+    chisei_score, is_flat = _evaluate_chisei_terrain(property_obj, combined_text)
+    bouka_score, has_pr = _evaluate_bouka_and_private_road(property_obj, combined_text)
+    return {
+        "has_kenchiku_joken": has_kj,
+        "chisei_score": chisei_score,
+        "is_flat_terrain": is_flat,
+        "bouka_score": bouka_score,
+        "has_private_road_burden": has_pr,
+    }
 
 
 def calculate_area_and_setback(property_obj: Any, property_type: str) -> tuple[float, float, float, float]:
