@@ -62,19 +62,25 @@ graph TD
 | **田** | 343件 | 0.632 | 0.317 | 1.106 | **0.63** |
 | **その他 (保安林・公衆用道路等)** | 60件 | 0.468 | 0.287 | 0.772 | **0.50** |
 
-#### 2.2.2 土地規模格差補正および低価格帯補正特徴量（Issue #1298）
-OOF深層残差分析により判明した大面積帯（268㎡超）の単価逓減乖離および低価格帯の過大予測バイアスを是正するため、以下の特徴量を新設・強化しています。
+#### 2.2.2 土地規模格差補正および低価格帯補正特徴量（Issue #1298, #1338）
+OOF深層残差分析により判明した大面積帯（268㎡超）の単価逓減乖離、取引事例比較法の評価面積バグ、および土地固有属性（建築条件・地勢・防火規制・私道負担・借地権）の未反映を是正するため、以下の特徴量を新設・統合しています。
 
-1. **`log_tochi_menseki`（対数地積）**:
+1. **`mkt_comparison_value`（取引事例比較法アンカーの土地面積適正化 - Issue #1338）**:
+   - 土地（`tochi`）の評価対象面積（`eval_area`）には建物面積ではなく有効敷地面積（`tochi_area`）を適用し、同一市区町村の土地実勢平米単価×敷地面積による正確な比準価格を算出（従来の50㎡固定フォールバックバグを根絶）。
+2. **`log_tochi_menseki`（対数地積）**:
    - $\log(\max(1.0, \text{tochi\_menseki}))$。樹木モデル（LightGBM/CatBoost/XGBoost）における面積の非線形性・単価逓減カーブの連続的学習を促進。
-2. **`tochi_scale_disparity`（規模格差補正係数）**:
-   - 国税庁財産評価基本通達の規模格差補正率および不動産鑑定理論に準拠。標準地積（戸建・土地: 150㎡、アパート: 300㎡）を超える面積帯において、$\text{scale\_disparity} = \max(0.20, (\text{standard\_area} / \text{tochi\_area})^{0.15})$ を算出し、過大な総額見積もりを抑制。
-3. **`narrow_road_penalty`（狭小道路ペナルティ）**:
-   - 接道幅員が4m未満（要セットバック）かつ敷地面積に対して接道が不十分な場合の減価補正係数。
-4. **戸建て（kodate）・アパート（apartment）モデルへの横断展開（Issue #1299）**:
-   - 土地を主要な構成要素とする戸建ておよびアパートモデルにおいても、上記 `log_tochi_menseki`, `tochi_scale_disparity`, `narrow_road_penalty` を特徴量セットおよび一次・二次予測モデルへ一貫投入。地目の実勢ディスカウント率（`chimoku_score`）と併せて土地評価精度を全面的に底上げする。
-
-また、機械学習モデルのアンサンブル（LightGBM, XGBoost, CatBoost, RandomForest）における特徴量重要度分析の結果、すべてのモデルで重要度が完全に 0（寄与なし）であった多角形区画の不活性特徴量（`plot_shape_grade_num`, `plot_compactness`, `plot_flagpole_ratio`, `plot_bottleneck_width`, `plot_solidity`, `plot_acute_angles`, `plot_mic_diameter`）を `TOCHI_FEATURES` から除外し、モデルの次元削減・過学習防止・推論速度向上を図っています。
+3. **`tochi_scale_disparity` / `scale_discount`（規模格差補正係数）**:
+   - 国税庁財産評価基本通達の規模格差補正率および不動産鑑定理論に準拠。標準地積（戸建・土地: 150㎡、アパート: 300㎡）を超える面積帯において、$\text{scale\_disparity} = \max(0.15, (\text{standard\_area} / \text{tochi\_area})^{0.18})$ を算出し、過大な総額見積もりを抑制。
+4. **`narrow_road_penalty`（狭小道路ペナルティ）**:
+   - 接道幅員が4m未満（要セットバック）かつ敷地面積に対して接道が不十分な場合の減価補正係数。間口（`maguchi`）および道路幅員（`roadWidth`）の抽出時は、各社モデル固有カラム（`setsumen`, `douroHaba`, `douro` 等）からも網羅的にフォールバック抽出する。
+5. **土地固有属性および権利・瑕疵特徴量の全面統合（Issue #1338）**:
+   - **建築条件フラグ (`has_kenchiku_joken`)**: `kenchikuJoken` や備考テキストから「建築条件付（条件なし・外し可を除く）」を検出し、ハウスメーカー建築条件付き土地の価格構造差を学習。
+   - **地勢・高低差スコア (`chisei_score`, `is_flat_terrain`)**: `chisei` / `chimokuChisei` / 備考テキストから平坦（1.00）、高台・ひな段（0.92）、傾斜地・法面・擁壁・崖（0.78）を数値化し、造成・擁壁工事費負担による減価を反映。
+   - **防火規制スコア (`bouka_score`)**: `boukaChiiki` 等から防火地域（1.05）、準防火地域（1.00）、指定なし・法22条区域（0.95）を数値化。
+   - **私道負担フラグ (`has_private_road_burden`)**: `privateRoadBurden` / `shidoMenseki` / 備考テキストから私道負担あり（1.0）を検出。
+   - **借地権・地代負担・心理的瑕疵の配線**: `is_leasehold`, `monthly_land_rent`, `annual_land_rent`, `land_rent_liability`, `land_rent_ratio`, `has_psychological_defect` を `FEATURE_SETS` に統合。
+6. **戸建て（kodate）・アパート（apartment）モデルへの横断展開（Issue #1299, #1338）**:
+   - 土地を主要な構成要素とする戸建ておよびアパートモデルにおいても、上記土地評価特徴量・権利特徴量を一貫投入し、土地評価精度を全面的に底上げする。
 
 | 特徴量名 | 説明 | 一次予測 | 二次予測 |
 | :--- | :--- | :---: | :---: |

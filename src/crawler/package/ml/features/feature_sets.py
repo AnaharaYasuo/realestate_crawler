@@ -78,6 +78,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -112,6 +114,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -148,6 +152,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -183,6 +189,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -214,6 +222,8 @@ FEATURE_SETS = {
             "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
             "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
             "plot_nta_discount", "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"
@@ -244,6 +254,8 @@ FEATURE_SETS = {
             "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
             "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
             "plot_nta_discount", "plot_shape_score_100",
+            "has_kenchiku_joken", "chisei_score", "is_flat_terrain", "bouka_score", "has_private_road_burden",
+            "is_leasehold", "monthly_land_rent", "annual_land_rent", "land_rent_liability", "land_rent_ratio", "has_psychological_defect",
             "walk_min_elasticity", "effective_station_distance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data", "future_pop_change_2035", "future_working_age_ratio_2035", "future_elderly_ratio_2035", "future_single_household_ratio_2035", "is_in_urban_induction_zone", "is_in_residential_induction_zone", "station_volume_3y_cagr", "municipal_income_3y_cagr", "municipal_pop_momentum"

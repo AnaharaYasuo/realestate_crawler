@@ -13,25 +13,18 @@ def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
-def extract_combined_text_for_prop(property_obj: Any) -> str:
-    raw_html_content = (
-        _get_attr(property_obj, 'raw_html', '')
-        or _get_attr(property_obj, 'rawHtml', '')
-        or _get_attr(property_obj, 'detail_html', '')
-        or _get_attr(property_obj, 'page_html', '')
-        or ''
-    )
-    tochikenri = _get_attr(property_obj, 'tochikenri', '') or ''
-    biko_val = _get_attr(property_obj, 'biko', '') or ''
-    kuiki = _get_attr(property_obj, 'kuiki', '') or ''
-    youto = _get_attr(property_obj, 'youtoChiiki', '') or ''
-    prop_name = _get_attr(property_obj, 'propertyName', '') or ''
-    setsudou_text = _get_attr(property_obj, 'setsudou', '') or _get_attr(property_obj, 'roadStructure', '') or ''
-    notes_val = _get_attr(property_obj, 'notes', '') or _get_attr(property_obj, 'bikou', '') or ''
-    genkyo_val = _get_attr(property_obj, 'genkyo', '') or ''
+_COMBINED_TEXT_ATTRS: tuple[str, ...] = (
+    'raw_html', 'rawHtml', 'detail_html', 'page_html',
+    'tochikenri', 'biko', 'kuiki', 'cityPlanning', 'toshiKeikaku',
+    'youtoChiiki', 'propertyName', 'setsudou', 'roadStructure', 'douro',
+    'notes', 'bikou', 'genkyo', 'currentStatus', 'kenchikuJoken',
+    'chisei', 'chimokuChisei', 'boukaChiiki', 'chiikiChiku', 'saikenchiku',
+)
 
-    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val, genkyo_val]
-    return " ".join([str(x) for x in all_text_list if x])
+
+def extract_combined_text_for_prop(property_obj: Any) -> str:
+    parts = [str(_get_attr(property_obj, attr, '') or '') for attr in _COMBINED_TEXT_ATTRS]
+    return " ".join(p for p in parts if p)
 
 
 def _determine_demolish_unit(combined_text: str) -> float:
