@@ -89,6 +89,25 @@ def test_select_two_stage_recommendations_filters_and_limits():
     assert cat_counts["investment"] == 5
 
 
+def test_select_two_stage_recommendations_prioritizes_existing_rating_and_ml_priority():
+    """未評価（rating なし）と評価済み（rating あり）が混在する場合のスコアリング順序を検証"""
+    candidates_by_category = {
+        "mansion": [
+            # 1. 未評価だがML割安度が極めて高い (ml_priority=50.0 -> スコア 200 + 50 = 250)
+            (50.0, MagicMock(id=1, property_type="mansion", investment_rating=None), MagicMock(), "超割安"),
+            # 2. AAA評価 (rating=AAA, ml_priority=25.0 -> スコア 1000 + 25 = 1025)
+            (25.0, MagicMock(id=2, property_type="mansion", investment_rating="AAA"), MagicMock(), "AAA"),
+            # 3. 未評価 (ml_priority=30.0 -> スコア 200 + 30 = 230)
+            (30.0, MagicMock(id=3, property_type="mansion", investment_rating=""), MagicMock(), "割安"),
+        ]
+    }
+    selected = _select_two_stage_recommendations(candidates_by_category, quota_per_category=2)
+    assert len(selected) == 2
+    # 1位はAAA (id=2), 2位は未評価だが高ML優先度 (id=1)
+    assert selected[0][1].id == 2
+    assert selected[1][1].id == 1
+
+
 def test_extract_property_display_info_and_report_args():
     """物件表示用情報の抽出およびレポート生成関数の引数整合性を検証 (Issue #1314)"""
     from scripts.ops.send_recommendations import _extract_property_display_info
