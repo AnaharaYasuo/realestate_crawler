@@ -181,6 +181,9 @@ def _build_rag_prompt(
   "property_evaluation": "【物件スペック・価格歪み分析】道路付け（公道/私道・幅員）、土地形状、建物構造・築年、売出価格と積算・相場との乖離要因（1〜2文）。",
   "mansion_market_evaluation": "【過去取引事例・相場坪単価分析】マンションの場合のみ。マンションレビュー過去販売事例や推定相場坪単価と比較した割安度判定（マンション以外は空文字""）。",
   "highest_and_best_use": "【最有効使用・出口戦略】この不動産の効用を最高度に発揮する使途（実需・賃貸・リノベ・未消化容積{far_slack}%を活かした増床/建替・更地化等）と将来出口流動性（1〜2文）。",
+  "capital_gain_score": "0〜100の数値。将来の値上がり益、バリューアップ再販余力、割安仕入れ余力を総合評価したキャピタルゲイン期待スコア",
+  "ai_fair_price_man": "数値（万円）。立地・成約相場・スペックからAIが独自査定した適正相場価格",
+  "capital_gain_perspective": "【キャピタルゲイン・値上がり益評価】将来の価格上昇期待、リノベ・建替等によるバリューアップ余力、周辺再開発・地価トレンドを踏まえた売却益・出口視点からの解説（1〜2文）。",
   "danchou_comment": "【狼旅団・団長の実戦目利き】元祖・狼旅団団長としての辛口実戦目利き（『表面利回りや積算だけで涎垂らすな』等の語り口調。原契約、サクラ入居、道路付け、指値戦略、瞬間蒸発のリアル）。",
   "ai_positive_points": "箇条書きで3点。高評価ポイント（割安度、積算、立地需要、相場坪単価乖離など）。改行区切り。",
   "ai_negative_points": "箇条書きで3点。物理的・法的DDチェック（現地確認、私道・越境、配管口径、修繕費、ハザードなど）。改行区切り。"
@@ -533,6 +536,8 @@ def _generate_fallback_report(
     ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
     kb_top = matched_kb[0] if matched_kb else {}
 
+
+
     if "マンション" in ptype_jp:
         return _generate_fallback_for_mansion(diff_man, ratio, address, kb_top, site_text=site_text)
     if "土地" in ptype_jp:
@@ -542,44 +547,61 @@ def _generate_fallback_report(
     return _generate_fallback_for_kodate(diff_man, ratio, address, kb_top, site_text=site_text, prop=prop)
 
 
+def _build_evaluation_summary(report_data: dict[str, Any]) -> str:
+    summary_parts = []
+    section_keys = [
+        ("area_evaluation", "地域要因"),
+        ("station_evaluation", "駅力・交通"),
+        ("hazard_evaluation", "防災・ハザード"),
+        ("property_evaluation", "物件スペック"),
+        ("mansion_market_evaluation", "過去取引事例"),
+    ]
+    for key, label in section_keys:
+        val = report_data.get(key)
+        if val:
+            summary_parts.append(f"【{label}】{val}")
+    return "\n".join(summary_parts) if summary_parts else report_data.get("ai_evaluation_summary", "")
+
+
+def _apply_capital_gain_fields(eval_rec, report_data: dict[str, Any]) -> None:
+    cg_score = report_data.get("capital_gain_score")
+    if cg_score is not None:
+        try:
+            score_f = float(cg_score)
+            report_data["capital_gain_score"] = score_f
+            if hasattr(eval_rec, "capital_gain_score"):
+                eval_rec.capital_gain_score = score_f
+        except (ValueError, TypeError):
+            pass
+    if hasattr(eval_rec, "capital_gain_perspective") and report_data.get("capital_gain_perspective"):
+        eval_rec.capital_gain_perspective = report_data.get("capital_gain_perspective")
+
+
 def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | None) -> None:
     try:
         raw_rating = report_data.get("investment_rating", "")
         eval_rec.investment_rating = raw_rating if raw_rating in ALLOWED_RATINGS else "A"
-        
-        # 個別専用カラムへの格納 (Issue #1197)
-        if hasattr(eval_rec, "area_evaluation"):
-            eval_rec.area_evaluation = report_data.get("area_evaluation", "")
-        if hasattr(eval_rec, "station_evaluation"):
-            eval_rec.station_evaluation = report_data.get("station_evaluation", "")
-        if hasattr(eval_rec, "hazard_evaluation"):
-            eval_rec.hazard_evaluation = report_data.get("hazard_evaluation", "")
-        if hasattr(eval_rec, "property_spec_evaluation"):
-            eval_rec.property_spec_evaluation = report_data.get("property_evaluation", "")
-        if hasattr(eval_rec, "mansion_market_evaluation"):
-            eval_rec.mansion_market_evaluation = report_data.get("mansion_market_evaluation", "")
 
-        # 多面評価の各項目をai_evaluation_summaryにも統合保持（後方互換性担保）
-        summary_parts = []
-        if report_data.get("area_evaluation"):
-            summary_parts.append(f"【地域要因】{report_data['area_evaluation']}")
-        if report_data.get("station_evaluation"):
-            summary_parts.append(f"【駅力・交通】{report_data['station_evaluation']}")
-        if report_data.get("hazard_evaluation"):
-            summary_parts.append(f"【防災・ハザード】{report_data['hazard_evaluation']}")
-        if report_data.get("property_evaluation"):
-            summary_parts.append(f"【物件スペック】{report_data['property_evaluation']}")
-        if report_data.get("mansion_market_evaluation"):
-            summary_parts.append(f"【過去取引事例】{report_data['mansion_market_evaluation']}")
-            
-        full_summary = "\n".join(summary_parts) if summary_parts else report_data.get("ai_evaluation_summary", "")
-        eval_rec.ai_evaluation_summary = full_summary
+        column_map = {
+            "area_evaluation": "area_evaluation",
+            "station_evaluation": "station_evaluation",
+            "hazard_evaluation": "hazard_evaluation",
+            "property_spec_evaluation": "property_evaluation",
+            "mansion_market_evaluation": "mansion_market_evaluation",
+        }
+        for attr, key in column_map.items():
+            if hasattr(eval_rec, attr):
+                setattr(eval_rec, attr, report_data.get(key, ""))
 
+        eval_rec.ai_evaluation_summary = _build_evaluation_summary(report_data)
         eval_rec.highest_and_best_use = report_data.get("highest_and_best_use", "")
         eval_rec.danchou_comment = report_data.get("danchou_comment", "")
         eval_rec.ai_positive_points = report_data.get("ai_positive_points", "")
         eval_rec.ai_negative_points = report_data.get("ai_negative_points", "")
         eval_rec.far_slack_ratio = far_slack
+
+        _apply_capital_gain_fields(eval_rec, report_data)
+
         eval_rec.save()
         logger.info("Successfully persisted report for %s", eval_rec.property_url)
     except (RuntimeError, ValueError, OSError) as e:
@@ -619,7 +641,7 @@ def _execute_gemini_report_call(
 
 
 def generate_professional_and_danchou_report(
-    eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str
+    eval_rec, prop, ptype_jp: str, asking_price_man: int, address: str, access: str, **_kwargs: Any
 ) -> dict[str, Any]:
     """選別された通知対象物件に対して、Web本文・プロ鑑定分析および団長RAGレビューを生成し、eval_recに反映して保存する。"""
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
@@ -629,7 +651,7 @@ def generate_professional_and_danchou_report(
     prop_url = getattr(eval_rec, "property_url", "") or getattr(prop, "pageUrl", "") or ""
     site_text = fetch_property_page_text(prop_url, timeout=5) if prop_url else ""
 
-    query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
+    query = f"{ptype_jp} 売出{asking_price_man}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
     matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=3)
     region_tag = _detect_region_tag(address)
     legal_query = f"{ptype_jp} 容積率 建蔽率 接道 斜線制限 借地借家 鑑定評価 最有効使用 住宅ローン控除 固定資産税 {access}"
