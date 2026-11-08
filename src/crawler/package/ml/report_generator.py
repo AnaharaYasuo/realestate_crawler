@@ -189,8 +189,8 @@ def _build_rag_prompt(
 
 
 # --- Gemini リトライ方針 (Issue #1260): エラーコード別に可否・待機時間を決定する ---
-DEFAULT_RECOMMEND_MODEL = "gemini-3.6-flash"  # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため実体を明示
-FALLBACK_MODELS = ("gemini-3.5-flash-lite",)
+DEFAULT_RECOMMEND_MODEL = "gemini-3.5-flash-lite"  # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため実体を明示
+FALLBACK_MODELS = ("gemini-3.1-flash-lite", "gemini-2.5-flash-lite")
 
 RATE_LIMIT_BASE_SEC = 15.0
 TRANSIENT_BASE_SEC = 3.0
