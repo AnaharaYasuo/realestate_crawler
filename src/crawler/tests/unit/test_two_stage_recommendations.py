@@ -137,3 +137,62 @@ def test_extract_property_display_info_and_report_args():
     assert pred_price == 4500.0
     assert "世田谷区" in address
     assert "千歳船橋駅" in access
+
+
+def test_send_recommendations_lazy_report_generation_and_timeout():
+    """send_recommendations において最終選抜分のみレポート生成され、予算枯渇時にスキップされることを検証"""
+    from scripts.ops import send_recommendations as sr_module
+
+    # モック候補の準備
+    mock_candidates = []
+    for i in range(10):
+        rec = MagicMock()
+        rec.id = i
+        rec.property_url = f"https://example.com/prop/{i}"
+        rec.property_type = "mansion"
+        rec.investment_rating = None
+        rec.ai_evaluation_summary = None
+        rec.is_slack_notified = False
+        rec.is_published = True
+        rec.needs_recrawl = False
+        rec.first_stage_predicted_price = 4000
+        rec.second_stage_predicted_price = None
+        mock_candidates.append(rec)
+
+    mock_prop = MagicMock()
+    mock_prop.price = 30000000
+    mock_prop.pageUrl = "https://example.com/prop/0"
+
+    with patch.object(sr_module, "close_old_connections"), \
+         patch.object(sr_module, "bound_mysql_timeouts"), \
+         patch.object(sr_module, "_notify_status"), \
+         patch.object(sr_module, "_fetch_recommendation_candidates", return_value=mock_candidates), \
+         patch.object(sr_module, "batch_resolve_properties", return_value={rec.property_url: mock_prop for rec in mock_candidates}), \
+         patch.object(sr_module, "_evaluate_candidate", return_value=(True, "割安", 30.0)), \
+         patch.object(sr_module, "generate_professional_and_danchou_report") as mock_gen_report, \
+         patch.object(sr_module, "_dispatch_single_recommendation", return_value=True) as mock_dispatch, \
+         patch.object(sr_module.time, "sleep"):
+
+        # 1. 正常系: 5件選抜され、選抜された5件のみレポート生成が呼ばれる
+        sr_module.send_recommendations()
+        assert mock_gen_report.call_count == 5
+        assert mock_dispatch.call_count == 5
+
+    # 2. タイムアウト系: 残り時間が0の場合、レポート生成がスキップされ通知のみ行われる
+    with patch.object(sr_module, "close_old_connections"), \
+         patch.object(sr_module, "bound_mysql_timeouts"), \
+         patch.object(sr_module, "_notify_status"), \
+         patch.object(sr_module, "_fetch_recommendation_candidates", return_value=mock_candidates), \
+         patch.object(sr_module, "batch_resolve_properties", return_value={rec.property_url: mock_prop for rec in mock_candidates}), \
+         patch.object(sr_module, "_evaluate_candidate", return_value=(True, "割安", 30.0)), \
+         patch.object(sr_module, "generate_professional_and_danchou_report") as mock_gen_report, \
+         patch.object(sr_module, "_dispatch_single_recommendation", return_value=True) as mock_dispatch, \
+         patch.object(sr_module.time, "sleep"), \
+         patch.object(sr_module, "time") as mock_time:
+
+        mock_time.time.side_effect = [1000.0, 2000.0, 2000.0, 2000.0]
+
+        sr_module.send_recommendations()
+        # タイムアウトにより生成はスキップされるが配信は5件完遂
+        assert mock_gen_report.call_count == 0
+        assert mock_dispatch.call_count == 5

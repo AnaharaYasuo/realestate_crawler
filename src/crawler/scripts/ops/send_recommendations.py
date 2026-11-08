@@ -692,7 +692,7 @@ def send_recommendations():
     # Gemini レート制限および Cloud Run Job タイムアウト（2時間）防止のため、
     # 一次選抜枠を 15件/種別（計最大60件）とし、最終選抜上位（5件/種別、計最大20件）に対してのみ
     # AI多面鑑定レポート生成を行う2段階フローへ最適化する。
-    STAGE1_PER_CATEGORY_LIMIT = 15
+    STAGE1_PER_CATEGORY_LIMIT = 50
     STAGE2_PER_CATEGORY_QUOTA = 5
 
     candidates_by_category: dict[str, list] = {
@@ -733,8 +733,12 @@ def send_recommendations():
     stage2_start_time = time.time()
     MAX_STAGE2_DURATION_SEC = 900  # 最大15分で打ち切り、Slack配信を最優先
 
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
     for idx, (priority, eval_rec, prop, reason) in enumerate(top_candidates, 1):
-        if time.time() - stage2_start_time > MAX_STAGE2_DURATION_SEC:
+        elapsed = time.time() - stage2_start_time
+        remaining_budget = MAX_STAGE2_DURATION_SEC - elapsed
+        if remaining_budget <= 0:
             logger.warning(
                 "Stage 2 report generation exceeded safety limit (%.0fs). Proceeding to dispatch remaining without new reports.",
                 MAX_STAGE2_DURATION_SEC
@@ -745,17 +749,28 @@ def send_recommendations():
         if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
             try:
                 ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
-                rep = generate_professional_and_danchou_report(
-                    eval_rec=eval_rec,
-                    prop=prop,
-                    ptype_jp=ptype_jp,
-                    asking_price_man=asking_price_man,
-                    pred_price=pred_price,
-                    address=address,
-                    access=access,
+                
+                # 残り時間予算（remaining_budget）を超えないようスレッド実行でタイムアウト制御 (CodeRabbit指摘)
+                single_timeout = min(remaining_budget, 120.0)
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        generate_professional_and_danchou_report,
+                        eval_rec=eval_rec,
+                        prop=prop,
+                        ptype_jp=ptype_jp,
+                        asking_price_man=asking_price_man,
+                        pred_price=pred_price,
+                        address=address,
+                        access=access,
+                    )
+                    rep = future.result(timeout=single_timeout)
+                    if rep:
+                        report_cache[eval_rec.property_url] = rep
+            except FuturesTimeoutError:
+                logger.warning(
+                    "Timed out generating report for %s within remaining budget (%.1fs). Skipping and continuing.",
+                    eval_rec.property_url, remaining_budget
                 )
-                if rep:
-                    report_cache[eval_rec.property_url] = rep
             except Exception as e:
                 logger.warning("Error generating report for %s: %s", eval_rec.property_url, e)
             # レートリミット（RPMクォータ枯渇）を防止するための安全インターバル
