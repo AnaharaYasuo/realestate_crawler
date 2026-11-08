@@ -33,10 +33,10 @@ def _bad_response():
     return resp
 
 
-def test_default_recommend_model_is_gemini_3_6_flash(monkeypatch):
+def test_default_recommend_model_is_gemini_3_5_flash_lite(monkeypatch):
     # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため、実体の gemini-3.6-flash を明示する
     monkeypatch.delenv("GEMINI_RECOMMEND_MODEL", raising=False)
-    assert rg.DEFAULT_RECOMMEND_MODEL == "gemini-3.6-flash"
+    assert rg.DEFAULT_RECOMMEND_MODEL == "gemini-3.5-flash-lite"
     assert "gemini-3.5-flash" not in rg.FALLBACK_MODELS
     assert rg.DEFAULT_RECOMMEND_MODEL not in rg.FALLBACK_MODELS
 

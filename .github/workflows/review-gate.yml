@@ -162,7 +162,7 @@ jobs:
                   if (c.status !== 'completed') {
                     crPending = true;
                     crPendingMsg = `⏳ CodeRabbit review check is in progress (${c.name}: ${c.status}). Please wait for CodeRabbit to finish.`;
-                  } else if (c.conclusion !== 'success') {
+                  } else if (c.conclusion !== 'success' && c.conclusion !== 'neutral' && c.conclusion !== 'skipped') {
                     // success 以外の完了 conclusion（failure/cancelled/timed_out/neutral/skipped/startup_failure 等）は hard failure
                     crTerminalFailure = true;
                     crTerminalFailureMsg = `⛔ CodeRabbit check failed (${c.name}: ${c.conclusion}).`;

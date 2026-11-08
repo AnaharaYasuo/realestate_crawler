@@ -688,7 +688,10 @@ def send_recommendations():
         logger.info("\n" + banner)
         return
 
-    # Stage 1: 物件種別ごとに割安度上位50件を抽出 (Issue #1311)
+    # Stage 1: 物件種別ごとに割安度上位を抽出 (Issue #1311, #1327)
+    # Gemini レート制限および Cloud Run Job タイムアウト（2時間）防止のため、
+    # 一次選抜枠を 15件/種別（計最大60件）とし、最終選抜上位（5件/種別、計最大20件）に対してのみ
+    # AI多面鑑定レポート生成を行う2段階フローへ最適化する。
     STAGE1_PER_CATEGORY_LIMIT = 50
     STAGE2_PER_CATEGORY_QUOTA = 5
 
@@ -712,24 +715,46 @@ def send_recommendations():
     _notify_status(
         f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {stage1_total} 件を一次選抜しました。"
     )
+
+    # 二次スクリーニング：定性評価スコア（過去評価含む）およびML優先度を加味したカテゴリ別上位5件の選抜 (Issue #1327)
+    top_candidates = _select_two_stage_recommendations(
+        candidates_by_category,
+        quota_per_category=STAGE2_PER_CATEGORY_QUOTA,
+    )
+    logger.info(f"Stage 2 screening: Selected final {len(top_candidates)} recommendation properties.")
     _notify_status(
-        f"🎯 【一次スクリーニング完了】 ML割安度により計 {stage1_total} 件を抽出しました（{stage1_summary}）。\n"
-        f"これよりAI定性評価（多面プロ鑑定・団長講評・レーティング）による二次スクリーニングを実行します..."
+        f"✨ 【選抜完了】 一次選抜 {stage1_total} 件から最終配信対象 {len(top_candidates)} 件を選抜しました。\n"
+        f"未生成の対象物件に対してAI定性評価（多面プロ鑑定・団長講評・レーティング）を生成して各Slackチャンネルへ配信します..."
     )
 
-    # Stage 2: AI定性評価・レポート生成と永続化（レートリミット対策インターバル付き）
-    # 既にレポート生成済みの場合はスキップし、未生成のものにAPIコールを実行
-    eval_index = 0
+    # Stage 2: 最終選抜された上位物件（最大20件）に対してのみAI定性評価・レポート生成と永続化（遅延生成）
+    # レートリミット対策インターバルおよび全体タイムアウトガードを適用
     report_cache: dict[str, dict] = {}
+    stage2_start_time = time.time()
+    MAX_STAGE2_DURATION_SEC = 900  # 最大15分で打ち切り、Slack配信を最優先
 
-    for cat, cands in candidates_by_category.items():
-        for priority, eval_rec, prop, reason in cands:
-            eval_index += 1
-            # レポート未生成（または未保存）の場合のみAI定性評価を実行
-            if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
-                try:
-                    ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
-                    rep = generate_professional_and_danchou_report(
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+    for idx, (priority, eval_rec, prop, reason) in enumerate(top_candidates, 1):
+        elapsed = time.time() - stage2_start_time
+        remaining_budget = MAX_STAGE2_DURATION_SEC - elapsed
+        if remaining_budget <= 0:
+            logger.warning(
+                "Stage 2 report generation exceeded safety limit (%.0fs). Proceeding to dispatch remaining without new reports.",
+                MAX_STAGE2_DURATION_SEC
+            )
+            break
+
+        # レポート未生成（または未保存）の場合のみAI定性評価を実行
+        if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
+            try:
+                ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
+                
+                # 残り時間予算（remaining_budget）を超えないようスレッド実行でタイムアウト制御 (CodeRabbit指摘)
+                single_timeout = min(remaining_budget, 120.0)
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        generate_professional_and_danchou_report,
                         eval_rec=eval_rec,
                         prop=prop,
                         ptype_jp=ptype_jp,
@@ -738,22 +763,18 @@ def send_recommendations():
                         address=address,
                         access=access,
                     )
+                    rep = future.result(timeout=single_timeout)
                     if rep:
                         report_cache[eval_rec.property_url] = rep
-                except Exception as e:
-                    logger.warning("Error generating report for %s: %s", eval_rec.property_url, e)
-                # レートリミットを考慮したインターバル待機 (Issue #1311)
-                time.sleep(1.2)
-
-    # 二次スクリーニング：定性評価スコアを加味したカテゴリ別上位5件の選抜
-    top_candidates = _select_two_stage_recommendations(
-        candidates_by_category,
-        quota_per_category=STAGE2_PER_CATEGORY_QUOTA,
-    )
-    logger.info(f"Stage 2 screening: Selected final {len(top_candidates)} recommendation properties.")
-    _notify_status(
-        f"✨ 【二次スクリーニング完了】 AI定性評価・レーティングに基づき最終配信対象 {len(top_candidates)} 件を選抜しました。各Slackチャンネルへ配信します。"
-    )
+            except FuturesTimeoutError:
+                logger.warning(
+                    "Timed out generating report for %s within remaining budget (%.1fs). Skipping and continuing.",
+                    eval_rec.property_url, remaining_budget
+                )
+            except Exception as e:
+                logger.warning("Error generating report for %s: %s", eval_rec.property_url, e)
+            # レートリミット（RPMクォータ枯渇）を防止するための安全インターバル
+            time.sleep(2.0)
 
     sent_count = 0
     channel_counts: dict[str, int] = {}
