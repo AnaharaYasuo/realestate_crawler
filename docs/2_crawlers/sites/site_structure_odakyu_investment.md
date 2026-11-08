@@ -33,7 +33,7 @@
 | **物件名** | `propertyName` | `h1` | ページメイン見出し |
 | **価格** | `price`, `priceStr` | `dt:contains('価格') + dd` | 万単位から数値変換 (例: 15,000万円 -> 150000000) |
 | **所在地** | `address`, `address1..3` | `dt:contains('所在地') + dd` | 都道府県・市区町村分割 |
-| **交通** | `traffic1..3` | `dt:contains('交通') + dd` | 路線・駅・徒歩分数パース |
+| **交通** | `traffic`, `railway1..5`, `station1..5`, `railwayWalkMinute1..5`, `busWalkMinute1..5`, `busStation1..5`, `busUse1..5` | `dt:contains('交通') + dd` | `<br>` 区切りの複数路線を個別展開。バス利用物件（例: `小田急線「海老名」駅バス9分 国分寺台第８ 停歩7分`）では `busUse{i}=1`, `busWalkMinute{i}=9`, `busStation{i}='国分寺台第８'`, `railwayWalkMinute{i}=7`（停歩分数）を分離格納し、バス分数を駅徒歩分数と誤認しないこと (Issue #1336) |
 
 ### 投資指標 (Investment Metrics)
 | 項目名 | モデルフィールド | セレクタ / ソース | 備考 |

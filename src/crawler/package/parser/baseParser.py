@@ -1370,6 +1370,68 @@ class ParserBase(metaclass=ABCMeta):
             item.walkMinutes1 = minutes
         if hasattr(item, "railwayWalkMinute1"):
             item.railwayWalkMinute1 = minutes
+        if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+            item.railwayWalkMinute1Str = str(minutes)
+
+    _ZENKAKU_DIGIT_TRANS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+    @staticmethod
+    def _strip_bus_stop_affixes(stop: str) -> str:
+        stop = stop.strip()
+        for pfx in ("バス停", "停留所", "停"):
+            if stop.startswith(pfx) and len(stop) > len(pfx):
+                stop = stop[len(pfx) :].strip()
+        for sfx in ("バス停", "停留所", "停"):
+            if stop.endswith(sfx) and len(stop) > len(sfx):
+                stop = stop[: -len(sfx)].strip()
+        return stop.strip("「」『』()（） ")
+
+    @classmethod
+    def _extract_bracketed_bus_stop(cls, after_bus: str) -> str:
+        for open_ch, close_ch in (("「", "」"), ("『", "』"), ("(", ")"), ("（", "）")):
+            left = after_bus.find(open_ch)
+            if left >= 0:
+                right = after_bus.find(close_ch, left + 1)
+                if right > left:
+                    cand = cls._strip_bus_stop_affixes(after_bus[left + 1 : right])
+                    if cand:
+                        return cand
+        return ""
+
+    @classmethod
+    def _extract_bus_stop_from_text(cls, text: str) -> str:
+        """Extract bus stop name from text after 'バスN分'."""
+        m_bus = re.search(r"バス\s*[0-9０-９]{1,3}\s*分", text or "")
+        after_bus = text[m_bus.end() :] if m_bus else (text or "")
+        bracketed = cls._extract_bracketed_bus_stop(after_bus)
+        if bracketed:
+            return bracketed
+        for kw in ("停歩", "徒歩", "歩", "下車"):
+            idx = after_bus.find(kw)
+            if idx > 0:
+                candidate = cls._strip_bus_stop_affixes(after_bus[:idx])
+                if candidate and not any(ch.isdigit() for ch in candidate[:1]):
+                    return candidate
+        return ""
+
+    @classmethod
+    def _apply_bus_fields(cls, item: models.Model, text: str) -> None:
+        """Populate busUse1 / busWalkMinute1 / busStation1 when bus access is present."""
+        first_line = (text or "").splitlines()[0] if text else ""
+        m_bus = re.search(r"バス\s*([0-9０-９]{1,3})\s*分", first_line)
+        if not m_bus:
+            return
+        bus_str = m_bus.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
+        bus_min = int(bus_str)
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = 1
+        if hasattr(item, "busWalkMinute1") and getattr(item, "busWalkMinute1", None) in (None, 0):
+            item.busWalkMinute1 = bus_min
+        if hasattr(item, "busWalkMinute1Str") and not getattr(item, "busWalkMinute1Str", None):
+            item.busWalkMinute1Str = bus_str
+        stop = cls._extract_bus_stop_from_text(first_line)
+        if stop and hasattr(item, "busStation1") and not getattr(item, "busStation1", None):
+            item.busStation1 = stop
 
     @staticmethod
     def _normalize_station_name(station: str) -> str:
@@ -1397,19 +1459,31 @@ class ParserBase(metaclass=ABCMeta):
             item.station1 = station
         self._apply_walk_minutes(item, walk_min)
 
-    @staticmethod
-    def _extract_walk_minutes(text: str) -> str | None:
-        """Extract walk minutes from text containing '...N分' without regex backtracking."""
+    @classmethod
+    def _extract_walk_minutes(cls, text: str) -> str | None:
+        """Extract walk minutes from text containing '...N分' without conflating 'バスN分'."""
         if "分" not in text:
             return None
-        before_fun = text.split("分")[0]
-        digits = []
-        for ch in reversed(before_fun.rstrip()):
-            if ch.isdigit():
-                digits.append(ch)
-            else:
-                break
-        return "".join(reversed(digits)) if digits else None
+        first_line = text.splitlines()[0] if text else text
+        m_walk = re.search(r"(?:徒歩|停歩|歩)\s*([0-9０-９]{1,3})\s*分", first_line)
+        if m_walk:
+            return m_walk.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
+        for segment in first_line.split("分")[:-1]:
+            stripped = segment.rstrip()
+            digits = []
+            for ch in reversed(stripped):
+                if ch.isdigit():
+                    digits.append(ch)
+                else:
+                    break
+            if not digits:
+                continue
+            prefix = stripped[: len(stripped) - len(digits)].rstrip()
+            if prefix.endswith(("バス", "乗車", "車")):
+                continue
+            num_str = "".join(reversed(digits))
+            return num_str.translate(cls._ZENKAKU_DIGIT_TRANS)
+        return None
 
     def _try_bracket_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 沿線「駅」徒歩N分 style traffic. Returns True if matched."""
@@ -1422,8 +1496,10 @@ class ParserBase(metaclass=ABCMeta):
         station = traffic_text[left + 1 : right].strip()
         before = traffic_text[:left].strip()
         railway = before.split()[-1] if before else None
-        walk_min = self._extract_walk_minutes(traffic_text[right + 1 :])
+        after_bracket = traffic_text[right + 1 :]
+        walk_min = self._extract_walk_minutes(after_bracket)
         self._apply_railway_station_fields(item, railway, station, walk_min)
+        self._apply_bus_fields(item, after_bracket)
         return True
 
     def _try_space_traffic(self, item: models.Model, traffic_text: str) -> bool:
@@ -1449,6 +1525,7 @@ class ParserBase(metaclass=ABCMeta):
                 ):
                     walk_min = self._extract_walk_minutes(traffic_text)
                     self._apply_railway_station_fields(item, t0, station_tok, walk_min)
+                    self._apply_bus_fields(item, traffic_text)
                     return True
         return False
 
