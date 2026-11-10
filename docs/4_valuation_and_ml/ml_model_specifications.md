@@ -561,4 +561,15 @@ src/crawler/package/ml/evaluation/
 - **結果**:
   - 上記 #1277〜#1284 の統合適用により、学習データ数が大幅に拡充され、政令市地価歪みと単位バグが解消されたことで、土地（tochi）の GroupKFold MAPE が従来の 49.5% から 45.4%（中央値 APE 26.4%）へ改善、マンション（mansion）は 23.9%（中央値 APE 17.2%）の安定水準を達成。
 
+#### 10.7.7 投資用物件（アパート・収益戸建）のターゲットリーク根絶 ＆ 全投資モデル学習統合 (Issue #1343)
+- **背景（実測バグ）**:
+  1. `FEATURE_SETS["apartment"]` に `gross_yield`（表面利回り = 年間収入 / 売出価格 × 100）と `annual_rent`（年間収入）の双方が投入されていたため、勾配ブースティング木が `asking_price = annual_rent / (gross_yield / 100)` を直接逆算するターゲットリークを起こしていた。
+  2. `appraisal.py` の `_resolve_cap_rate` が物件自身の `grossYield` をそのまま還元利回り（cap rate）として採用していたため、全種別において `income_approach_value = (annual_rent * 0.85) / (gross_yield / 100) = 0.85 * asking_price` となり、売出価格が直接特徴量へリークしていた。結果として、投資用アパートや収益戸建ての予測価格が売出価格付近（乖離率 7〜14% 以内）に張り付き、割安物件が一切検出されない状態となっていた。
+  3. `data_loader.py` の `collect_model_classes_by_type()` がモデル名サフィックス `["mansion", "apartment", "tochi", "kodate"]` のみを探索していたため、`ReguideInvestment`, `OdakyuInvestment`, `SmtrcInvestment`, `Sumai1Investment`, `SumirinInvestment`, `MizuhoInvestment`, `KenbiyaInvestmentBuilding` の計7モデル（約5,000件超の投資物件データ）が学習および取引事例比較マスタ構築から漏れていた。
+- **仕様**:
+  - `FEATURE_SETS["apartment"]["first"]` および `["second"]` から `gross_yield` を除外し、`annual_rent`（客観的な年間想定賃料収入）および立地・面積・建物属性のみから独立した市場理論価格を推論させる。
+  - `appraisal.py` の `_resolve_cap_rate` から物件自身の `gross_yield` 参照を完全撤廃し、地域の平均所得（`income`）および基準地価（`average_land_price`）のみに基づく客観的な市場期待還元利回り（都心プライム 4.0%〜地方 6.5%）によって `income_approach_value` を算出する。
+  - `collect_model_classes_by_type()` において、サフィックスに `"investment"` または `"building"` を含むモデルも `apartment`（または区分主体の `MizuhoInvestment` は `mansion`）へ統合し、全投資物件データを漏れなく学習・評価パイプラインへ組み込む。
+
+
 

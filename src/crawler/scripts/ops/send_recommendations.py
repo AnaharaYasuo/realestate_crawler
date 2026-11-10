@@ -25,10 +25,18 @@ from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 from package.utils.db_timeouts import bound_mysql_timeouts
+from package.utils.property_type_detector import PropertyTypeDetector
 from package.ml.report_generator import generate_professional_and_danchou_report
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+# ディスカウント率（割安率 = (予測価格 - 売出価格) / 予測価格 * 100）の一次スクリーニング閾値 (Issue #1343)
+# 全体傾向として予想価格が散らばり、一定数が高めに算出されがちな点、および投資物件で控えめに算出される点の双方を考慮して緩和
+MIN_RECOMMEND_DISCOUNT_PCT = 15.0
+MAX_RECOMMEND_DISCOUNT_PCT = 60.0
+MAX_PREDICTION_PRICE_RATIO = 2.5
+MIN_PREDICTION_PRICE_RATIO = 0.33
 
 
 def _notify_status(msg: str) -> None:
@@ -41,6 +49,62 @@ LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
 
 
+def _match_model_for_company_and_ptype(all_models, company: str, ptype: str):
+    """company と ptype の組み合わせに対応する Django モデルクラスを柔軟に解決する (Issue #1343)"""
+    ptype_variants = {
+        ptype,
+        ptype.replace("invest", "investment"),
+    }
+    if ptype in ("apartment", "investapartment", "investmentapartment"):
+        ptype_variants.update({"apartment", "investmentapartment", "investment", "investmentbuilding"})
+    elif ptype in ("investkodate", "investmentkodate"):
+        ptype_variants.update({"investmentkodate", "investment", "kodate"})
+    elif ptype in ("investment", "investmentbuilding"):
+        ptype_variants.update({"investment", "investmentapartment", "investmentbuilding"})
+
+    fallback_model = None
+    for model in all_models:
+        m_name = model.__name__.lower()
+        if m_name.startswith(company):
+            rest = m_name[len(company):]
+            if rest == ptype or rest == ptype.replace("invest", "investment"):
+                return model
+            if rest in ptype_variants and fallback_model is None:
+                fallback_model = model
+    return fallback_model
+
+
+def _resolve_group_records(matched_model, group_recs: list, resolved: dict) -> None:
+    """単一モデルグループに対して URL 一括照会および property_id フォールバック照会を行う"""
+    urls = [r.property_url for r in group_recs if r.property_url]
+    chunk_size = 500
+    for i in range(0, len(urls), chunk_size):
+        sub_urls = urls[i:i + chunk_size]
+        try:
+            for obj in matched_model.objects.filter(pageUrl__in=sub_urls):
+                resolved[obj.pageUrl] = obj
+        except Exception as e:
+            logger.warning("Error batch resolving properties for %s: %s", matched_model.__name__, e)
+
+    unresolved = [
+        r for r in group_recs
+        if r.property_url not in resolved and getattr(r, "property_id", None)
+    ]
+    if unresolved:
+        id_to_urls: dict[int, list[str]] = {}
+        for r in unresolved:
+            id_to_urls.setdefault(int(r.property_id), []).append(r.property_url)
+        ids = list(id_to_urls.keys())
+        for i in range(0, len(ids), chunk_size):
+            sub_ids = ids[i:i + chunk_size]
+            try:
+                for obj in matched_model.objects.filter(id__in=sub_ids):
+                    for u in id_to_urls.get(obj.id, []):
+                        resolved[u] = obj
+            except Exception as e:
+                logger.warning("Error batch resolving properties by id for %s: %s", matched_model.__name__, e)
+
+
 def batch_resolve_properties(eval_records: list) -> dict:
     """
     複数のPropertyEvaluationレコードに対応する実物件レコードを一括照会する。
@@ -49,48 +113,34 @@ def batch_resolve_properties(eval_records: list) -> dict:
     """
     from collections import defaultdict
     model_groups = defaultdict(list)
-    resolved = {}
+    resolved: dict = {}
 
     for rec in eval_records:
         if not rec.property_url:
             continue
         company = (rec.company or "").lower()
         ptype = (rec.property_type or "").lower().replace("_", "")
-        model_groups[(company, ptype)].append(rec.property_url)
+        model_groups[(company, ptype)].append(rec)
 
     all_models = apps.get_models()
-    for (company, ptype), urls in model_groups.items():
-        matched_model = None
-        for model in all_models:
-            m_name = model.__name__.lower()
-            if m_name.startswith(company):
-                rest = m_name[len(company):]
-                if rest == ptype or rest == ptype.replace("invest", "investment"):
-                    matched_model = model
-                    break
+    for (company, ptype), group_recs in model_groups.items():
+        matched_model = _match_model_for_company_and_ptype(all_models, company, ptype)
         if matched_model:
-            chunk_size = 500
-            for i in range(0, len(urls), chunk_size):
-                sub_urls = urls[i:i + chunk_size]
-                try:
-                    for obj in matched_model.objects.filter(pageUrl__in=sub_urls):
-                        resolved[obj.pageUrl] = obj
-                except Exception as e:
-                    logger.warning("Error batch resolving properties for %s: %s", matched_model.__name__, e)
+            _resolve_group_records(matched_model, group_recs, resolved)
     return resolved
 
+
 def get_property_record(eval_record):
-    """URLに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
-    company = eval_record.company.lower()
-    ptype = eval_record.property_type.lower().replace("_", "")
-    
-    for model in apps.get_models():
-        m_name = model.__name__.lower()
-        if m_name.startswith(company):
-            rest = m_name[len(company):]
-            if rest == ptype or rest == ptype.replace("invest", "investment"):
-                return model.objects.filter(pageUrl=eval_record.property_url).first()
-    return None
+    """URLまたはproperty_idに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
+    company = (eval_record.company or "").lower()
+    ptype = (eval_record.property_type or "").lower().replace("_", "")
+    matched_model = _match_model_for_company_and_ptype(apps.get_models(), company, ptype)
+    if not matched_model:
+        return None
+    obj = matched_model.objects.filter(pageUrl=eval_record.property_url).first()
+    if obj is None and getattr(eval_record, "property_id", None):
+        obj = matched_model.objects.filter(id=eval_record.property_id).first()
+    return obj
 
 def clean_val(val):
     if val is None:
@@ -220,19 +270,88 @@ def _rank_by_qualitative_score(eval_rec, ml_priority: float = 0.0) -> float:
     return _rank_by_capital_gain_score(eval_rec, ml_priority=0.0)
 
 
+def _classify_investment_subchannel(eval_rec, prop) -> str:
+    """投資カテゴリ内のサブ種別（invest_apartment vs invest_kodate）を判定する (Issue #1343)"""
+    ptype_clean = (getattr(eval_rec, "property_type", "") or "").lower().replace("_", "")
+    if ptype_clean in ("investkodate", "investmentkodate"):
+        return "invest_kodate"
+    if ptype_clean in ("investapartment", "investmentapartment", "apartment", "investmentbuilding"):
+        return "invest_apartment"
+
+    p_name = str(getattr(prop, "propertyName", "") or "")
+    model_class_name = prop.__class__.__name__.lower() if prop is not None else ""
+    if any(k in model_class_name or k in p_name.lower() for k in ["apartment", "building", "アパート", "マンション", "一棟", "ビル", "ハイツ", "コーポ", "メゾン"]):
+        return "invest_apartment"
+    if any(k in model_class_name or k in p_name.lower() for k in ["kodate", "戸建", "一戸建", "貸家", "テラスハウス"]):
+        return "invest_kodate"
+
+    if prop is not None and not hasattr(prop, "_mock_name"):
+        try:
+            detected = PropertyTypeDetector.detect_from_object(prop)
+            if detected in ("invest_kodate", "kodate"):
+                return "invest_kodate"
+            if detected in ("apartment", "mansion"):
+                return "invest_apartment"
+        except Exception:
+            pass
+    return "invest_kodate"
+
+
+def _select_balanced_investment_for_stage2(cands: list, quota: int) -> list:
+    """
+    投資カテゴリ内で一棟アパート（goodproperty-invest-apartment）と収益戸建て（goodproperty-invest-kodate）の
+    双方が候補にある場合、片方だけで枠が独占されないようバランスよく上位を選抜する (Issue #1343)
+    """
+    if len(cands) <= quota:
+        return cands
+
+    apt_list = [c for c in cands if _classify_investment_subchannel(c[1], c[2]) == "invest_apartment"]
+    kodate_list = [c for c in cands if _classify_investment_subchannel(c[1], c[2]) == "invest_kodate"]
+
+    if not apt_list or not kodate_list:
+        return cands[:quota]
+
+    selected = []
+    used_ids = set()
+
+    # アパート枠（最低1〜3件）と戸建枠（最低1〜2件）の双方を確保し、残りをスコア順で補充
+    apt_min = min(len(apt_list), max(1, (quota + 1) // 2))
+    kodate_min = min(len(kodate_list), max(1, quota - apt_min))
+
+    for c in apt_list[:apt_min]:
+        selected.append(c)
+        used_ids.add(id(c[1]))
+    for c in kodate_list[:kodate_min]:
+        if len(selected) >= quota:
+            break
+        if id(c[1]) not in used_ids:
+            selected.append(c)
+            used_ids.add(id(c[1]))
+
+    for c in cands:
+        if len(selected) >= quota:
+            break
+        if id(c[1]) not in used_ids:
+            selected.append(c)
+            used_ids.add(id(c[1]))
+
+    selected.sort(key=lambda x: _rank_by_capital_gain_score(x[1]), reverse=True)
+    return selected
+
+
 def _select_two_stage_recommendations(
     candidates_by_category: dict[str, list],
     quota_per_category: int = 5,
 ) -> list:
     """
-    二次スクリーニング（定性評価スコアリング）に基づき、各カテゴリごとに上位 quota_per_category 件を選抜する (Issue #1311)
+    二次スクリーニング（定性評価スコアリング）に基づき、各カテゴリごとに上位 quota_per_category 件を選抜する (Issue #1311, #1343)
     戻り値: [(ml_priority, eval_rec, prop, reason), ...] (全体配信リスト)
     """
     final_selected = []
     category_order = ["mansion", "kodate", "tochi", "investment"]
 
     for cat in category_order:
-        cands = candidates_by_category.get(cat, [])
+        cands = list(candidates_by_category.get(cat, []))
         if not cands:
             continue
         # キャピタルゲイン優先スコア順に降順ソート (ML理論価格ml_priorityは排除)
@@ -240,7 +359,10 @@ def _select_two_stage_recommendations(
             key=lambda x: _rank_by_capital_gain_score(x[1]),
             reverse=True,
         )
-        selected_for_cat = cands[:quota_per_category]
+        if cat == "investment":
+            selected_for_cat = _select_balanced_investment_for_stage2(cands, quota_per_category)
+        else:
+            selected_for_cat = cands[:quota_per_category]
         final_selected.extend(selected_for_cat)
 
     return final_selected
@@ -254,9 +376,9 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     if pred_price <= 0 or asking_price_man <= 0:
         return False, "", 0.0
 
-    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
+    # 安全弁ガード: 予測価格と売出価格の極端な乖離（2.5倍超または0.33倍未満）は異常値として除外 (Issue #1116, #1343)
     price_ratio = pred_price / asking_price_man
-    if price_ratio > 3.0 or price_ratio < 0.33:
+    if price_ratio > MAX_PREDICTION_PRICE_RATIO or price_ratio < MIN_PREDICTION_PRICE_RATIO:
         logger.warning(
             f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
             f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
@@ -270,9 +392,9 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
         )
         return False, "", 0.0
 
-    # 利回りベース単独での推奨は撤廃し、割安判定（ディスカウント率 20%〜35%）を満たすもののみ推奨 (Issue #1239)
+    # 予想価格のばらつきを考慮し、ディスカウント率 15.0%〜60.0% を満たすものを推奨候補とする (Issue #1239, #1343)
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-    if 20.0 <= discount_pct <= 35.0:
+    if MIN_RECOMMEND_DISCOUNT_PCT <= discount_pct <= MAX_RECOMMEND_DISCOUNT_PCT:
         score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
         calc_priority = 70.0 + discount_pct + (float(score) * 0.1)
         reason = f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】"
@@ -284,12 +406,12 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
     if pred_price <= 0 or asking_price_man <= 0:
         return False, "", 0.0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-    if discount_pct >= 35.0 or discount_pct <= -35.0:
+    if discount_pct > MAX_RECOMMEND_DISCOUNT_PCT or discount_pct <= -MAX_RECOMMEND_DISCOUNT_PCT:
         logger.warning(
-            f"Skipping alert (2-sigma error suspect): Property {prop.pageUrl} has extreme prediction gap of {discount_pct:.1f}% (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
+            f"Skipping alert (2-sigma error suspect): Property {getattr(prop, 'pageUrl', '')} has extreme prediction gap of {discount_pct:.1f}% (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
         )
         return False, "", 0.0
-    if discount_pct >= 20.0:
+    if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         return True, f"【市場予測価格より {discount_pct:.1f}% 割安（超お宝物件！）】", discount_pct
     return False, "", 0.0
 
@@ -334,6 +456,7 @@ def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
         "investapartment": ("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment"),
         "investmentapartment": ("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment"),
         "apartment": ("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment"),
+        "investmentbuilding": ("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment"),
         "investkodate": ("SLACK_RECOMMEND_INVEST_KODATE", "goodproperty-invest-kodate"),
         "investmentkodate": ("SLACK_RECOMMEND_INVEST_KODATE", "goodproperty-invest-kodate"),
     }
@@ -342,9 +465,14 @@ def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
         return os.getenv(env_var, default_ch)
 
     if ptype_clean == "investment":
-        model_class_name = prop.__class__.__name__.lower()
-        prop_name_lower = p_name.lower()
-        if any(k in model_class_name or k in prop_name_lower for k in ["apartment", "アパート", "マンション", "一棟"]):
+        model_class_name = prop.__class__.__name__.lower() if prop is not None else ""
+        prop_name_lower = (p_name or "").lower()
+        if any(k in model_class_name or k in prop_name_lower for k in ["apartment", "building", "アパート", "マンション", "一棟", "ビル", "ハイツ", "コーポ", "メゾン"]):
+            return os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment")
+        if any(k in model_class_name or k in prop_name_lower for k in ["kodate", "戸建", "一戸建", "貸家", "テラスハウス"]):
+            return os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "goodproperty-invest-kodate")
+        subch = _classify_investment_subchannel(eval_rec, prop)
+        if subch == "invest_apartment":
             return os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment")
         return os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "goodproperty-invest-kodate")
 
@@ -435,6 +563,7 @@ def _extract_property_display_info(prop, eval_rec) -> tuple[str, int, float, str
         "apartment": LABEL_INVEST_APARTMENT,
         "investmentkodate": LABEL_INVEST_KODATE,
         "investmentapartment": LABEL_INVEST_APARTMENT,
+        "investmentbuilding": LABEL_INVEST_APARTMENT,
         "investment": "投資用物件"
     }.get(eval_rec.property_type, eval_rec.property_type)
 
@@ -583,14 +712,18 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str, report_data: di
 
 def _fetch_recommendation_candidates(limit: int = 3000):
     """
-    全種別の候補をバランスよく取得する (Issue #1087)
+    全種別の候補をバランスよく取得する (Issue #1087, #1343)
     住居系（マンション、戸建て、土地）と投資系（区分、一棟、戸建て）のそれぞれについて
-    最新の未通知・公開物件を並行してロードし、特定種別による枠の独占を防ぐ。
+    一次スクリーニング合格済み・非重複の最新公開物件を並行してロードし、不合格・未算出レコードによる枠の圧迫を防ぐ。
     """
+    from django.db.models import Q
     base_qs = PropertyEvaluation.objects.filter(
         is_slack_notified=False,
         is_published=True,
         needs_recrawl=False,
+        duplicate_of__isnull=True,
+    ).exclude(
+        Q(is_first_stage_passed=False) | Q(first_stage_predicted_price=0)
     )
     all_types = [
         'mansion', 'kodate', 'tochi',
@@ -602,7 +735,7 @@ def _fetch_recommendation_candidates(limit: int = 3000):
     seen_ids = set()
 
     for ptype in all_types:
-        qs_type = base_qs.filter(property_type=ptype).order_by('-id')[:per_type_limit]
+        qs_type = base_qs.filter(property_type=ptype).order_by('-analyzed_at', '-id')[:per_type_limit]
         for rec in qs_type:
             if rec.id not in seen_ids:
                 seen_ids.add(rec.id)
@@ -610,7 +743,7 @@ def _fetch_recommendation_candidates(limit: int = 3000):
 
     if len(combined_candidates) < limit:
         remaining_limit = limit - len(combined_candidates)
-        fallback_qs = base_qs.exclude(id__in=seen_ids).order_by('-id')[:remaining_limit]
+        fallback_qs = base_qs.exclude(id__in=seen_ids).order_by('-analyzed_at', '-id')[:remaining_limit]
         combined_candidates.extend(fallback_qs)
 
     return combined_candidates
@@ -723,10 +856,7 @@ def send_recommendations():
         logger.info("\n" + banner)
         return
 
-    # Stage 1: 物件種別ごとに割安度上位を抽出 (Issue #1311, #1327)
-    # Gemini レート制限および Cloud Run Job タイムアウト（2時間）防止のため、
-    # 一次選抜枠を 15件/種別（計最大60件）とし、最終選抜上位（5件/種別、計最大20件）に対してのみ
-    # AI多面鑑定レポート生成を行う2段階フローへ最適化する。
+    # Stage 1: 物件種別ごとに割安度上位を抽出 (Issue #1311, #1327, #1343)
     STAGE1_PER_CATEGORY_LIMIT = 50
     STAGE2_PER_CATEGORY_QUOTA = 5
 
@@ -736,13 +866,32 @@ def send_recommendations():
         "tochi": [],
         "investment": [],
     }
+    inv_subchannel_counts = {"invest_apartment": 0, "invest_kodate": 0}
+    inv_subchannel_limit = STAGE1_PER_CATEGORY_LIMIT // 2
 
-    # 各カテゴリごとに優先度順ソート
+    # 各カテゴリごとに優先度順ソート（investment は一棟アパートと投資戸建の双方が Stage 1 枠に入るよう考慮）
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
+    overflow_inv = []
     for c in matched_candidates:
         cat = _get_property_category(c[1].property_type)
-        if cat in candidates_by_category and len(candidates_by_category[cat]) < STAGE1_PER_CATEGORY_LIMIT:
+        if cat not in candidates_by_category:
+            continue
+        if len(candidates_by_category[cat]) >= STAGE1_PER_CATEGORY_LIMIT:
+            continue
+        if cat == "investment":
+            subch = _classify_investment_subchannel(c[1], c[2])
+            if inv_subchannel_counts.get(subch, 0) < inv_subchannel_limit:
+                candidates_by_category[cat].append(c)
+                inv_subchannel_counts[subch] = inv_subchannel_counts.get(subch, 0) + 1
+            else:
+                overflow_inv.append(c)
+        else:
             candidates_by_category[cat].append(c)
+
+    for c in overflow_inv:
+        if len(candidates_by_category["investment"]) >= STAGE1_PER_CATEGORY_LIMIT:
+            break
+        candidates_by_category["investment"].append(c)
 
     stage1_total = sum(len(v) for v in candidates_by_category.values())
     stage1_summary = ", ".join(f"{k}: {len(v)}件" for k, v in candidates_by_category.items())
@@ -817,7 +966,10 @@ def send_recommendations():
         if _dispatch_single_recommendation(eval_rec, prop, reason, report_data=cached_rep):
             sent_count += 1
             metrics.record_processed(1)
-            ptype_key = eval_rec.property_type.lower().replace("_", "")
+            if is_investment_type(eval_rec.property_type):
+                ptype_key = _classify_investment_subchannel(eval_rec, prop)
+            else:
+                ptype_key = eval_rec.property_type.lower().replace("_", "")
             channel_counts[ptype_key] = channel_counts.get(ptype_key, 0) + 1
         else:
             metrics.record_failed(1)
