@@ -65,10 +65,17 @@ def collect_model_classes_by_type() -> dict[str, list[tuple[str, Any]]]:
         if not matched_company:
             continue
         suffix = model_name[len(matched_company):]
+        matched = False
         for ptype in ["mansion", "apartment", "tochi", "kodate"]:
             if ptype in suffix:
                 models_by_type[ptype].append((matched_company, model))
+                matched = True
                 break
+        if not matched and ("investment" in suffix or "building" in suffix):
+            # 汎用 *Investment / *InvestmentBuilding モデル（Reguide, Odakyu, Smtrc, Sumai1, Sumirin, Kenbiya 等）
+            # MizuhoInvestment は区分所有主体であるため mansion、それ以外は一棟収益（apartment）へ統合 (Issue #1343)
+            target_ptype = "mansion" if matched_company == "mizuho" else "apartment"
+            models_by_type[target_ptype].append((matched_company, model))
     return models_by_type
 
 

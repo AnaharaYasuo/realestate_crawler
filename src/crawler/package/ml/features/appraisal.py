@@ -93,14 +93,22 @@ def calculate_mkt_comparison_value(
     return avg_unit_price * eval_area
 
 
-def _resolve_cap_rate(gross_yield: Any, income: float | None) -> float:
-    if gross_yield is not None and float(gross_yield) > 0:
-        return float(gross_yield) / 100.0
+def _resolve_cap_rate(gross_yield: Any, income: float | None, average_land_price: float | None = None) -> float:
+    """
+    地域の所得水準および基準地価から客観的な市場期待還元利回り（cap rate）を算出する (Issue #1343)。
+    物件自身の表面利回り（gross_yield = 年間収入 / 売出価格）を使用すると
+    income_approach_value = 0.85 * asking_price となり売出価格のターゲットリークが発生するため参照しない。
+    """
+    _ = gross_yield
+    if average_land_price is not None and average_land_price > 800000:
+        return 0.040
     if income is not None:
         if income > 7000:
             return 0.040
         if income > 4500:
             return 0.050
+        if income < 3200:
+            return 0.065
     return 0.06
 
 
@@ -116,7 +124,7 @@ def calculate_income_approach_value(
 ) -> tuple[float, Any, Any]:
     gross_yield = _get_attr(property_obj, 'grossYield', None)
     annual_rent = _get_attr(property_obj, 'annualRent', None)
-    cap_rate = _resolve_cap_rate(gross_yield, income)
+    cap_rate = _resolve_cap_rate(None, income, average_land_price=average_land_price)
 
     if annual_rent is not None and float(annual_rent) > 0:
         raw_rent = float(annual_rent)

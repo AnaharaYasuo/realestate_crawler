@@ -167,19 +167,17 @@ class BatchMetrics:
         et_str = format_timestamp_jst(self.end_time)
         dur = self.duration_str
 
-        channel_labels = {
-            "mansion": "マンション",
-            "kodate": "戸建",
-            "tochi": "土地",
-            "invest_apartment": "投資アパート",
-            "investmentapartment": "投資アパート",
-            "invest_kodate": "投資戸建",
-            "investmentkodate": "投資戸建",
-        }
+        channel_groups = [
+            ("マンション", ("mansion",)),
+            ("戸建", ("kodate",)),
+            ("土地", ("tochi",)),
+            ("投資アパート", ("invest_apartment", "investapartment", "investmentapartment", "apartment", "investment", "investmentbuilding")),
+            ("投資戸建", ("invest_kodate", "investkodate", "investmentkodate")),
+        ]
 
         channel_lines = []
-        for ch_key, ch_name in channel_labels.items():
-            cnt = channel_counts.get(ch_key, 0)
+        for ch_name, ch_keys in channel_groups:
+            cnt = sum(channel_counts.get(k, 0) for k in ch_keys)
             if cnt > 0:
                 channel_lines.append(f"  - {ch_name}: {cnt} 件")
 
