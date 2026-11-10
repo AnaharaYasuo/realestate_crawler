@@ -19,6 +19,8 @@ def test_fetch_recommendation_candidates_limits_and_orders():
         is_published=True,
         is_slack_notified=False,
         needs_recrawl=False,
+        is_first_stage_passed=True,
+        first_stage_predicted_price=6000,
         analyzed_at=now,
     )
     eval2 = PropertyEvaluation.objects.create(
