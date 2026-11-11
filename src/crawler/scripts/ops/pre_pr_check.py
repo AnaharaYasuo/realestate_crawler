@@ -274,12 +274,19 @@ class PrePRChecker:
     def is_all_passed(self) -> bool:
         return all(r.passed for r in self.results)
 
-    def _run_cmd(self, cmd: list[str], cwd: str | None = None, timeout: float | None = 15.0) -> tuple[int, str, str]:
+    def _run_cmd(
+        self,
+        cmd: list[str],
+        cwd: str | None = None,
+        timeout: float | None = 15.0,
+        env: dict[str, str] | None = None,
+    ) -> tuple[int, str, str]:
         """Execute a local shell command safely with optional timeout."""
         try:
             p = subprocess.run(
                 cmd,
                 cwd=cwd or self.repo_root,
+                env=env,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -519,13 +526,18 @@ class PrePRChecker:
         """Run MyPy static type checker on modified Python files."""
         errors: list[str] = []
         mypy_exe = r"C:\Users\weare\.gemini\antigravity\scratch\python311\Scripts\mypy.exe"
+        env = os.environ.copy()
+        crawler_src = os.path.join(self.repo_root, "src", "crawler")
+        existing_pypath = env.get("MYPYPATH", "")
+        env["MYPYPATH"] = f"{crawler_src}{os.pathsep}{existing_pypath}" if existing_pypath else crawler_src
         cmd = [
             mypy_exe if os.path.exists(mypy_exe) else "mypy",
+            "--explicit-package-bases",
             "--ignore-missing-imports",
             "--no-error-summary",
             "--disable-error-code=var-annotated",
         ] + py_files
-        rc, out, _err = self._run_cmd(cmd, timeout=60.0)
+        rc, out, _err = self._run_cmd(cmd, timeout=60.0, env=env)
         if rc != 0 and out:
             for line in out.splitlines():
                 if ": error:" in line:
