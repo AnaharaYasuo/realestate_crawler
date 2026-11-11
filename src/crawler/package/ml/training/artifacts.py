@@ -23,11 +23,14 @@ def save_metadata(
     model_dir: str,
     all_ensemble_weights: dict[str, Any],
     all_smearing_factors: dict[str, Any],
-    mkt_master: dict[str, Any] | None = None,
+    mkt_master: dict[Any, Any] | None = None,
+    location_encoders: dict[str, Any] | None = None,
 ) -> None:
-    """アンサンブル重み、スミアリング補正係数、取引事例比較マスタを保存"""
+    """アンサンブル重み、スミアリング補正係数、取引事例比較マスタ、空間ターゲットエンコーダを保存"""
     if mkt_master is not None:
         joblib.dump(mkt_master, os.path.join(model_dir, "mkt_comparison_master.joblib"))
+    if location_encoders is not None:
+        joblib.dump(location_encoders, os.path.join(model_dir, "location_encoders.joblib"))
     joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))
     joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
 

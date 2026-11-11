@@ -77,7 +77,7 @@ def resolve_building_master_obj(property_obj: Any, bm_lookup: dict | None = None
     try:
         from package.models.building_master import BuildingMaster
         return BuildingMaster.objects.filter(normalized_name=key[0], normalized_address=key[1]).first()
-    except DatabaseError:
+    except (DatabaseError, RuntimeError):
         return None
 
 

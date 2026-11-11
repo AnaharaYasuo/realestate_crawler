@@ -43,6 +43,7 @@ def train_property_type(
     all_ensemble_weights: dict[str, Any],
     all_smearing_factors: dict[str, Any],
     allow_dummy_fallback: bool | None = None,
+    all_location_encoders: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """単一種別のデータクレンジング、一次/二次アンサンブル学習、モデル保存を実行"""
     ptype_start = time.perf_counter()
@@ -87,6 +88,8 @@ def train_property_type(
     )
     all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
     all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
+    if all_location_encoders is not None:
+        all_location_encoders.setdefault(ptype, {})["first"] = first_ensemble.location_encoder
     save_stage_models(first_ensemble, model_dir, ptype, "first")
 
     # 二次モデルの訓練と保存
@@ -96,6 +99,8 @@ def train_property_type(
     )
     all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
     all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
+    if all_location_encoders is not None:
+        all_location_encoders.setdefault(ptype, {})["second"] = second_ensemble.location_encoder
     save_stage_models(second_ensemble, model_dir, ptype, "second")
 
     duration = time.perf_counter() - ptype_start
@@ -133,6 +138,7 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
     metrics = BatchMetrics("ML Model Training")
     all_ensemble_weights: dict[str, Any] = {}
     all_smearing_factors: dict[str, Any] = {}
+    all_location_encoders: dict[str, Any] = {}
     ptype_summaries = []
     any_dummy_used = False
     max_items = int(os.environ.get("ML_MAX_TRAINING_ITEMS", str(DEFAULT_MAX_TRAINING_ITEMS)))
@@ -154,6 +160,7 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
             all_ensemble_weights,
             all_smearing_factors,
             allow_dummy_fallback=allow_dummy_fallback,
+            all_location_encoders=all_location_encoders,
         )
         if summary.get("used_dummy"):
             any_dummy_used = True
@@ -161,7 +168,13 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
         metrics.record_processed(summary.get("valid_count", 0))
         gc.collect()
 
-    save_metadata(model_dir, all_ensemble_weights, all_smearing_factors, mkt_master)
+    save_metadata(
+        model_dir,
+        all_ensemble_weights,
+        all_smearing_factors,
+        mkt_master,
+        location_encoders=all_location_encoders,
+    )
 
     if any_dummy_used:
         logger.warning("Models trained with dummy fallback data. Skipping GCS upload.")

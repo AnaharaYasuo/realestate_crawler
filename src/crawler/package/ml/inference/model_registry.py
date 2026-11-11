@@ -58,6 +58,7 @@ class ModelRegistry:
         self._market_master: dict[str, Any] | None = None
         self._smearing_factors: dict[str, Any] | None = None
         self._ensemble_weights: dict[str, Any] | None = None
+        self._location_encoders: dict[str, Any] | None = None
 
     def _normalize_stage(self, stage: str) -> str:
         s = stage.lower()
@@ -198,10 +199,33 @@ class ModelRegistry:
         with self._lock:
             self._market_master = master
 
+    def location_encoder(self, ptype: str, stage: str) -> Any:
+        """階層ベイズ空間ターゲットエンコーダを取得（未保存時は None）"""
+        s_key = "first" if "first" in stage.lower() else "second"
+        with self._lock:
+            if self._location_encoders is None:
+                path = os.path.join(self.model_dir, "location_encoders.joblib")
+                if os.path.exists(path):
+                    try:
+                        self._location_encoders = joblib.load(path)
+                        logger.info("ML: Loaded hierarchical location encoders.")
+                    except Exception:
+                        logger.exception("ML: Failed to load location encoders")
+                        self._location_encoders = {}
+                else:
+                    self._location_encoders = {}
+            return self._location_encoders.get(ptype, {}).get(s_key)
+
+    def set_custom_location_encoders(self, encoders: dict[str, Any]) -> None:
+        """テスト等で空間ターゲットエンコーダ辞書を注入"""
+        with self._lock:
+            self._location_encoders = encoders
+
     def preload(self) -> None:
         """全モデルおよびマスタを事前ウォームアップ"""
         self.market_master()
         for ptype in PROPERTY_TYPES:
+            self.location_encoder(ptype, "first_stage")
             self.models(ptype, "first_stage")
             self.models(ptype, "second_stage")
 
@@ -212,6 +236,7 @@ class ModelRegistry:
             self._market_master = None
             self._smearing_factors = None
             self._ensemble_weights = None
+            self._location_encoders = None
 
 
 _DEFAULT_REGISTRY: ModelRegistry | None = None

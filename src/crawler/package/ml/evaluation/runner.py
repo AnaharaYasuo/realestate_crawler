@@ -5,6 +5,7 @@
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -31,7 +32,7 @@ DEFAULT_READ_CHUNK_SIZE = EVAL_DB_READ_CHUNK_SIZE
 
 def _save_chunk_with_retry(
     chunk: list[Any],
-    predicted_prices: list[float],
+    predicted_prices: Sequence[int | float],
     existing_eval_map: dict[str, Any],
     company: str,
     property_type: str,
@@ -44,7 +45,7 @@ def _save_chunk_with_retry(
         try:
             return save_chunk(
                 chunk,
-                predicted_prices,
+                [float(p) for p in predicted_prices],
                 existing_eval_map,
                 company,
                 property_type,
@@ -165,6 +166,42 @@ def _read_positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _resolve_positive_arg_or_env(explicit: int | None, env_name: str, default: int) -> int:
+    val = int(explicit) if explicit is not None else _read_positive_int_env(env_name, default)
+    if val <= 0:
+        raise ValueError(f"{env_name} / CLI argument must be positive, got {val}")
+    return val
+
+
+def _build_skip_suffix(
+    skip_portals: bool,
+    skip_uncrawled: bool,
+    reevaluate_before: Any,
+    skip_duplicate_check: bool,
+) -> str:
+    parts: list[str] = []
+    if skip_portals:
+        parts.append(" [ポータル割愛]")
+    if skip_uncrawled:
+        parts.append(" [未巡回・中堅仲介割愛]")
+    if reevaluate_before is not None:
+        parts.append(f" [再評価対象: < {reevaluate_before}]")
+    if skip_duplicate_check:
+        parts.append(" [重複判定スキップ]")
+    return "".join(parts)
+
+
+def _try_notify_progress(model_name: str, cnt: int, skp: int, evaluated_count: int, active: bool) -> bool:
+    if cnt <= 0 or not active:
+        return active
+    try:
+        notify_slack(f"📊 【価格推定進捗】 {model_name}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了")
+        return True
+    except (RuntimeError, OSError) as se:
+        logger.warning("Per-model progress Slack notification failed: %s", se)
+        return False
+
+
 def run_bulk_evaluation(
     force: bool = False,
     limit_per_model: int | None = None,
@@ -172,11 +209,13 @@ def run_bulk_evaluation(
     skip_uncrawled: bool = False,
     reevaluate_before: Any = None,
     skip_duplicate_check: bool = False,
+    concurrency: int | None = None,
+    batch_size: int | None = None,
 ) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
-    concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
-    batch_size = _read_positive_int_env("BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
+    concurrency = _resolve_positive_arg_or_env(concurrency, "BULK_EVAL_CONCURRENCY", DEFAULT_CONCURRENCY)
+    batch_size = _resolve_positive_arg_or_env(batch_size, "BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
     chunk_size = _read_positive_int_env("BULK_EVAL_CHUNK_SIZE", DEFAULT_READ_CHUNK_SIZE)
     logger.info(
         "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Write Batch Size=%d, Read Chunk Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
@@ -199,16 +238,7 @@ def run_bulk_evaluation(
         slack_notifier("⚠️ 【バルク価格推定エラー】 評価対象の物件モデルが0件でした。処理を中断します。")
         sys.exit(1)
 
-    skip_suffix = ""
-    if skip_portals:
-        skip_suffix += " [ポータル割愛]"
-    if skip_uncrawled:
-        skip_suffix += " [未巡回・中堅仲介割愛]"
-    if reevaluate_before is not None:
-        skip_suffix += f" [再評価対象: < {reevaluate_before}]"
-    if skip_duplicate_check:
-        skip_suffix += " [重複判定スキップ]"
-
+    skip_suffix = _build_skip_suffix(skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check)
     slack_notifier(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
         f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{skip_suffix})..."
@@ -235,15 +265,9 @@ def run_bulk_evaluation(
                 duplicate_total += d_cnt
                 metrics.record_processed(cnt)
                 metrics.record_skipped(skp)
-
-                if cnt > 0 and slack_progress_active:
-                    try:
-                        notify_slack(
-                            f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
-                        )
-                    except (RuntimeError, OSError) as se:
-                        logger.warning("Per-model progress Slack notification failed: %s", se)
-                        slack_progress_active = False
+                slack_progress_active = _try_notify_progress(
+                    m.__name__, cnt, skp, evaluated_count, slack_progress_active
+                )
             except Exception:
                 failed_models.append(m.__name__)
                 metrics.record_failed(1)

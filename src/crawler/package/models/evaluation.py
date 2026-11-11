@@ -382,6 +382,47 @@ class LandPricePotential(models.Model):
         return f"{self.prefecture}{self.city} ({self.get_land_use_display()}: {self.average_land_price}円/㎡{trend})"
 
 
+_VERBOSE_UPDATED_AT = "最終同期日時"
+
+
+class LandPricePointPotential(models.Model):
+    """
+    国土交通省 地価公示（L01）・都道府県地価調査（L02）の個別地点座標・ミクロ地価マスタ (Issue #1360)
+    """
+    point_code = models.CharField(max_length=100, unique=True, db_index=True, verbose_name="地点識別コード")
+    survey_type = models.CharField(max_length=10, default="L01", db_index=True, verbose_name="調査区分 (L01/L02)")
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, verbose_name="市区町村")
+    chome_key = models.CharField(max_length=150, blank=True, default="", db_index=True, verbose_name="正規化町丁目キー")
+    latitude = models.FloatField(verbose_name="緯度")
+    longitude = models.FloatField(verbose_name="経度")
+    land_price = models.IntegerField(verbose_name="地点地価（円/㎡）")
+    growth_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="対前年変動率（％）")
+    land_use = models.CharField(
+        max_length=50,
+        choices=[("residential", "住宅地"), ("commercial", "商業地")],
+        default="residential",
+        db_index=True,
+        verbose_name="用途区分",
+    )
+    zone_name = models.CharField(max_length=100, blank=True, default="", verbose_name="用途地域")
+    road_width = models.FloatField(null=True, blank=True, verbose_name="前面道路幅員（m）")
+    station_name = models.CharField(max_length=100, blank=True, default="", db_index=True, verbose_name="最寄駅名")
+    station_distance_m = models.IntegerField(null=True, blank=True, verbose_name="最寄駅距離（m）")
+    has_gas = models.BooleanField(default=True, verbose_name="ガス供給有無")
+    has_water = models.BooleanField(default=True, verbose_name="上水道有無")
+    has_sewer = models.BooleanField(default=True, verbose_name="下水道有無")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
+
+    class Meta:
+        db_table = "land_price_point_potential"
+        verbose_name = "地点別公示・基準地価マスタ"
+        verbose_name_plural = "地点別公示・基準地価マスタ"
+
+    def __str__(self):
+        return f"{self.point_code} {self.chome_key or (self.prefecture + self.city)}: {self.land_price}円/㎡"
+
+
 class HazardMapPotential(models.Model):
     """
     市区町村ごとのハザードマップ（浸水・土砂災害リスク）統計マスタ
@@ -554,7 +595,7 @@ class RentMarketPotential(models.Model):
     sample_count = models.IntegerField(null=True, blank=True, verbose_name="集計サンプル件数")
     source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
     gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
 
     class Meta:
         db_table = 'rent_market_potential'
@@ -591,7 +632,7 @@ class CapRateBenchmarkPotential(models.Model):
     survey_period = models.CharField(max_length=20, blank=True, default="", verbose_name="調査対象時点")
     source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
     gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
 
     class Meta:
         db_table = 'cap_rate_benchmark_potential'

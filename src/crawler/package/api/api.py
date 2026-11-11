@@ -100,7 +100,7 @@ def _get_local_worker_concurrency() -> int:
         env_val = os.getenv("LOCAL_CRAWLER_LOCAL_WORKER_CONCURRENCY") or os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "3")
 
     try:
-        val = int(env_val)
+        val = int(env_val or "3")
         return val if val > 0 else 3
     except (ValueError, TypeError):
         return 3
@@ -213,8 +213,10 @@ def _shutdown_local_worker_executor_nonblocking() -> None:
     try:
         _local_worker_executor.shutdown(wait=False, cancel_futures=True)
         import concurrent.futures.thread as _cft
+        tq: Any = getattr(_cft, "_threads_queues", None)
         for t in getattr(_local_worker_executor, "_threads", ()):
-            _cft._threads_queues.pop(t, None)
+            if hasattr(tq, "pop"):
+                tq.pop(t, None)
     except Exception:
         pass
     _local_worker_executor = None
@@ -1072,9 +1074,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 self._semaphore_limit = current_limit
                 self._semaphore = DynamicSemaphore(value=current_limit)
             elif getattr(self, "_semaphore_limit", None) != current_limit:
-                if hasattr(self._semaphore, "resize"):
+                if self._semaphore is not None and hasattr(self._semaphore, "resize"):
                     self._semaphore.resize(current_limit)
                 self._semaphore_limit = current_limit
+        assert self._semaphore is not None
         return self._semaphore
 
     @semaphore.setter
@@ -2335,6 +2338,41 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         else:
             logging.error(f"❌ [SLACK ERROR] Failed to send Slack alert for {item.propertyName} ({item.pageUrl})")
 
+    async def _resolve_stage2_analysis_inputs(
+        self,
+        item,
+        eval_record,
+        property_type: str,
+        cleaned_images: list,
+        check_api_budget_cap,
+        analyze_property_images_with_gemini,
+    ) -> dict | None:
+        if property_type == "tochi":
+            logger.info("ML: Skipping paid Gemini image analysis for land property %s (deterministic Stage 2).", item.propertyName)
+            return {
+                "interior_score": 3.0,
+                "layout_score": 3.0,
+                "plot_shape_type": eval_record.plot_shape_type or "unknown",
+                "plot_shape_description": eval_record.plot_shape_description or "",
+                "maintenance_score": eval_record.maintenance_score,
+                "maintenance_comment": eval_record.maintenance_comment or "",
+            }
+
+        if not cleaned_images:
+            logger.info("ML: No valid property images found for %s.", item.propertyName)
+            return None
+
+        if not await sync_to_async(check_api_budget_cap)():
+            eval_record.analysis_status = "skipped_by_budget"
+            await sync_to_async(eval_record.save)()
+            logger.warning("ML: Skipped Gemini analysis for %s due to daily budget cap.", item.propertyName)
+            return None
+
+        logger.info("ML: Executing Gemini image analysis for %s...", item.propertyName)
+        eval_record.analysis_status = "processing"
+        await sync_to_async(eval_record.save)()
+        return await sync_to_async(analyze_property_images_with_gemini)(cleaned_images)
+
     async def _run_stage2_and_notify(
         self, item, eval_record, company, property_type, asking_price, timezone,
         extract_images_from_soup, clean_images, check_api_budget_cap,
@@ -2344,21 +2382,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         raw_images = extract_images_from_soup(soup, item.pageUrl) if soup else []
         cleaned_images = clean_images(raw_images)
 
-        if not cleaned_images:
-            logging.info(f"ML: No valid property images found for {item.propertyName}.")
+        analysis_res = await self._resolve_stage2_analysis_inputs(
+            item, eval_record, property_type, cleaned_images,
+            check_api_budget_cap, analyze_property_images_with_gemini,
+        )
+        if analysis_res is None:
             return
 
-        if not await sync_to_async(check_api_budget_cap)():
-            eval_record.analysis_status = "skipped_by_budget"
-            await sync_to_async(eval_record.save)()
-            logging.warning(f"ML: Skipped Gemini analysis for {item.propertyName} due to daily budget cap.")
-            return
-
-        logging.info(f"ML: Executing Gemini image analysis for {item.propertyName}...")
-        eval_record.analysis_status = "processing"
-        await sync_to_async(eval_record.save)()
-
-        analysis_res = await sync_to_async(analyze_property_images_with_gemini)(cleaned_images)
         interior_score = analysis_res['interior_score']
         layout_score = analysis_res['layout_score']
 
@@ -2511,7 +2541,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         company = self._resolve_target_company() or "unknown"
         property_type = (
             getattr(self.parser, "property_type", None)
-            or PropertyTypeDetector.detect_from_url(self.url)
+            or PropertyTypeDetector.detect(url=self.url)
             or "unknown"
         )
         prop_id = self._resolve_delisted_prop_id() or 0
@@ -2541,7 +2571,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         company = self._resolve_target_company() or "unknown"
         property_type = (
             getattr(self.parser, "property_type", None)
-            or PropertyTypeDetector.detect_from_url(self.url)
+            or PropertyTypeDetector.detect(url=self.url)
             or "unknown"
         )
         prop_id = self._resolve_delisted_prop_id() or 0

@@ -127,6 +127,43 @@ def get_average_land_price(prefecture, city):
             
     return 100000  # デフォルト 10万円/㎡
 
+def _resolve_spatial_land_price_for_sekisan(property_obj, prefecture: str, city: str, muni_land_price: int) -> int:
+    try:
+        from package.ml.features.parsers import extract_group_labels
+        from package.ml.features.reference_data import (
+            query_micro_land_price_features,
+            resolve_zone_limits,
+        )
+        from package.utils.gsi_geocoder import lookup_cached_coordinates
+
+        max_youseki, _, _, _, _ = resolve_zone_limits(property_obj)
+        _, chome_group = extract_group_labels(property_obj, prefecture, city)
+        station = str(getattr(property_obj, "station1", "") or "")
+        coords = lookup_cached_coordinates(str(getattr(property_obj, "address", "") or chome_group or ""))
+        lat_v, lon_v = coords if coords is not None else (None, None)
+        micro_lp, _ = query_micro_land_price_features(
+            prefecture, city, chome_group, max_youseki, int(muni_land_price),
+            station_name=station, latitude=lat_v, longitude=lon_v,
+        )
+        return int(micro_lp)
+    except Exception:  # noqa: BLE001
+        return int(muni_land_price)
+
+
+def _resolve_sekisan_legal_multiplier(property_obj) -> float:
+    text = _extract_combined_text(property_obj)
+    mult = 1.0
+    if "底地" in text or "貸地" in text:
+        mult *= 0.20
+    elif any(k in text for k in ("定期借地", "定借", "借地権", "普通賃借", "地上権")):
+        mult *= 0.65
+    if "再建築不可" in text:
+        mult *= 0.48
+    if "市街化調整" in text or "調整区域" in text:
+        mult *= 0.50
+    return mult
+
+
 def calculate_sekisan_price(property_obj, prefecture, city):
     """
     物件の積算価格を算出する。
@@ -156,8 +193,10 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     if tochi_effective > 1000.0:
         scale_discount = max(0.05, float((1000.0 / tochi_effective) ** 0.35))
 
-    land_price_per_m2 = get_average_land_price(prefecture, city)
-    land_value = tochi_effective * land_price_per_m2 / 10000.0 * scale_discount  # 万円単位
+    muni_land_price = get_average_land_price(prefecture, city)
+    land_price_per_m2 = _resolve_spatial_land_price_for_sekisan(property_obj, prefecture, city, muni_land_price)
+    legal_mult = _resolve_sekisan_legal_multiplier(property_obj)
+    land_value = tochi_effective * land_price_per_m2 / 10000.0 * scale_discount * legal_mult  # 万円単位
     
     # 2. 建物評価額
     age = parse_chikunen(chikunen_date if chikunen_date else chikunen_str)
@@ -263,8 +302,8 @@ def _calculate_monthly_cashflow_and_repayment(property_obj, price_man, noi, comb
 def _limit_decimal(val, max_val=9999.99, min_val=-9999.99):
     try:
         return Decimal(max(min_val, min(max_val, float(val))))
-    except Exception:
-        return Decimal(0.0)
+    except (TypeError, ValueError, ArithmeticError):
+        return Decimal("0.0")
 
 def _calculate_investment_scores(cf, price_man, down_payment, sekisan_ratio, dscr, evaluation_record):
     coc = (cf / down_payment * 100.0) if down_payment > 0 else 0.0

@@ -25,11 +25,16 @@ def test_feature_sets_consistency():
         assert len(first_cols) > 0
         assert len(second_cols) >= len(first_cols)
         
-        # secondはfirstの全特徴量を包含し、かつ画像スコアを含むこと
+        # secondはfirstの全特徴量を包含し、建物系は画像スコア・土地はAI課金不要の形状/管理定性特徴量を含むこと (Issue #1360)
         for col in first_cols:
             assert col in second_cols, f"{col} in first but not in second for {ptype}"
-        assert "interior_score" in second_cols
-        assert "layout_score" in second_cols
+        if ptype == "tochi":
+            assert "plot_shape_penalty" in second_cols
+            assert "interior_score" not in second_cols
+            assert "layout_score" not in second_cols
+        else:
+            assert "interior_score" in second_cols
+            assert "layout_score" in second_cols
 
 def test_build_features_contains_all_feature_set_cols():
     """build_featuresが各物件種別のFEATURE_SETSで必要な列を漏れなく出力することを検証"""
