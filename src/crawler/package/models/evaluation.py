@@ -477,11 +477,14 @@ class MunicipalYearlyPotential(models.Model):
         return f"{self.prefecture}{self.city} [{self.year}年] 人口: {self.total_population}人, 所得: {self.average_income}千円"
 
 
+_VERBOSE_STATION_NORM = "駅名 (正規化名)"
+
+
 class StationYearlyPotential(models.Model):
     """
     駅ごとの過去乗降人員時系列推移マスタ (過去10年間 全鉄道路線・全駅全量)
     """
-    station_name = models.CharField(max_length=100, db_index=True, verbose_name="駅名 (正規化名)")
+    station_name = models.CharField(max_length=100, db_index=True, verbose_name=_VERBOSE_STATION_NORM)
     railway_line = models.CharField(max_length=100, blank=True, default="", verbose_name="路線名")
     year = models.IntegerField(db_index=True, verbose_name="実績年")
     passenger_volume = models.IntegerField(verbose_name="1日平均乗降客数 (人/日)")
@@ -526,7 +529,7 @@ class RentMarketPotential(models.Model):
     """
     prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
     city = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="市区町村")
-    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="駅名 (正規化名)")
+    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name=_VERBOSE_STATION_NORM)
     town_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="町丁目・メッシュ名")
     building_type = models.CharField(max_length=30, db_index=True, default="all", verbose_name="建物種別 (mansion/apartment/kodate/all)")
     layout_type = models.CharField(max_length=30, default="all", verbose_name="間取り区分")
@@ -561,7 +564,7 @@ class CapRateBenchmarkPotential(models.Model):
     """
     prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
     city = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="市区町村")
-    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="駅名 (正規化名)")
+    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name=_VERBOSE_STATION_NORM)
     asset_type = models.CharField(max_length=40, db_index=True, default="all", verbose_name="アセット区分")
     expected_gross_yield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待・実勢表面利回り (%)")
     expected_net_cap_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待実質利回り / NCF Cap Rate (%)")

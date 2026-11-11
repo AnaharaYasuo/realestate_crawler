@@ -849,6 +849,33 @@ def _load_rent_market_records(rent_cls: Any) -> bool:
     return bool(_rent_market_cache)
 
 
+def _opt_float(val: Any) -> float | None:
+    return float(val) if val is not None else None
+
+
+def _opt_int(val: Any) -> int | None:
+    return int(val) if val is not None else None
+
+
+def _to_cap_rate_record(r: dict[str, Any]) -> CapRateBenchmarkRecord:
+    return CapRateBenchmarkRecord(
+        prefecture=r["prefecture"],
+        city=r["city"] or "",
+        station_name=r["station_name"] or "",
+        asset_type=r["asset_type"] or "all",
+        expected_gross_yield=_opt_float(r["expected_gross_yield"]),
+        expected_net_cap_rate=_opt_float(r["expected_net_cap_rate"]),
+        standard_opex_ratio=float(r["standard_opex_ratio"] or 20.0),
+        rental_vacancy_rate=_opt_float(r["rental_vacancy_rate"]),
+        total_vacancy_rate=_opt_float(r["total_vacancy_rate"]),
+        jgb_spread_bps=_opt_int(r["jgb_spread_bps"]),
+        demand_supply_score=_opt_float(r["demand_supply_score"]),
+        sample_count=r["sample_count"],
+        survey_period=r["survey_period"] or "",
+        source=r["source"],
+    )
+
+
 def _load_cap_rate_records(cap_cls: Any) -> bool:
     if _cap_rate_cache:
         return False
@@ -859,22 +886,7 @@ def _load_cap_rate_records(cap_cls: Any) -> bool:
         "demand_supply_score", "sample_count", "survey_period", "source",
     )
     for r in rows:
-        rec = CapRateBenchmarkRecord(
-            prefecture=r["prefecture"],
-            city=r["city"] or "",
-            station_name=r["station_name"] or "",
-            asset_type=r["asset_type"] or "all",
-            expected_gross_yield=float(r["expected_gross_yield"]) if r["expected_gross_yield"] is not None else None,
-            expected_net_cap_rate=float(r["expected_net_cap_rate"]) if r["expected_net_cap_rate"] is not None else None,
-            standard_opex_ratio=float(r["standard_opex_ratio"] or 20.0),
-            rental_vacancy_rate=float(r["rental_vacancy_rate"]) if r["rental_vacancy_rate"] is not None else None,
-            total_vacancy_rate=float(r["total_vacancy_rate"]) if r["total_vacancy_rate"] is not None else None,
-            jgb_spread_bps=int(r["jgb_spread_bps"]) if r["jgb_spread_bps"] is not None else None,
-            demand_supply_score=float(r["demand_supply_score"]) if r["demand_supply_score"] is not None else None,
-            sample_count=r["sample_count"],
-            survey_period=r["survey_period"] or "",
-            source=r["source"],
-        )
+        rec = _to_cap_rate_record(r)
         key = (rec.prefecture, rec.city, rec.station_name, rec.asset_type)
         _cap_rate_cache.setdefault(key, []).append(rec)
     return bool(_cap_rate_cache)

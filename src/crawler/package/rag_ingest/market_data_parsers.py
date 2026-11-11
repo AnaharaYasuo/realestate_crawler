@@ -11,6 +11,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+_HTML_PARSER = "html.parser"
 STANDARD_LAYOUT_AREAS_SQM: dict[str, float] = {
     "1R": 18.0,
     "1K": 22.0,
@@ -181,7 +182,7 @@ def parse_suumo_rent_table(
     station_name: str = "",
     building_type: str = "mansion",
 ) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     results: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str, str, str]] = set()
 
@@ -221,7 +222,7 @@ def parse_athome_rent_page(
     station_name: str = "",
     building_type: str = "all",
 ) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     resolved_city = city.strip()
     if not resolved_city and not station_name and soup.title:
         title_txt = soup.title.get_text(" ", strip=True)
@@ -288,7 +289,7 @@ def parse_homes_rent_table(
     city: str = "",
     station_name: str = "",
 ) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     results: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str]] = set()
 
@@ -311,11 +312,11 @@ def _extract_toushi_detail_metrics(soup: BeautifulSoup) -> tuple[float | None, f
     rental_vac = None
     gross_yield = None
 
-    m_total = re.search(r"住宅全般[^0-9]{0,25}(\d{1,2}(?:\.\d{1,2})?)\s*[％%]", full_txt)
+    m_total = re.search(r"住宅全般\D{0,25}(\d{1,2}(?:\.\d{1,2})?)\s*[％%]", full_txt)
     if m_total:
         total_vac = float(m_total.group(1))
 
-    m_rent = re.search(r"賃貸用住宅[^0-9]{0,25}(\d{1,2}(?:\.\d{1,2})?)\s*[％%]", full_txt)
+    m_rent = re.search(r"賃貸用住宅\D{0,25}(\d{1,2}(?:\.\d{1,2})?)\s*[％%]", full_txt)
     if m_rent:
         rental_vac = float(m_rent.group(1))
 
@@ -388,7 +389,7 @@ def parse_homes_toushi_page(
     city: str = "",
     station_name: str = "",
 ) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     gross_yield, rental_vac, total_vac = _extract_toushi_detail_metrics(soup)
     ds_score = _compute_demand_supply_score(soup)
 
@@ -445,7 +446,7 @@ def parse_japan_reit_rimawari(
     html_content: str,
     jgb_10y_yield: float = 1.10,
 ) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     buckets: dict[str, list[tuple[float, float, float]]] = {"mansion": [], "commercial": [], "all": []}
 
     for tb in soup.find_all("table"):
@@ -492,7 +493,7 @@ def extract_portal_sublinks(html_content: str, base_url: str, pattern: str) -> l
     """一覧ページ内の市区町村・駅詳細リンク (テキスト, URL) を重複排除して抽出する。"""
     from urllib.parse import urljoin
 
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content, _HTML_PARSER)
     rx = re.compile(pattern)
     found: list[tuple[str, str]] = []
     seen: set[str] = set()
