@@ -217,7 +217,13 @@ def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
 | `property_type` | String | 指定された物件種別 (`mansion`, `kodate`, `apartment`, `tochi`) |
 | `first_stage_predicted_price` | Integer | 一次推定理論価格（万円）。画像なしの特徴量による理論価格。 |
 | `second_stage_predicted_price` | Integer | 二次推定精密理論価格（万円）。画像スコアを統合した精密理論価格。 |
+| `expected_gross_yield` | Number | 地域・物件状態から決定論的に算定した期待表面利回り (%) ※AI不使用 |
+| `expected_net_yield` | Number | 地域・物件状態から決定論的に算定した期待実質利回り / NCF Cap Rate (%) ※AI不使用 |
+| `estimated_annual_rent` | Integer | 周辺賃料相場＋物件スペック補正による推定適正年間賃料（円/年） ※AI不使用 |
+| `dcf_theoretical_price` | Integer | 10年保有DCF法（割引キャッシュフロー法）により逆算したDCF理論価格（万円） ※AI不使用 |
 | `message` | String | メッセージ |
+
+※ `POST /api/evaluation/predict-by-url` においても、`prediction` オブジェクト内に上記の `expected_gross_yield`, `expected_net_yield`, `estimated_annual_rent`, `dcf_theoretical_price` が併せて返却されます。
 
 ---
 

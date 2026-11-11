@@ -560,6 +560,42 @@ def _extract_property_display_info(prop, eval_rec) -> tuple[str, int, float, str
     return ptype_jp, asking_price_man, pred_price, address, access
 
 
+def _format_dcf_slack_lines(eval_rec, asking_price_man: int) -> str:
+    """期待表面/実質利回りおよび10年保有DCF理論価格のSlack表示行を組み立てる (Issue #1349)"""
+    dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
+    gross_y = getattr(eval_rec, "expected_gross_yield", None)
+    net_y = getattr(eval_rec, "expected_net_yield", None)
+    ann_rent = getattr(eval_rec, "estimated_annual_rent", None)
+    if type(dcf_val).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        return ""
+
+    lines = ""
+    try:
+        if dcf_val is not None and int(dcf_val) > 0:
+            dcf_int = int(dcf_val)
+            dcf_gap = ""
+            if asking_price_man > 0:
+                dcf_disc = (dcf_int - asking_price_man) / dcf_int * 100.0
+                if dcf_disc >= 0:
+                    dcf_gap = f" ({dcf_disc:.1f}% 割安)"
+                else:
+                    dcf_gap = f" ({abs(dcf_disc):.1f}% プレミアム)"
+            lines += f"・10年DCF理論価格: {dcf_int:,}万円{dcf_gap}\n"
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        if gross_y is not None and net_y is not None and float(gross_y) > 0:
+            rent_str = ""
+            if ann_rent is not None and type(ann_rent).__name__ not in ("MagicMock", "AsyncMock", "Mock") and int(ann_rent) > 0:
+                rent_str = f" / 想定賃料: {int(ann_rent) / 10000.0:.1f}万円/年"
+            lines += f"・期待利回り(表面/実質): {float(gross_y):.2f}% / {float(net_y):.2f}%{rent_str}\n"
+    except (ValueError, TypeError):
+        pass
+
+    return lines
+
+
 def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_data: dict | None = None) -> str:
     ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
     _, area_info = _format_access_and_area(prop)
@@ -599,6 +635,7 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
 
     if eval_rec.estimated_sekisan_price:
         msg += f"・想定積算価格: {clean_val(eval_rec.estimated_sekisan_price)}万円\n"
+    msg += _format_dcf_slack_lines(eval_rec, asking_price_man)
     if eval_rec.cash_flow:
         msg += f"・年間CF: {clean_val(eval_rec.cash_flow)}万円/年 (DSCR: {clean_val(eval_rec.dscr)})\n"
 

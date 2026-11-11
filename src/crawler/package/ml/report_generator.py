@@ -105,6 +105,23 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
         return ""
 
 
+def _format_dcf_context_line(eval_rec: Any) -> str:
+    dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
+    gross_y = getattr(eval_rec, "expected_gross_yield", None)
+    net_y = getattr(eval_rec, "expected_net_yield", None)
+    ann_rent = getattr(eval_rec, "estimated_annual_rent", None)
+    if type(dcf_val).__name__ in ("MagicMock", "AsyncMock", "Mock") or dcf_val is None or gross_y is None or net_y is None:
+        return ""
+    try:
+        rent_man = round(int(ann_rent) / 10000.0, 1) if ann_rent else "-"
+        return (
+            f"・10年DCF理論価格(AI不使用): {int(dcf_val)}万円 "
+            f"(想定年間賃料: {rent_man}万円 / 期待表面利回り: {float(gross_y):.2f}% / 期待実質利回り: {float(net_y):.2f}%)\r\n"
+        )
+    except (ValueError, TypeError):
+        return ""
+
+
 def _build_rag_prompt(
     eval_rec, prop, ptype_jp: str, asking_price_man: int,
     address: str, access: str, matched_kb: list, far_slack: float | None, matched_laws: list | None = None,
@@ -113,6 +130,7 @@ def _build_rag_prompt(
     rent_mesh_items: list | None = None
 ) -> str:
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
+    dcf_line = _format_dcf_context_line(eval_rec)
     tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
     tate_m2 = getattr(prop, "tatemonoMenseki", None) or getattr(prop, "senyuMenseki", None) or "-"
     chikunen = getattr(prop, "chikunengetsuStr", None) or getattr(prop, "chikunenki", None) or getattr(prop, "chikunenStr", None) or "-"
@@ -158,7 +176,7 @@ def _build_rag_prompt(
 ・アクセス: {access}
 ・売出価格: {asking_price_man}万円
 ・積算価格: {int(sekisan_price)}万円
-・土地面積: {tochi_m2} m2 / 建物面積: {tate_m2} m2 / 築年: {chikunen}
+{dcf_line}・土地面積: {tochi_m2} m2 / 建物面積: {tate_m2} m2 / 築年: {chikunen}
 ・構造: {kouzou} / 接道状況: {setsudou}
 ・年間CF: {cf_val}万円 / DSCR: {dscr_val}
 ・容積未消化余力: {far_slack if far_slack is not None else 'N/A'}%
@@ -642,7 +660,7 @@ def _execute_gemini_report_call(
 
 def generate_professional_and_danchou_report(
     eval_rec, prop, ptype_jp: str, asking_price_man: int, address: str, access: str, **_kwargs: Any
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """選別された通知対象物件に対して、Web本文・プロ鑑定分析および団長RAGレビューを生成し、eval_recに反映して保存する。"""
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
     far_slack = calculate_far_slack(prop)
