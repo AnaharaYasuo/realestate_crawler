@@ -66,10 +66,12 @@ def _enrich_inference_df_with_location_encoder(
     raw_df = pd.DataFrame(features_list)
     if raw_df.empty:
         return raw_df
-    if loc_encoder is not None:
-        ch_pred, st_pred = loc_encoder.transform(raw_df)
-        raw_df["chome_oof_unit_price"] = ch_pred
-        raw_df["station_walk_oof_unit_price"] = st_pred
+    transform_fn = getattr(loc_encoder, "transform", None) if loc_encoder is not None else None
+    if callable(transform_fn):
+        transformed = transform_fn(raw_df)
+        if isinstance(transformed, tuple) and len(transformed) == 2:
+            raw_df["chome_oof_unit_price"] = transformed[0]
+            raw_df["station_walk_oof_unit_price"] = transformed[1]
     raw_df["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(raw_df, property_type=ptype)
     return raw_df
 

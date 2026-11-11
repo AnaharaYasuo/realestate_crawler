@@ -69,11 +69,10 @@ class Migration(migrations.Migration):
                     },
                 ),
             ],
-            database_operations=[
-                migrations.RunPython(
-                    create_land_price_point_table_if_not_exists,
-                    reverse_code=drop_land_price_point_table_if_exists,
-                ),
-            ],
+            database_operations=[],
+        ),
+        migrations.RunPython(
+            create_land_price_point_table_if_not_exists,
+            reverse_code=drop_land_price_point_table_if_exists,
         ),
     ]

@@ -570,3 +570,35 @@ class TestIssue1360HierarchicalOofAnchorResidualAndCleansing:
             check=False,
         )
         assert res.returncode == 0, f"Circular import detected:\n{res.stderr}\n{res.stdout}"
+
+    def test_migration_0071_applies_forwards_idempotently_and_backwards(self):
+        """0071 マイグレーションが空の ProjectState 上でも LookupError を起こさず冪等に forward/backward 適用できること"""
+        import importlib
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from django.db.migrations.state import ProjectState
+
+        mig_mod = importlib.import_module("package.migrations.0071_add_land_price_point_potential")
+        mig = mig_mod.Migration("0071_add_land_price_point_potential", "package")
+
+        existing: set[str] = set()
+        editor = MagicMock()
+        editor.atomic_migration = True
+        editor.connection.introspection.get_table_list.side_effect = (
+            lambda _cur: [SimpleNamespace(name=t) for t in existing]
+        )
+        editor.create_model.side_effect = lambda m: existing.add(m._meta.db_table)
+        editor.delete_model.side_effect = lambda m: existing.discard(m._meta.db_table)
+
+        after_state = mig.apply(ProjectState(), editor)
+        assert "land_price_point_potential" in existing
+        assert editor.create_model.call_count == 1
+
+        # 既にテーブルが存在する状態で再実行しても create_model が重複呼出しされないこと
+        mig_mod.create_land_price_point_table_if_not_exists(after_state.apps, editor)
+        assert editor.create_model.call_count == 1
+
+        # ロールバックで delete_model が呼ばれること
+        mig.unapply(after_state, editor)
+        assert "land_price_point_potential" not in existing
+        assert editor.delete_model.call_count == 1
