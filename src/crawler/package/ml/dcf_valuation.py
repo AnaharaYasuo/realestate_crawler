@@ -14,7 +14,10 @@ from typing import Any
 
 from package.ml.features.appraisal import calculate_tochi_appraisal_factors
 from package.ml.features.constants import LIFESPAN, REPLACEMENT_COSTS
-from package.ml.features.legal_furuya import extract_combined_text_for_prop
+from package.ml.features.legal_furuya import (
+    extract_combined_text_for_prop,
+    resolve_effective_land_price_multiplier,
+)
 from package.ml.features.parsers import (
     calculate_area_and_setback,
     calculate_chikunen_feature,
@@ -127,6 +130,8 @@ class _PropertyContext:
     jgb_10y: float
     combined_text: str
     road_frontage_mult: float = 1.0
+    effective_land_price_multiplier: float = 1.0
+    shigaika_shinshaku_rate: float = 0.0
 
 
 def _get_val(obj: Any, name: str, default: Any = None) -> Any:
@@ -213,6 +218,14 @@ def _build_property_context(property_obj: Any, property_type: str) -> _PropertyC
     flood_risk, landslide_risk = query_hazard_features(address1, address2)
     _, jgb_10y, _, _, _ = extract_macro_features(base_date, norm_type)
     combined_text = extract_combined_text_for_prop(property_obj)
+    _, shinshaku_rate, eff_land_mult = resolve_effective_land_price_multiplier(
+        property_obj=property_obj,
+        property_type=norm_type,
+        combined_text=combined_text,
+        chimoku_str=tochi_factors.chimoku_str,
+        road_width_val=float(tochi_factors.road_width_val),
+        nearby_standard_price=float(avg_land_price),
+    )
 
     return _PropertyContext(
         norm_type=norm_type,
@@ -238,6 +251,8 @@ def _build_property_context(property_obj: Any, property_type: str) -> _PropertyC
         jgb_10y=jgb_10y,
         combined_text=combined_text,
         road_frontage_mult=float(tochi_factors.road_condition_factor * tochi_factors.frontage_penalty_factor),
+        effective_land_price_multiplier=eff_land_mult,
+        shigaika_shinshaku_rate=shinshaku_rate,
     )
 
 
@@ -605,7 +620,7 @@ def _calc_land_residual_man(ctx: _PropertyContext) -> float:
         eff_area = ctx.senyu_area if ctx.senyu_area > 0.0 else 55.0
         return (eff_area * 0.20) * (ctx.avg_land_price / 10000.0) * rights_ratio * unbuildable_discount
     eff_land = ctx.tochi_area if ctx.tochi_area > 0.0 else 100.0
-    shigaika_discount = 0.45 if ("市街化調整" in ctx.combined_text or "調整区域" in ctx.combined_text) else 1.0
+    shigaika_discount = float(ctx.effective_land_price_multiplier)
     return (
         eff_land
         * (ctx.avg_land_price / 10000.0)
@@ -756,8 +771,10 @@ def evaluate_dcf_and_yields(
         capex_ratio=capex_ratio,
         exit_spread_pct=exit_spread,
     )
-    if ctx.norm_type == PTYPE_TOCHI and TERM_UNBUILDABLE in ctx.combined_text:
-        dcf_price = min(dcf_price, max(1, round(land_res_man * 0.75)))
+    if ctx.norm_type == PTYPE_TOCHI and (
+        TERM_UNBUILDABLE in ctx.combined_text or ctx.effective_land_price_multiplier < 0.60
+    ):
+        dcf_price = min(dcf_price, max(1, round(land_res_man * 0.85)))
 
     return DCFValuationResult(
         expected_gross_yield=gross_yield,

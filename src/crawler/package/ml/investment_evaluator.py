@@ -108,23 +108,33 @@ def get_average_land_price(prefecture, city):
     """
     if not prefecture or not city:
         return 100000  # デフォルト 10万円/㎡
-        
-    prices = LandPricePotential.objects.filter(
-        prefecture__contains=prefecture,
-        city__contains=city
-    )
-    if prices.exists():
-        res_price = prices.filter(land_use='residential').first()
-        if res_price:
-            return res_price.average_land_price
-        return prices.first().average_land_price
-        
-    prices_pref = LandPricePotential.objects.filter(prefecture__contains=prefecture)
-    if prices_pref.exists():
-        avg = prices_pref.aggregate(models.Avg('average_land_price'))['average_land_price__avg']
-        if avg:
-            return int(avg)
-            
+
+    try:
+        prices = LandPricePotential.objects.filter(
+            prefecture__contains=prefecture,
+            city__contains=city
+        )
+        if prices.exists():
+            res_price = prices.filter(land_use='residential').first()
+            if res_price:
+                return res_price.average_land_price
+            return prices.first().average_land_price
+
+        prices_pref = LandPricePotential.objects.filter(prefecture__contains=prefecture)
+        if prices_pref.exists():
+            avg = prices_pref.aggregate(models.Avg('average_land_price'))['average_land_price__avg']
+            if avg:
+                return int(avg)
+    except Exception:  # noqa: BLE001
+        try:
+            from package.ml.features.reference_data import blend_land_prices
+
+            avg_lp, _, _, _ = blend_land_prices(prefecture, city, 200.0)
+            if avg_lp and avg_lp > 0:
+                return int(avg_lp)
+        except Exception:  # noqa: BLE001
+            pass
+
     return 100000  # デフォルト 10万円/㎡
 
 def _resolve_spatial_land_price_for_sekisan(property_obj, prefecture: str, city: str, muni_land_price: int) -> int:
@@ -150,7 +160,9 @@ def _resolve_spatial_land_price_for_sekisan(property_obj, prefecture: str, city:
         return int(muni_land_price)
 
 
-def _resolve_sekisan_legal_multiplier(property_obj) -> float:
+def _resolve_sekisan_legal_multiplier(property_obj, land_price_per_m2: float = 100000.0) -> float:
+    from package.ml.features.legal_furuya import resolve_effective_land_price_multiplier
+
     text = _extract_combined_text(property_obj)
     mult = 1.0
     if "底地" in text or "貸地" in text:
@@ -159,9 +171,13 @@ def _resolve_sekisan_legal_multiplier(property_obj) -> float:
         mult *= 0.65
     if "再建築不可" in text:
         mult *= 0.48
-    if "市街化調整" in text or "調整区域" in text:
-        mult *= 0.50
-    return mult
+    _, _, eff_land_mult = resolve_effective_land_price_multiplier(
+        property_obj=property_obj,
+        property_type="tochi",
+        combined_text=text,
+        nearby_standard_price=float(land_price_per_m2),
+    )
+    return mult * eff_land_mult
 
 
 def calculate_sekisan_price(property_obj, prefecture, city):
@@ -195,7 +211,7 @@ def calculate_sekisan_price(property_obj, prefecture, city):
 
     muni_land_price = get_average_land_price(prefecture, city)
     land_price_per_m2 = _resolve_spatial_land_price_for_sekisan(property_obj, prefecture, city, muni_land_price)
-    legal_mult = _resolve_sekisan_legal_multiplier(property_obj)
+    legal_mult = _resolve_sekisan_legal_multiplier(property_obj, land_price_per_m2=float(land_price_per_m2))
     land_value = tochi_effective * land_price_per_m2 / 10000.0 * scale_discount * legal_mult  # 万円単位
     
     # 2. 建物評価額
@@ -244,14 +260,9 @@ def _extract_pref_and_city(address: str):
     return prefecture, city
 
 def _extract_combined_text(property_obj):
-    text_attrs = [
-        getattr(property_obj, "tochikenri", "") or "",
-        getattr(property_obj, "biko", "") or "",
-        getattr(property_obj, "propertyName", "") or "",
-        getattr(property_obj, "setsudou", "") or "",
-        getattr(property_obj, "notes", "") or ""
-    ]
-    return " ".join(str(x) for x in text_attrs if x)
+    from package.ml.features.legal_furuya import extract_combined_text_for_prop
+
+    return extract_combined_text_for_prop(property_obj)
 
 def _calculate_annual_rent_and_noi(property_obj, price_man, sekisan_price, combined_str_lower):
     annual_rent = float(getattr(property_obj, "annualRent", 0) or 0)

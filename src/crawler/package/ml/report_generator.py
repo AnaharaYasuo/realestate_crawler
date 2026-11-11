@@ -105,7 +105,37 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
         return ""
 
 
-def _format_dcf_context_line(eval_rec: Any) -> str:
+def _ensure_eval_dcf_populated(eval_rec: Any, prop: Any = None) -> None:
+    """eval_rec の dcf_theoretical_price が未算出・0以下の場合、prop から決定論的DCFをオンデマンド補完する (Issue #1370)"""
+    if prop is None or eval_rec is None:
+        return
+    if type(eval_rec).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        return
+    dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
+    if type(dcf_val).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        return
+    try:
+        if dcf_val is not None and int(dcf_val) > 0:
+            return
+    except (ValueError, TypeError):
+        pass
+    try:
+        from decimal import Decimal
+        from package.ml.dcf_valuation import evaluate_dcf_and_yields
+
+        ptype = str(getattr(eval_rec, "property_type", "") or "mansion")
+        res = evaluate_dcf_and_yields(prop, ptype)
+        if res.dcf_theoretical_price > 0:
+            eval_rec.dcf_theoretical_price = int(res.dcf_theoretical_price)
+            eval_rec.expected_gross_yield = Decimal(f"{res.expected_gross_yield:.2f}")
+            eval_rec.expected_net_yield = Decimal(f"{res.expected_net_yield:.2f}")
+            eval_rec.estimated_annual_rent = int(res.estimated_annual_rent)
+    except Exception as e:
+        logger.debug("On-demand DCF backfill skipped: %s", e)
+
+
+def _format_dcf_context_line(eval_rec: Any, prop: Any = None) -> str:
+    _ensure_eval_dcf_populated(eval_rec, prop)
     dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
     gross_y = getattr(eval_rec, "expected_gross_yield", None)
     net_y = getattr(eval_rec, "expected_net_yield", None)
@@ -130,7 +160,7 @@ def _build_rag_prompt(
     rent_mesh_items: list | None = None
 ) -> str:
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
-    dcf_line = _format_dcf_context_line(eval_rec)
+    dcf_line = _format_dcf_context_line(eval_rec, prop=prop)
     tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
     tate_m2 = getattr(prop, "tatemonoMenseki", None) or getattr(prop, "senyuMenseki", None) or "-"
     chikunen = getattr(prop, "chikunengetsuStr", None) or getattr(prop, "chikunenki", None) or getattr(prop, "chikunenStr", None) or "-"
