@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from django.utils import timezone
 
 from package.ml.features.feature_sets import FEATURE_SETS
-from package.ml.features.appraisal import calculate_income_approach_value, _resolve_cap_rate
+from package.ml.features.appraisal import calculate_income_approach_value
 from package.ml.training.data_loader import collect_model_classes_by_type
 from package.utils.batch_metrics import BatchMetrics
 from scripts.ops.send_recommendations import (
@@ -112,7 +112,7 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         total_investment_score=80.0,
         investment_score=80.0,
     )
-    is_rec, reason, prio = _evaluate_candidate(eval_18, prop)
+    is_rec, reason, _prio = _evaluate_candidate(eval_18, prop)
     assert is_rec is True
     assert "18.0% 割安" in reason
 
@@ -124,7 +124,7 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         total_investment_score=80.0,
         investment_score=80.0,
     )
-    is_rec, reason, prio = _evaluate_candidate(eval_45, prop)
+    is_rec, reason, _prio = _evaluate_candidate(eval_45, prop)
     assert is_rec is True
     assert "45.0% 割安" in reason
 
@@ -134,7 +134,7 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         first_stage_predicted_price=7272.0,
         second_stage_predicted_price=None,
     )
-    is_rec, reason, prio = _evaluate_candidate(eval_res_45, prop)
+    is_rec, reason, _prio = _evaluate_candidate(eval_res_45, prop)
     assert is_rec is True
     assert "45.0% 割安" in reason
 
@@ -144,10 +144,11 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         first_stage_predicted_price=4819.0,
         second_stage_predicted_price=None,
     )
-    is_rec, reason, prio = _evaluate_candidate(eval_res_17, prop)
+    is_rec, reason, _prio = _evaluate_candidate(eval_res_17, prop)
     assert is_rec is True
 
-    # 5. 極端な異常乖離 (売出4,000万 / 予測12,000万 = 3.0倍, 66.7%割安 > 60%) -> 除外
+    # 5. 二次スクリーニングが存在するため一次スクリーニングでの上限閾値は不要 (Issue #1348)
+    # 高い割安度 (売出4,000万 / 予測12,000万 = 3.0倍, 66.7%割安) でも一次スクリーニングを通過すること
     eval_extreme = MagicMock(
         property_type="investmentapartment",
         first_stage_predicted_price=12000.0,
@@ -155,8 +156,9 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         total_investment_score=80.0,
         investment_score=80.0,
     )
-    is_rec, _, _ = _evaluate_candidate(eval_extreme, prop)
-    assert is_rec is False
+    is_rec, reason, _prio = _evaluate_candidate(eval_extreme, prop)
+    assert is_rec is True
+    assert "66.7% 割安" in reason
 
 
 @pytest.mark.django_db

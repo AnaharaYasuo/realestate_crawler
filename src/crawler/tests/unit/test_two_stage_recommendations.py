@@ -196,10 +196,10 @@ def test_send_recommendations_lazy_report_generation_and_timeout():
          patch.object(sr_module, "_dispatch_single_recommendation", return_value=True) as mock_dispatch, \
          patch.object(sr_module.time, "sleep"):
 
-        # 1. 正常系: 5件選抜され、選抜された5件のみレポート生成が呼ばれる
+        # 1. 正常系: 3件選抜され、選抜された3件のみレポート生成が呼ばれる
         sr_module.send_recommendations()
-        assert mock_gen_report.call_count == 5
-        assert mock_dispatch.call_count == 5
+        assert mock_gen_report.call_count == 3
+        assert mock_dispatch.call_count == 3
 
     # 2. タイムアウト系: 残り時間が0の場合、レポート生成がスキップされ通知のみ行われる
     with patch.object(sr_module, "close_old_connections"), \
@@ -216,6 +216,6 @@ def test_send_recommendations_lazy_report_generation_and_timeout():
         mock_time.time.side_effect = [1000.0, 2000.0, 2000.0, 2000.0]
 
         sr_module.send_recommendations()
-        # タイムアウトにより生成はスキップされるが配信は5件完遂
+        # タイムアウトにより生成はスキップされるが配信は3件完遂
         assert mock_gen_report.call_count == 0
-        assert mock_dispatch.call_count == 5
+        assert mock_dispatch.call_count == 3

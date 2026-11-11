@@ -36,13 +36,10 @@ def test_daily_pipeline_yaml_skip_portals_configuration():
     assigns = str(switch_cond["assign"])
     assert "--skip-portals" in assigns
 
-    # Verify ML step uses mlArgs in containerOverrides
+    # MLパイプラインは独立スケジュール化されたためWorkflows内にはMLステップが存在しないことを確認 (Issue #1348)
     try_step = next(s["tryPipeline"] for s in main_steps if "tryPipeline" in s)
-    run_ml_step = next(s["runMLAndEstimation"] for s in try_step["try"]["steps"] if "runMLAndEstimation" in s)
-    ml_body = run_ml_step["args"]["body"]
-    assert "overrides" in ml_body
-    ml_args_str = str(ml_body["overrides"]["containerOverrides"])
-    assert "mlArgs" in ml_args_str
+    has_ml_step = any("runMLAndEstimation" in s for s in try_step["try"]["steps"])
+    assert has_ml_step is False
 
 
 def test_scheduler_tf_passes_skip_portals():

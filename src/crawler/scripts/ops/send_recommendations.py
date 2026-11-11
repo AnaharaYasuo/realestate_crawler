@@ -33,10 +33,8 @@ logger = logging.getLogger(__name__)
 
 # ディスカウント率（割安率 = (予測価格 - 売出価格) / 予測価格 * 100）の一次スクリーニング閾値 (Issue #1343)
 # 全体傾向として予想価格が散らばり、一定数が高めに算出されがちな点、および投資物件で控えめに算出される点の双方を考慮して緩和
+# 二次スクリーニングが存在するため上限閾値は不要（下限 15.0% のみ適用、Issue #1348）
 MIN_RECOMMEND_DISCOUNT_PCT = 15.0
-MAX_RECOMMEND_DISCOUNT_PCT = 60.0
-MAX_PREDICTION_PRICE_RATIO = 2.5
-MIN_PREDICTION_PRICE_RATIO = 0.33
 
 
 def _notify_status(msg: str) -> None:
@@ -341,7 +339,7 @@ def _select_balanced_investment_for_stage2(cands: list, quota: int) -> list:
 
 def _select_two_stage_recommendations(
     candidates_by_category: dict[str, list],
-    quota_per_category: int = 5,
+    quota_per_category: int = 3,
 ) -> list:
     """
     二次スクリーニング（定性評価スコアリング）に基づき、各カテゴリごとに上位 quota_per_category 件を選抜する (Issue #1311, #1343)
@@ -376,15 +374,6 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     if pred_price <= 0 or asking_price_man <= 0:
         return False, "", 0.0
 
-    # 安全弁ガード: 予測価格と売出価格の極端な乖離（2.5倍超または0.33倍未満）は異常値として除外 (Issue #1116, #1343)
-    price_ratio = pred_price / asking_price_man
-    if price_ratio > MAX_PREDICTION_PRICE_RATIO or price_ratio < MIN_PREDICTION_PRICE_RATIO:
-        logger.warning(
-            f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
-            f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
-        )
-        return False, "", 0.0
-
     # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175, #1239)
     if pred_price <= asking_price_man:
         logger.info(
@@ -392,9 +381,9 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
         )
         return False, "", 0.0
 
-    # 予想価格のばらつきを考慮し、ディスカウント率 15.0%〜60.0% を満たすものを推奨候補とする (Issue #1239, #1343)
+    # 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-    if MIN_RECOMMEND_DISCOUNT_PCT <= discount_pct <= MAX_RECOMMEND_DISCOUNT_PCT:
+    if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
         calc_priority = 70.0 + discount_pct + (float(score) * 0.1)
         reason = f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】"
@@ -406,11 +395,7 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
     if pred_price <= 0 or asking_price_man <= 0:
         return False, "", 0.0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-    if discount_pct > MAX_RECOMMEND_DISCOUNT_PCT or discount_pct <= -MAX_RECOMMEND_DISCOUNT_PCT:
-        logger.warning(
-            f"Skipping alert (2-sigma error suspect): Property {getattr(prop, 'pageUrl', '')} has extreme prediction gap of {discount_pct:.1f}% (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
-        )
-        return False, "", 0.0
+    # 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
     if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         return True, f"【市場予測価格より {discount_pct:.1f}% 割安（超お宝物件！）】", discount_pct
     return False, "", 0.0
@@ -858,7 +843,7 @@ def send_recommendations():
 
     # Stage 1: 物件種別ごとに割安度上位を抽出 (Issue #1311, #1327, #1343)
     STAGE1_PER_CATEGORY_LIMIT = 50
-    STAGE2_PER_CATEGORY_QUOTA = 5
+    STAGE2_PER_CATEGORY_QUOTA = 3  # 各種別厳選3件 (Issue #1348)
 
     candidates_by_category: dict[str, list] = {
         "mansion": [],
@@ -932,7 +917,7 @@ def send_recommendations():
         # レポート未生成（または未保存）の場合のみAI定性評価を実行
         if not getattr(eval_rec, "investment_rating", None) or not getattr(eval_rec, "ai_evaluation_summary", None):
             try:
-                ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
+                ptype_jp, asking_price_man, _pred_price, address, access = _extract_property_display_info(prop, eval_rec)
                 
                 # 残り時間予算（remaining_budget）を超えないようスレッド実行でタイムアウト制御 (CodeRabbit指摘)
                 single_timeout = min(remaining_budget, 120.0)

@@ -123,9 +123,9 @@ def test_daily_pipeline_crawler_failure_resilience():
     assert "try" in crawler_wait_step, "waitCrawlerCompletion must wrap monitorJobExecution in a try block to isolate crawler errors"
     assert "except" in crawler_wait_step, "waitCrawlerCompletion must catch errors in an except block"
 
-    # 後続に runMLAndEstimation が存在すること
+    # ML推定・割安配信は05:10の独立スケジュールへ一本化されたため、Workflowsからは撤去されていること (Issue #1143, #1348)
     has_ml_run = any("runMLAndEstimation" in s for s in try_steps)
-    assert has_ml_run is True, "runMLAndEstimation must be present after crawler step"
+    assert has_ml_run is False, "runMLAndEstimation should be decoupled into independent Cloud Scheduler (Issue #1348)"
 
     # フローの最後にクローラー失敗を評価してエラーを再送出するステップが存在すること
     has_final_check = any("checkFinalStatus" in s for s in main_steps)
