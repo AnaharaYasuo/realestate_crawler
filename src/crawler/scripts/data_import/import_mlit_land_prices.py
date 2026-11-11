@@ -358,19 +358,24 @@ def download_and_extract_land_prices(url: str = MLIT_LAND_PRICE_ZIP_URL, timeout
     return records
 
 
+def _execute_multirow_upsert(
+    sql_prefix: str,
+    row_placeholder: str,
+    sql_suffix: str,
+    rows: list[tuple[Any, ...]],
+    chunk_size: int = 1000,
+) -> None:
+    if not rows:
+        return
+    with connection.cursor() as cursor:
+        for i in range(0, len(rows), chunk_size):
+            batch = rows[i:i + chunk_size]
+            values_sql = ", ".join(row_placeholder for _ in batch)
+            flat_params = [val for row in batch for val in row]
+            cursor.execute(f"{sql_prefix} VALUES {values_sql} {sql_suffix}", flat_params)
+
+
 def upsert_municipal_land_prices(records: list[dict[str, Any]]) -> None:
-    sql = """
-    INSERT INTO land_price_potential (
-        prefecture, city, land_use, average_land_price,
-        estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate
-    )
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-        average_land_price = VALUES(average_land_price),
-        estimated_rosenka_price = VALUES(estimated_rosenka_price),
-        estimated_fixed_asset_price = VALUES(estimated_fixed_asset_price),
-        land_price_growth_rate = VALUES(land_price_growth_rate)
-    """
     params = [
         (
             r["prefecture"], r["city"], r["land_use"], r["average_land_price"],
@@ -398,10 +403,23 @@ def upsert_municipal_land_prices(records: list[dict[str, Any]]) -> None:
         )
         return
 
-    chunk_size = 2000
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), chunk_size):
-            cursor.executemany(sql, params[i:i + chunk_size])
+    _execute_multirow_upsert(
+        sql_prefix=(
+            "INSERT INTO land_price_potential ("
+            "prefecture, city, land_use, average_land_price, "
+            "estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate)"
+        ),
+        row_placeholder="(%s, %s, %s, %s, %s, %s, %s)",
+        sql_suffix=(
+            "ON DUPLICATE KEY UPDATE "
+            "average_land_price = VALUES(average_land_price), "
+            "estimated_rosenka_price = VALUES(estimated_rosenka_price), "
+            "estimated_fixed_asset_price = VALUES(estimated_fixed_asset_price), "
+            "land_price_growth_rate = VALUES(land_price_growth_rate)"
+        ),
+        rows=params,
+        chunk_size=1000,
+    )
 
 
 def upsert_land_price_points(point_records: list[dict[str, Any]]) -> int:
@@ -425,33 +443,6 @@ def upsert_land_price_points(point_records: list[dict[str, Any]]) -> int:
         )
         return LandPricePointPotential.objects.count()
 
-    sql = """
-    INSERT INTO land_price_point_potential (
-        point_code, survey_type, prefecture, city, chome_key,
-        latitude, longitude, land_price, growth_rate, land_use,
-        zone_name, road_width, station_name, station_distance_m,
-        has_gas, has_water, has_sewer, updated_at
-    )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-    ON DUPLICATE KEY UPDATE
-        survey_type = VALUES(survey_type),
-        prefecture = VALUES(prefecture),
-        city = VALUES(city),
-        chome_key = VALUES(chome_key),
-        latitude = VALUES(latitude),
-        longitude = VALUES(longitude),
-        land_price = VALUES(land_price),
-        growth_rate = VALUES(growth_rate),
-        land_use = VALUES(land_use),
-        zone_name = VALUES(zone_name),
-        road_width = VALUES(road_width),
-        station_name = VALUES(station_name),
-        station_distance_m = VALUES(station_distance_m),
-        has_gas = VALUES(has_gas),
-        has_water = VALUES(has_water),
-        has_sewer = VALUES(has_sewer),
-        updated_at = NOW()
-    """
     params = [
         (
             pt["point_code"], pt["survey_type"], pt["prefecture"], pt["city"], pt["chome_key"],
@@ -461,10 +452,38 @@ def upsert_land_price_points(point_records: list[dict[str, Any]]) -> int:
         )
         for pt in point_records
     ]
-    chunk_size = 2000
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), chunk_size):
-            cursor.executemany(sql, params[i:i + chunk_size])
+    _execute_multirow_upsert(
+        sql_prefix=(
+            "INSERT INTO land_price_point_potential ("
+            "point_code, survey_type, prefecture, city, chome_key, "
+            "latitude, longitude, land_price, growth_rate, land_use, "
+            "zone_name, road_width, station_name, station_distance_m, "
+            "has_gas, has_water, has_sewer, updated_at)"
+        ),
+        row_placeholder="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
+        sql_suffix=(
+            "ON DUPLICATE KEY UPDATE "
+            "survey_type = VALUES(survey_type), "
+            "prefecture = VALUES(prefecture), "
+            "city = VALUES(city), "
+            "chome_key = VALUES(chome_key), "
+            "latitude = VALUES(latitude), "
+            "longitude = VALUES(longitude), "
+            "land_price = VALUES(land_price), "
+            "growth_rate = VALUES(growth_rate), "
+            "land_use = VALUES(land_use), "
+            "zone_name = VALUES(zone_name), "
+            "road_width = VALUES(road_width), "
+            "station_name = VALUES(station_name), "
+            "station_distance_m = VALUES(station_distance_m), "
+            "has_gas = VALUES(has_gas), "
+            "has_water = VALUES(has_water), "
+            "has_sewer = VALUES(has_sewer), "
+            "updated_at = NOW()"
+        ),
+        rows=params,
+        chunk_size=1000,
+    )
     return LandPricePointPotential.objects.count()
 
 

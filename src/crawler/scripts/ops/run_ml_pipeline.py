@@ -246,6 +246,59 @@ def run_command(cmd: list[str], desc: str):
     logger.info(f"=== [SUCCESS] {desc} (Time: {int(elapsed)}s) ===")
 
 
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+
+def should_run_ml_training(
+    cli_skip_train: bool,
+    env_skip_train: bool,
+    now_dt: datetime.datetime | None = None,
+) -> bool:
+    """日次パイプラインにおける MLモデル＋LocationEncoder 再学習の実行要否を判定する (Issue #1366)。
+
+    - CLI `--skip-train` が明示指定された場合は常にスキップ (`False`)。
+    - `env_skip_train` が `False`（例: `--train` 指定や `ML_PIPELINE_SKIP_TRAIN=false`）なら実行 (`True`)。
+    - `env_skip_train` が `True` でも、毎週日曜（`weekday() == 6`）は週次定期再学習として自動実行する
+      （ただし `ML_PIPELINE_DISABLE_WEEKLY_TRAIN=true` 設定時、または `now_dt` 未指定の pytest 実行時は除外）。
+    """
+    if cli_skip_train:
+        return False
+    if not env_skip_train:
+        return True
+    if os.getenv("ML_PIPELINE_DISABLE_WEEKLY_TRAIN", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if now_dt is None and os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    ref_dt = now_dt or datetime.datetime.now(JST)
+    return ref_dt.weekday() == 6
+
+
+def _resolve_skip_train_flag(args: argparse.Namespace) -> bool:
+    if args.train:
+        return False
+    cli_skip = bool(args.skip_train)
+    env_raw = os.getenv("ML_PIPELINE_SKIP_TRAIN", "").strip().lower()
+    if env_raw in ("false", "0"):
+        env_skip = False
+    elif env_raw in ("true", "1"):
+        env_skip = True
+    else:
+        env_skip = True
+    return not should_run_ml_training(cli_skip_train=cli_skip, env_skip_train=env_skip)
+
+
+def _build_potentials_sync_cmd(scripts_dir: str) -> list[str]:
+    cmd = [
+        sys.executable,
+        os.path.join(scripts_dir, "sync_all_potentials.py"),
+        "--workers", "2",
+        "--respect-ttl",
+    ]
+    if not os.getenv("PYTEST_CURRENT_TEST") and datetime.datetime.now(JST).weekday() == 6:
+        cmd.append("--live-crawl-rent")
+    return cmd
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Cloud Run ML Pipeline Job")
     is_cloud = is_cloud_environment()
@@ -271,15 +324,7 @@ def main(argv=None):
     parser.add_argument("--train", action="store_true", default=False, help="Explicitly enable ML model training (Issue #809)")
     args = parser.parse_args(argv)
 
-    # Issue #809: デフォルトで学習は不要化・スキップ（推論のみ実行）。--train 指定時のみ学習を実行。
-    if args.train:
-        skip_train = False
-    else:
-        skip_train = True
-    if os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("false", "0"):
-        skip_train = False
-    elif os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1"):
-        skip_train = True
+    skip_train = _resolve_skip_train_flag(args)
 
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)              # .../scripts
@@ -330,13 +375,12 @@ def main(argv=None):
             os.path.join(debug_tools_dir, "auto_heal_parsers.py")
         ], "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
 
-        # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計等）
+        # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計・マクロ指標・GSI/実成約等）
         if not args.skip_potentials_sync:
-            run_command([
-                sys.executable,
-                os.path.join(scripts_dir, "sync_all_potentials.py"),
-                "--workers", "2",
-            ], "Step 1.8/5: Nationwide Statistics & Potentials Daily Synchronization")
+            run_command(
+                _build_potentials_sync_cmd(scripts_dir),
+                "Step 1.8/5: Nationwide Statistics & Potentials Daily Synchronization",
+            )
         else:
             logger.info("⏩ [SKIP] Step 1.8/5: Nationwide Potentials sync skipped (--skip-potentials-sync).")
 

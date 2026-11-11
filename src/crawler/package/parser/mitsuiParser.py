@@ -12,6 +12,7 @@ import datetime
 import logging
 import re
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from package.parser.baseParser import (
     InvestmentParserBase,
@@ -557,30 +558,63 @@ class MitsuiParser(ParserBase):
     def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
     def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
 
+    _COMPASS_DIR_RE = re.compile(r"([北東西南]+)")
+
+    @staticmethod
+    def _extract_road_haba_and_setsumen(value: str) -> tuple[str | None, str | None]:
+        setsumen_pat = r'(?:接面|間口|接道長)[\s:：約]{0,6}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]'
+        haba_pat = r'(?:幅員|道路幅?|公道|私道)[\s:：約]{0,6}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]'
+        m_setsumen = re.search(setsumen_pat, value)
+        setsumen_str = m_setsumen.group(1) if m_setsumen else None
+        m_haba = re.search(haba_pat, value)
+        if m_haba:
+            return m_haba.group(1), setsumen_str
+        cleaned = re.sub(setsumen_pat, '', value)
+        m_any = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]', cleaned)
+        return (m_any.group(1) if m_any else None), setsumen_str
+
+    @classmethod
+    def _extract_road_kubun_and_muki(cls, text: str, default_str: str = "") -> tuple[str, str]:
+        kubun = default_str
+        for k in ("公道", "私道"):
+            if k in text:
+                kubun = k
+                break
+        m_muki = cls._COMPASS_DIR_RE.search(text)
+        muki = m_muki.group(1) if m_muki else default_str
+        return kubun, muki
+
+    def _parse_single_setsudou_segment(self, wk_str: str) -> tuple[float, dict[str, Any]] | None:
+        haba_str, setsumen_str = self._extract_road_haba_and_setsumen(wk_str)
+        if not haba_str:
+            return None
+        try:
+            haba = float(haba_str)
+            kubun, muki = self._extract_road_kubun_and_muki(wk_str, "")
+            return haba, {
+                'douroHaba': Decimal(haba_str),
+                'douroKubun': kubun,
+                'douroMuki': muki,
+                'setsumen': Decimal(setsumen_str) if setsumen_str else Decimal(0),
+            }
+        except (ValueError, ArithmeticError):
+            return None
+
     def _parseSetudouDetails(self, setsudou):
-        details = {
+        details: dict[str, Any] = {
             'douroHaba': Decimal(0),
             'douroKubun': "",
             'douroMuki': "",
-            'setsumen': Decimal(0)
+            'setsumen': Decimal(0),
         }
-        if not setsudou: return details
-        
+        if not setsudou:
+            return details
+
         max_haba = -1.0
-        
         for wk_str in setsudou.split("、"):
-            douro_haba_obj = re.search(REGEX_DECIMAL, wk_str.split("ｍ")[0])
-            try:
-                if douro_haba_obj:
-                    haba = float(douro_haba_obj.group())
-                    if haba > max_haba:
-                        max_haba = haba
-                        
-                        details['douroHaba'] = Decimal(str(haba))
-                        details['douroKubun'] = wk_str.split("ｍ")[1].replace("(","").replace(")","").strip()
-                        details['douroMuki'] = wk_str[0:(douro_haba_obj.start())].split("：")[0]
-                        details['setsumen'] = Decimal(0)
-            except Exception: pass
+            parsed = self._parse_single_setsudou_segment(wk_str)
+            if parsed is not None and parsed[0] > max_haba:
+                max_haba, details = parsed
         return details
 
     def _parseKenpeiDetails(self, value):
@@ -1119,28 +1153,17 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         return target_specs.get("国土法", "")
 
     def _parseSetudouDetails(self, value):
-        # Default to safe values for DB (Decimal fields need "0", CharFields can handle "")
         res = {'douroHaba': "0", 'douroKubun': "", 'douroMuki': "", 'setsumen': "0"}
-        if not value: return res
-        
-        m_muki = re.search(r'([北東西南]+)', value)
-        if m_muki: res['douroMuki'] = m_muki.group(0)
-        
-        m_haba = re.search(
-            r'幅員[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value
-        ) or re.search(r'(?:^|[^\d.])(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
-        if m_haba: res['douroHaba'] = m_haba.group(1)
-        
-        m_setsumen = re.search(
-            r'(?:接面|間口)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value
-        )
-        if m_setsumen: res['setsumen'] = m_setsumen.group(1)
-        
-        # 道路区分
-        for k in ["公道", "私道"]:
-            if k in value:
-                res['douroKubun'] = k
-                break
+        if not value:
+            return res
+        kubun, muki = self._extract_road_kubun_and_muki(value, "")
+        res['douroKubun'] = kubun
+        res['douroMuki'] = muki
+        haba_str, setsumen_str = self._extract_road_haba_and_setsumen(value)
+        if haba_str:
+            res['douroHaba'] = haba_str
+        if setsumen_str:
+            res['setsumen'] = setsumen_str
         return res
 
     def _parseKenpeiDetails(self, value):
@@ -1323,29 +1346,17 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
 
     def _parseSetudouDetails(self, response, _specs=None):
         value = self._parseSetsudou(response)
-        # Default to safe values for DB (Decimal fields need "0", CharFields can handle "-")
         res = {'douroHaba': "0", 'douroKubun': "-", 'douroMuki': "-", 'setsumen': "0"}
-        if not value: return res
-        
-        m_muki = re.search(r'([北東西南]+)', value)
-        if m_muki: res['douroMuki'] = m_muki.group(0)
-        
-        haba_str = self._extract_number_before_unit(value, ('m', 'ｍ'))
+        if not value:
+            return res
+        kubun, muki = self._extract_road_kubun_and_muki(value, "-")
+        res['douroKubun'] = kubun
+        res['douroMuki'] = muki
+        haba_str, setsumen_str = self._extract_road_haba_and_setsumen(value)
         if haba_str:
             res['douroHaba'] = haba_str
-
-        # 接面がある場合は接面以降の数値を抽出
-        if '接面' in value:
-            after_setsumen = value.split('接面', 1)[1]
-            setsumen_str = self._extract_number_before_unit(after_setsumen, ('m', 'ｍ'))
-            if setsumen_str:
-                res['setsumen'] = setsumen_str
-        
-        # 道路区分
-        for k in ["公道", "私道"]:
-            if k in value:
-                res['douroKubun'] = k
-                break
+        if setsumen_str:
+            res['setsumen'] = setsumen_str
         return res
 
     def _parseKenpeiDetails(self, response, _specs=None):
@@ -1434,7 +1445,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
         is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
         is_apt_building = "アパート" in shumoku or MANSION_KEYWORD in shumoku or "ビル" in shumoku
 
-        target_cls = None
+        target_cls: type[MitsuiInvestmentParser] | None = None
         if is_apt_building and not is_apartment_parser:
             target_cls = MitsuiInvestmentApartmentParser
         elif not is_apt_building and is_apartment_parser:
@@ -1695,27 +1706,24 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
                 logging.debug(f"[Kodate] Generated URL with buildingTypes={building_type}: {filtered_url}")
                 yield filtered_url
     
+    def _delegate_mansion_url_if_apartment(self, item, page_url: str, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
+        apt_keywords = (MANSION_KEYWORD, "アパート", "ビル", "区分所有", "店舗", "事務所")
+        if any(kw in shumoku for kw in apt_keywords):
+            parser = MitsuiInvestmentApartmentParser()
+            parser._is_delegating = True
+            new_item = parser.createEntity()
+            new_item.pageUrl = page_url
+            if hasattr(item, "_switched_from_property_type"):
+                new_item._switched_from_property_type = item._switched_from_property_type
+            return parser._parsePropertyDetailPage(new_item, response)
+        raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         page_url = getattr(item, "pageUrl", "") or ""
         if self._MITSUI_MANSION_PATH in page_url:
-            specs = self._get_specs(response)
-            shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
-            if (
-                MANSION_KEYWORD in shumoku
-                or "アパート" in shumoku
-                or "ビル" in shumoku
-                or "区分所有" in shumoku
-                or "店舗" in shumoku
-                or "事務所" in shumoku
-            ):
-                parser = MitsuiInvestmentApartmentParser()
-                parser._is_delegating = True
-                new_item = parser.createEntity()
-                new_item.pageUrl = page_url
-                if hasattr(item, "_switched_from_property_type"):
-                    new_item._switched_from_property_type = item._switched_from_property_type
-                return parser._parsePropertyDetailPage(new_item, response)
-            raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
+            return self._delegate_mansion_url_if_apartment(item, page_url, response)
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item

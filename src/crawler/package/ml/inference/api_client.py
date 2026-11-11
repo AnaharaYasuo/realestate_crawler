@@ -45,6 +45,20 @@ def _serialize_chikunengetsu_field(item: Any) -> str:
     return str(chikunengetsu)
 
 
+def _serialize_land_and_road_fields(data: dict[str, Any], item: Any) -> None:
+    for float_col in ("tochiMenseki", "maguchi", "setsumen", "roadWidth", "douroHaba", "okuyuki", "shidoMenseki"):
+        val = _prop_to_float(_prop_val(item, float_col))
+        if val is not None or float_col in ("tochiMenseki", "maguchi", "roadWidth"):
+            data[float_col] = val
+    for str_col in (
+        "setsudou", "douro", "maguchiStr", "setsumenStr", "roadWidthStr", "douroHabaStr",
+        "okuyukiStr", "roadDirection", "douroMuki", "roadType", "douroKubun", "roadStructure",
+    ):
+        val = _prop_val(item, str_col, "")
+        if val or str_col == "setsudou":
+            data[str_col] = str(val or "")
+
+
 def _serialize_type_specific_fields(data: dict[str, Any], item: Any, ptype: str) -> None:
     if ptype == "mansion":
         data["senyuMenseki"] = _prop_to_float(_prop_val(item, "senyuMenseki"))
@@ -53,10 +67,7 @@ def _serialize_type_specific_fields(data: dict[str, Any], item: Any, ptype: str)
         return
 
     if ptype in ("kodate", "apartment", "tochi"):
-        data["tochiMenseki"] = _prop_to_float(_prop_val(item, "tochiMenseki"))
-        data["maguchi"] = _prop_to_float(_prop_val(item, "maguchi"))
-        data["roadWidth"] = _prop_to_float(_prop_val(item, "roadWidth"))
-        data["setsudou"] = _prop_val(item, "setsudou", "")
+        _serialize_land_and_road_fields(data, item)
 
     if ptype in ("kodate", "apartment"):
         data["tatemonoMenseki"] = _prop_to_float(_prop_val(item, "tatemonoMenseki"))
@@ -64,10 +75,22 @@ def _serialize_type_specific_fields(data: dict[str, Any], item: Any, ptype: str)
     if ptype == "apartment":
         data["grossYield"] = _prop_to_float(_prop_val(item, "grossYield"))
         data["annualRent"] = _prop_val(item, "annualRent", None)
+        data["monthlyRent"] = _prop_val(item, "monthlyRent", None)
+
+
+_OPTIONAL_COMMON_TEXT_ATTRS = (
+    "propertyName", "address1", "address2", "traffic", "kaisu", "kaisuStr", "kai", "chijo",
+    "madori", "chimoku", "chimokuChisei", "chisei", "setsubi", "genkyo", "currentStatus",
+    "hikiwatashi", "kenchikuJoken", "boukaChiiki", "toshikeikaku", "kuiki", "youtoChiiki",
+    "privateRoadBurden", "sonotaHiyouStr", "rights", "chidaiStr",
+)
+_OPTIONAL_COMMON_NUM_ATTRS = (
+    "busUse1", "busRideMinute1", "busWalkMinute1", "soukosu", "chidai", "latitude", "longitude",
+)
 
 
 def serialize_property(item: Any, ptype: str) -> dict[str, Any]:
-    """Djangoモデルオブジェクトまたは辞書からAPI送信用のシリアライズ辞書を作成"""
+    """Djangoモデルオブジェクトまたは辞書からAPI送信・インライン評価用の完全シリアライズ辞書を作成"""
     address = _prop_val(item, "address", "")
     if not address:
         addr1 = _prop_val(item, "address1", "") or ""
@@ -75,6 +98,7 @@ def serialize_property(item: Any, ptype: str) -> dict[str, Any]:
         address = f"{addr1}{addr2}".strip()
 
     data: dict[str, Any] = {
+        "propertyType": ptype,
         "price": _prop_val(item, "price", None),
         "address": address,
         "station1": _prop_val(item, "station1", ""),
@@ -88,6 +112,14 @@ def serialize_property(item: Any, ptype: str) -> dict[str, Any]:
         "biko": _prop_val(item, "biko", ""),
         "chikunengetsuStr": _serialize_chikunengetsu_field(item),
     }
+    for attr in _OPTIONAL_COMMON_TEXT_ATTRS:
+        val = _prop_val(item, attr, None)
+        if val not in (None, ""):
+            data[attr] = str(val)
+    for attr in _OPTIONAL_COMMON_NUM_ATTRS:
+        val = _prop_val(item, attr, None)
+        if val is not None:
+            data[attr] = _prop_to_float(val) if attr in ("latitude", "longitude") else val
 
     _serialize_type_specific_fields(data, item, ptype)
     return data
@@ -118,7 +150,7 @@ def call_predict_api(
         ptype = "mansion"
 
     serialized = serialize_property(property_obj, ptype)
-    payload = {
+    payload: dict[str, Any] = {
         "property_data": serialized,
         "interior_score": float(interior_score),
         "layout_score": float(layout_score),
