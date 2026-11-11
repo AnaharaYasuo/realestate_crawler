@@ -22,6 +22,8 @@ def drop_land_price_point_table_if_exists(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # MySQL (can_rollback_ddl=False) で schema_editor.create_model を安全に実行するため非トランザクション指定
+    atomic = False
 
     dependencies = [  # noqa: RUF012
         ("package", "0070_add_dcf_and_expected_yield_fields"),
@@ -74,5 +76,6 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             create_land_price_point_table_if_not_exists,
             reverse_code=drop_land_price_point_table_if_exists,
+            atomic=False,
         ),
     ]

@@ -583,7 +583,9 @@ class TestIssue1360HierarchicalOofAnchorResidualAndCleansing:
 
         existing: set[str] = set()
         editor = MagicMock()
-        editor.atomic_migration = True
+        # MySQL と同じく atomic_migration=False でも with atomic(...) に入らず DDL 実行できることを保証
+        editor.atomic_migration = False
+        assert mig.atomic is False
         editor.connection.introspection.get_table_list.side_effect = (
             lambda _cur: [SimpleNamespace(name=t) for t in existing]
         )
