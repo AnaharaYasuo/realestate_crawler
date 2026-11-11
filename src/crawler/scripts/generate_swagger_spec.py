@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Swagger / OpenAPI 3.0 仕様書自動生成スクリプト
 (src/crawler/scripts/generate_swagger_spec.py)
@@ -12,6 +11,7 @@ Usage:
 """
 import os
 import sys
+
 import yaml
 
 MIME_APPLICATION_JSON = "application/json"
@@ -295,6 +295,26 @@ def get_openapi_spec_dict():
                                                     "is_bargain": {
                                                         "type": "boolean",
                                                         "example": False
+                                                    },
+                                                    "expected_gross_yield": {
+                                                        "type": "number",
+                                                        "description": "地域・物件状態から算定した期待表面利回り (%) ※AI不使用",
+                                                        "example": 5.45
+                                                    },
+                                                    "expected_net_yield": {
+                                                        "type": "number",
+                                                        "description": "地域・物件状態から算定した期待実質利回り / NCF Cap Rate (%) ※AI不使用",
+                                                        "example": 3.92
+                                                    },
+                                                    "estimated_annual_rent": {
+                                                        "type": "integer",
+                                                        "description": "周辺賃料相場＋物件スペック補正による推定適正年間賃料（円/年） ※AI不使用",
+                                                        "example": 2480000
+                                                    },
+                                                    "dcf_theoretical_price": {
+                                                        "type": "integer",
+                                                        "description": "10年保有DCF法により逆算したDCF理論価格（万円） ※AI不使用",
+                                                        "example": 4520
                                                     }
                                                 }
                                             }
@@ -725,6 +745,26 @@ def get_openapi_spec_dict():
                                         "type": "integer",
                                         "description": "二次推定精密理論価格（万円）",
                                         "example": 4580
+                                    },
+                                    "expected_gross_yield": {
+                                        "type": "number",
+                                        "description": "地域・物件状態から算定した期待表面利回り (%) ※AI不使用",
+                                        "example": 5.45
+                                    },
+                                    "expected_net_yield": {
+                                        "type": "number",
+                                        "description": "地域・物件状態から算定した期待実質利回り / NCF Cap Rate (%) ※AI不使用",
+                                        "example": 3.92
+                                    },
+                                    "estimated_annual_rent": {
+                                        "type": "integer",
+                                        "description": "周辺賃料相場＋物件スペック補正による推定適正年間賃料（円/年） ※AI不使用",
+                                        "example": 2480000
+                                    },
+                                    "dcf_theoretical_price": {
+                                        "type": "integer",
+                                        "description": "10年保有DCF法により逆算したDCF理論価格（万円） ※AI不使用",
+                                        "example": 4520
                                     },
                                     "message": {
                                         "type": "string",

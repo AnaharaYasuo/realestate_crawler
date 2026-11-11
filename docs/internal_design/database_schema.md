@@ -2141,6 +2141,10 @@ WARNING: Skipping save for this property due to validation errors.
 | `has_elevator` | BOOL | YES | - | エレベーター有無（テキスト抽出） |
 | `is_stair_only_3f_plus` | BOOL | YES | - | 3階以上階段物件フラグ（3階以上×EVなし） |
 | `is_old_earthquake_standard` | BOOL | YES | - | 旧耐震基準判定 (1981年5月以前建築) |
+| `expected_gross_yield` | DECIMAL(5,2) | YES | - | 地域・物件状態から算定した期待表面利回り (%) ※AI不使用 |
+| `expected_net_yield` | DECIMAL(5,2) | YES | - | 地域・物件状態から算定した期待実質利回り / NCF Cap Rate (%) ※AI不使用 |
+| `estimated_annual_rent` | BIGINT | YES | - | 周辺賃料相場＋物件スペック補正による推定適正年間賃料 (円/年) ※AI不使用 |
+| `dcf_theoretical_price` | BIGINT | YES | - | 10年保有DCF法（割引キャッシュフロー法）による逆算理論価格 (万円) ※AI不使用 |
 
 ## 29. 全物件共通基底モデル (PropertyBaseModel) 地代フィールド追加
 

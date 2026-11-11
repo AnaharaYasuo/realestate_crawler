@@ -4,9 +4,10 @@
 
 from decimal import Decimal
 from typing import Any
-from django.utils import timezone
 
+from django.utils import timezone
 from package.ml.constants import COMPANIES
+from package.ml.dcf_valuation import evaluate_dcf_and_yields
 from package.ml.investment_evaluator import evaluate_investment_property
 from package.models.evaluation import PropertyEvaluation
 from package.utils.converter import parse_chidai
@@ -123,5 +124,13 @@ def build_or_update_eval_record(
 
     if "investment" in property_type or "invest" in property_type:
         rec = evaluate_investment_property(item, rec)
+
+    int_score = float(getattr(rec, "interior_score", None) or 3.0)
+    lay_score = float(getattr(rec, "layout_score", None) or 3.0)
+    dcf_res = evaluate_dcf_and_yields(item, property_type, interior_score=int_score, layout_score=lay_score)
+    rec.expected_gross_yield = Decimal(f"{dcf_res.expected_gross_yield:.2f}")
+    rec.expected_net_yield = Decimal(f"{dcf_res.expected_net_yield:.2f}")
+    rec.estimated_annual_rent = dcf_res.estimated_annual_rent
+    rec.dcf_theoretical_price = dcf_res.dcf_theoretical_price
 
     return rec, is_new

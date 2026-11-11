@@ -125,6 +125,20 @@ class PropertyEvaluation(models.Model):
     finance_score = models.FloatField(null=True, blank=True, verbose_name="融資適合性スコア (0-100)")
     total_investment_score = models.FloatField(null=True, blank=True, verbose_name="総合投資スコア (0-100)")
 
+    # 期待表面/実質利回り ＆ 10年保有DCF理論価格評価項目 (Issue #1349, AI不使用)
+    expected_gross_yield = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待表面利回り (%)"
+    )
+    expected_net_yield = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待実質利回り / NCF Cap Rate (%)"
+    )
+    estimated_annual_rent = models.BigIntegerField(
+        null=True, blank=True, verbose_name="推定適正年間賃料 (円/年)"
+    )
+    dcf_theoretical_price = models.BigIntegerField(
+        null=True, blank=True, verbose_name="10年DCF逆算理論価格 (万円)"
+    )
+
     # 土地形状・外観メンテナンス画像解析項目
     plot_shape_type = models.CharField(
         max_length=30,
