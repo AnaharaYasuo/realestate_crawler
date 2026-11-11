@@ -183,7 +183,12 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     combined_text = _extract_combined_text_for_prop(property_obj)
     legal_furuya_feats = _extract_legal_and_furuya_features(
         property_type, combined_text, chikunen, tochi_area, tatemono_area,
-        micro_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
+        micro_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value,
+        property_obj=property_obj,
+        chimoku_str=chimoku_str,
+        road_width_val=float(road_width_val),
+        plot_shape_penalty=float(shape_feats.get("plot_shape_penalty", 1.0)),
+        estimated_fixed_asset_price=float(estimated_fixed_asset_price),
     )
     bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text, building_master_lookup)
 
@@ -331,6 +336,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                 rights_ratio=float(feats.get("rights_ratio", 1.0)),
                 is_saikenchiku_fuka=float(feats.get("is_saikenchiku_fuka", 0.0)),
                 is_shigaika_chousei=float(feats.get("is_shigaika_chousei", 0.0)),
+                effective_land_price_multiplier=float(feats.get("effective_land_price_multiplier", 1.0)),
                 furuya_demolition_cost=float(feats.get("furuya_demolition_cost", 0.0)),
                 cost_approach_value=float(feats["cost_approach_value"]),
                 income_approach_value=float(feats["income_approach_value"]),
