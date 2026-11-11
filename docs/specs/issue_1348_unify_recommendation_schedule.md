@@ -12,6 +12,10 @@
    - 後続にキャピタルゲイン評価・投資スコアおよびAI多面鑑定レポートによる「二次スクリーニング」が存在するため、一次スクリーニング段階で割安度が高すぎる物件を機械的に足切りする必要はない。
    - したがって、一次スクリーニングにおける割安度の上限閾値（ディスカウント率上限・倍率上限）を撤廃し、下限（`MIN_RECOMMEND_DISCOUNT_PCT` = 15.0%）のみを適用する。
 
+3. **毎日の通知物件数の厳選3件への変更**:
+   - 各種別ごとの二次スクリーニング通過後の配信枠（`STAGE2_PER_CATEGORY_QUOTA`）について、これまでの5件から「厳選3件」に変更する。
+   - 本当に投資価値・割安度が高い上位3件に絞り込んで通知することで、通知の質と視認性を向上させる。
+
 ## 2. 要件定義 (Requirements)
 
 1. **Cloud Workflows (`daily_pipeline.yaml`) のクローラー特化化**:
@@ -29,7 +33,12 @@
      - `_evaluate_residential_candidate`: `discount_pct > MAX_RECOMMEND_DISCOUNT_PCT` による上限カットを撤廃。`discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT`（15.0%以上）を満たすすべての物件を一次スクリーニング通過とする。
      - 二次スクリーニング（定性評価スコアリング・AI多面鑑定レポート）にて総合判断・選抜を行う。
 
-4. **Terraform 定義およびテストコードの整合**:
+4. **毎日の通知物件数の各種別3件への縮小**:
+   - `src/crawler/scripts/ops/send_recommendations.py`:
+     - `STAGE2_PER_CATEGORY_QUOTA = 3` に変更（旧: 5件）。
+     - `send_recommendations(quota_per_category=3)` をデフォルトとする。
+
+5. **Terraform 定義およびテストコードの整合**:
    - `terraform/workflows/daily_pipeline.yaml`: ML 関連ステップおよび不要引数の撤去。
    - `terraform/scheduler.tf`: `crawler_daily_trigger` の HTTP ターゲット引数から不要な `mlPipelineJob` を整理。
    - `terraform/workflows.tf`: ワークフロー説明文・コメントの同期。

@@ -339,7 +339,7 @@ def _select_balanced_investment_for_stage2(cands: list, quota: int) -> list:
 
 def _select_two_stage_recommendations(
     candidates_by_category: dict[str, list],
-    quota_per_category: int = 5,
+    quota_per_category: int = 3,
 ) -> list:
     """
     二次スクリーニング（定性評価スコアリング）に基づき、各カテゴリごとに上位 quota_per_category 件を選抜する (Issue #1311, #1343)
@@ -843,7 +843,7 @@ def send_recommendations():
 
     # Stage 1: 物件種別ごとに割安度上位を抽出 (Issue #1311, #1327, #1343)
     STAGE1_PER_CATEGORY_LIMIT = 50
-    STAGE2_PER_CATEGORY_QUOTA = 5
+    STAGE2_PER_CATEGORY_QUOTA = 3  # 各種別厳選3件 (Issue #1348)
 
     candidates_by_category: dict[str, list] = {
         "mansion": [],
