@@ -1230,6 +1230,14 @@ class ParserBase(metaclass=ABCMeta):
             cache[card_id] = price
         return price
 
+    @staticmethod
+    def _normalize_href_attr(raw_href: Any) -> str:
+        if isinstance(raw_href, str):
+            return raw_href
+        if isinstance(raw_href, list) and raw_href:
+            return str(raw_href[0])
+        return ""
+
     async def _parsePageCore(
         self, response: BeautifulSoup, xpath_fn=None, dest_url_fn=None
     ):
@@ -1238,8 +1246,7 @@ class ParserBase(metaclass=ABCMeta):
         xpath_pattern = xpath_fn() if callable(xpath_fn) else ""
         price_cache: dict[int, int | None] = {}
         for link in response.find_all("a"):
-            raw_href = link.get("href")
-            href = raw_href[0] if isinstance(raw_href, list) and raw_href else (raw_href if isinstance(raw_href, str) else "")
+            href = self._normalize_href_attr(link.get("href"))
             if self._is_non_property_href(href):
                 continue
             is_class_match = "sr-card__name" in (
@@ -2811,10 +2818,10 @@ class TochiParserBase(ParserBase):
         return specs.get("用途地域", "")
 
     _EXPLICIT_MAGUCHI_RE = re.compile(
-        r"(?:間口|接面|接道長)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]"
+        r"(?:間口|接面|接道長)[\s:：約]{0,10}(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]"
     )
-    _BARE_METER_RE = re.compile(r"(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]")
-    _ROAD_WIDTH_PREFIX_RE = re.compile(r"(?:幅員|道路幅|道路)\s*[:：]?\s*(?:約\s*)?\d")
+    _BARE_METER_RE = re.compile(r"(?:約\s{0,5})?(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]")
+    _ROAD_WIDTH_PREFIX_RE = re.compile(r"(?:幅員|道路幅?)[\s:：約]{0,10}\d")
 
     @classmethod
     def _extract_maguchi_decimal(

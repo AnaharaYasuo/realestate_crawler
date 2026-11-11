@@ -1068,11 +1068,11 @@ _lp_points_by_town: dict[str, list[LandPricePointRecord]] = {}
 _lp_points_by_city: dict[tuple[str, str], list[LandPricePointRecord]] = {}
 _lp_points_by_pref: dict[str, list[LandPricePointRecord]] = {}
 _lp_points_by_station: dict[tuple[str, str], list[LandPricePointRecord]] = {}
-_TRAILING_CHOME_DIGITS_RE = re.compile(r"\d+$")
+_CHOME_TRAILING_DIGITS = "0123456789０１２３４５６７８９"
 
 
 def _strip_chome_digits(chome_key: str) -> str:
-    return _TRAILING_CHOME_DIGITS_RE.sub("", chome_key or "").strip()
+    return (chome_key or "").rstrip(_CHOME_TRAILING_DIGITS).strip()
 
 
 def _index_land_price_point(rec: LandPricePointRecord) -> None:
@@ -1188,6 +1188,31 @@ def _knn_interpolate_points(
     ]
 
 
+def _resolve_station_points(pref: str, cty: str, station_name: str) -> Sequence[LandPricePointRecord] | None:
+    st_clean = _clean_station_query(station_name)
+    st_pts = _lp_points_by_station.get((pref, st_clean)) if st_clean else None
+    if not st_pts:
+        return None
+    if not cty:
+        return st_pts
+    city_filtered = [r for r in st_pts if r.city == cty]
+    return city_filtered or st_pts
+
+
+def _resolve_hierarchy_points(
+    pref: str, cty: str, chome_group: str, station_name: str
+) -> Sequence[LandPricePointRecord] | None:
+    if chome_group and chome_group in _lp_points_by_chome:
+        return _lp_points_by_chome[chome_group]
+    town_key = _strip_chome_digits(chome_group)
+    if town_key and town_key in _lp_points_by_town:
+        return _lp_points_by_town[town_key]
+    st_pts = _resolve_station_points(pref, cty, station_name)
+    if st_pts:
+        return st_pts
+    return _lp_points_by_city.get((pref, cty))
+
+
 def query_micro_land_price_features(
     prefecture: str,
     city: str,
@@ -1216,31 +1241,10 @@ def query_micro_land_price_features(
         if knn_weighted:
             return _aggregate_weighted_points(knn_weighted, fallback_muni_price)
 
-    # 2. 町丁目キー完全一致
-    chome_pts = _lp_points_by_chome.get(chome_group or "")
-    if chome_pts:
-        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in chome_pts]
-        return _aggregate_weighted_points(weighted, fallback_muni_price)
-
-    # 3. 丁目番号を除いた町名一致（例: 成城99 ➔ 成城）
-    town_key = _strip_chome_digits(chome_group or "")
-    town_pts = _lp_points_by_town.get(town_key) if town_key else None
-    if town_pts:
-        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in town_pts]
-        return _aggregate_weighted_points(weighted, fallback_muni_price)
-
-    # 4. 同一都道府県・最寄駅一致
-    st_clean = _clean_station_query(station_name)
-    st_pts = _lp_points_by_station.get((pref, st_clean)) if st_clean else None
-    if st_pts:
-        city_filtered = [r for r in st_pts if not cty or r.city == cty] or st_pts
-        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in city_filtered]
-        return _aggregate_weighted_points(weighted, fallback_muni_price)
-
-    # 5. 市区町村内の地点平均 ➔ 市区町村フォールバック
-    city_pts = _lp_points_by_city.get((pref, cty))
-    if city_pts:
-        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in city_pts]
+    # 2〜5. 町丁目完全一致 ➔ 大字・町名一致 ➔ 最寄駅一致 ➔ 市区町村平均
+    matched_pts = _resolve_hierarchy_points(pref, cty, chome_group or "", station_name)
+    if matched_pts:
+        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in matched_pts]
         return _aggregate_weighted_points(weighted, fallback_muni_price)
 
     default_infra = 1.0 if fallback_muni_price >= 250000 else 0.85

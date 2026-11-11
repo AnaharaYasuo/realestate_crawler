@@ -209,12 +209,12 @@ def calculate_appraisal_values(
 
 
 _EXPLICIT_ROAD_WIDTH_RE = re.compile(
-    r'(?:幅員|道路幅|道路|公道|私道)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'
+    r'(?:幅員|道路幅?|公道|私道)[\s:：約]{0,10}(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]'
 )
 _EXPLICIT_MAGUCHI_RE = re.compile(
-    r'(?:間口|接面|接道長)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'
+    r'(?:間口|接面|接道長)[\s:：約]{0,10}(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]'
 )
-_FIRST_METER_RE = re.compile(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]')
+_FIRST_METER_RE = re.compile(r'(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]')
 
 
 def _extract_road_width_from_setsudou(raw_setsudou: str) -> float | None:

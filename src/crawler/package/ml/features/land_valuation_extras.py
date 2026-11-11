@@ -12,24 +12,24 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from package.ml.dcf_valuation import evaluate_dcf_and_yields
 from package.ml.features.parsers import _get_attr, safe_float
 
 _ELEVATION_PREFIX_RE = re.compile(
-    r"(?:道路(?:面)?より|隣地より|高低差|段差)(?:最大|約|概ね|\s|:|：){0,6}(\d{1,2}(?:\.\d{1,2})?)\s*[mｍ]"
+    r"(?:道路面?より|隣地より|高低差|段差)[\s:：最大約概ね]{0,8}(\d{1,2}(?:\.\d{1,2})?)\s{0,5}[mｍ]"
 )
 _ELEVATION_SUFFIX_RE = re.compile(
-    r"(\d{1,2}(?:\.\d{1,2})?)\s*[mｍ]\s*(?:高い|低い|の高低差|の段差)"
+    r"(\d{1,2}(?:\.\d{1,2})?)\s{0,5}[mｍ]\s{0,5}(?:高い|低い|の高低差|の段差)"
 )
 _ROAD_SHARE_STRIP_RE = re.compile(
-    r"(?:私道|道路|通路|ゴミ置場|ごみ置場|集会所|提供公園|協定)[^\s、。]{0,8}持分\s*\d{1,4}\s*/\s*\d{1,4}"
+    r"(?:私道|道路|通路|ゴミ置場|ごみ置場|集会所|提供公園|協定)[^\s、。]{0,8}持分\s{0,5}\d{1,4}\s{0,5}/\s{0,5}\d{1,4}"
 )
-_SUBJECT_SHARE_RE = re.compile(r"持分\s*\d{1,4}\s*/\s*\d{1,4}")
+_SUBJECT_SHARE_RE = re.compile(r"持分\s{0,5}\d{1,4}\s{0,5}/\s{0,5}\d{1,4}")
 
 _WATER_UNCONNECTED_KW = ("上水道引込無", "水道引込無", "上水道なし", "水道なし", "井戸水", "前面道路本管無")
 _SEWER_UNCONNECTED_KW = ("浄化槽", "汲取", "汲み取り", "下水引込無", "公共下水未整備")
@@ -41,6 +41,58 @@ _SAFE_WALL_KW = ("検査済証有", "新設擁壁", "RC擁壁築造済")
 _MEASURED_BOUNDARY_KW = ("確定測量済", "確定測量渡", "確定測量後", "境界明示", "実測売買", "実測取引")
 _CUL_DE_SAC_KW = ("行き止まり", "行止り", "行止まり", "袋小路", "ドン突き")
 _SPECIAL_SHARE_KW = ("共有持分", "持分売買", "持分のみ", "底地のみ")
+
+
+@dataclass(frozen=True)
+class AnchorPricingInput:
+    """理論アンカー対数㎡単価の算出パラメータ構造体"""
+
+    property_type: str
+    gross_area: float
+    effective_tochi_area: float
+    micro_land_price: float
+    scale_discount: float
+    frontage_penalty_factor: float
+    road_condition_factor: float
+    plot_shape_penalty: float
+    rights_ratio: float
+    is_saikenchiku_fuka: float
+    is_shigaika_chousei: float
+    fixed_cost_per_sqm: float
+    cost_approach_value: float
+    income_approach_value: float
+    dcf_theoretical_value: float
+
+
+@dataclass(frozen=True)
+class LandValuationContext:
+    """決定論的土地・全種別評価特徴量の抽出コンテキスト"""
+
+    property_obj: Any
+    property_type: str
+    combined_text: str
+    gross_area: float
+    effective_tochi_area: float
+    tatemono_area: float
+    chikunen: float
+    micro_land_price: int
+    average_land_price: int
+    chome_infra_score: float
+    maguchi_val: float
+    road_width_val: float
+    scale_discount: float
+    road_condition_factor: float
+    frontage_penalty_factor: float
+    plot_shape_penalty: float
+    rights_ratio: float
+    is_saikenchiku_fuka: float
+    is_shigaika_chousei: float
+    furuya_demolition_cost: float
+    cost_approach_value: float
+    income_approach_value: float
+    mkt_comparison_master: dict | None
+    address1: str
+    address2: str
 
 
 def _evaluate_infra_connection(norm_text: str, chome_infra_score: float) -> tuple[float, float]:
@@ -125,6 +177,9 @@ def _calculate_subdivision_potential(
 
 def _compute_dcf_safe(property_obj: Any, property_type: str) -> float:
     try:
+        # Lazy import to avoid circular import when dcf_valuation imports package.ml.features.appraisal
+        from package.ml.dcf_valuation import evaluate_dcf_and_yields
+
         res = evaluate_dcf_and_yields(property_obj, property_type)
         return float(max(0, res.dcf_theoretical_price))
     except Exception:
@@ -159,47 +214,48 @@ def _compute_kodate_residual_land_value(
     return round(max(0.0, gross_land - estimated_fixed_cost_man), 2)
 
 
-def compute_anchor_log_unit_price(
-    property_type: str,
-    gross_area: float,
-    effective_tochi_area: float,
-    micro_land_price: float,
-    scale_discount: float,
-    frontage_penalty_factor: float,
-    road_condition_factor: float,
-    plot_shape_penalty: float,
-    rights_ratio: float,
-    is_saikenchiku_fuka: float,
-    is_shigaika_chousei: float,
-    fixed_cost_per_sqm: float,
-    cost_approach_value: float,
-    income_approach_value: float,
-    dcf_theoretical_value: float,
-) -> float:
+def compute_anchor_log_unit_price(inp: AnchorPricingInput) -> float:
     """物件種別に応じた物理・収益・ミクロ地価ベースの理論対数㎡単価 `log1p(万円/㎡)` を算出する。"""
-    denom = max(1.0, float(gross_area))
-    if property_type == "tochi":
-        micro_unit_man = max(0.05, float(micro_land_price) / 10000.0)
+    denom = max(1.0, float(inp.gross_area))
+    if inp.property_type == "tochi":
+        micro_unit_man = max(0.05, float(inp.micro_land_price) / 10000.0)
         eff_ratio = (
-            (max(1.0, float(effective_tochi_area)) / denom)
-            * float(scale_discount)
-            * float(frontage_penalty_factor)
-            * float(road_condition_factor)
-            * float(plot_shape_penalty)
-            * float(rights_ratio)
-            * (0.25 if is_saikenchiku_fuka >= 0.5 else 1.0)
-            * (0.35 if is_shigaika_chousei >= 0.5 else 1.0)
+            (max(1.0, float(inp.effective_tochi_area)) / denom)
+            * float(inp.scale_discount)
+            * float(inp.frontage_penalty_factor)
+            * float(inp.road_condition_factor)
+            * float(inp.plot_shape_penalty)
+            * float(inp.rights_ratio)
+            * (0.25 if inp.is_saikenchiku_fuka >= 0.5 else 1.0)
+            * (0.35 if inp.is_shigaika_chousei >= 0.5 else 1.0)
         )
-        net_unit_man = max(0.02, micro_unit_man * eff_ratio - float(fixed_cost_per_sqm))
+        net_unit_man = max(0.02, micro_unit_man * eff_ratio - float(inp.fixed_cost_per_sqm))
         return round(float(math.log1p(net_unit_man)), 6)
 
-    candidates = [v for v in (cost_approach_value, income_approach_value, dcf_theoretical_value) if v and v > 0]
+    candidates = [
+        v
+        for v in (inp.cost_approach_value, inp.income_approach_value, inp.dcf_theoretical_value)
+        if v and v > 0
+    ]
     if not candidates:
-        fallback_unit = max(0.05, float(micro_land_price) / 10000.0)
+        fallback_unit = max(0.05, float(inp.micro_land_price) / 10000.0)
         return round(float(math.log1p(fallback_unit)), 6)
     blended_total = float(sum(candidates) / len(candidates))
-    unit_man = max(0.05, (blended_total / denom) - float(fixed_cost_per_sqm) * 0.5)
+    unit_man = max(0.05, (blended_total / denom) - float(inp.fixed_cost_per_sqm) * 0.5)
     return round(float(math.log1p(unit_man)), 6)
+
+
+def _col_numeric_or_default(df: pd.DataFrame, col: str, default: float | pd.Series) -> pd.Series | float:
+    if col not in df.columns:
+        return default
+    return pd.to_numeric(df[col], errors="coerce").fillna(default)
+
+
+def _col_flag_multiplier(df: pd.DataFrame, col: str, penalty: float) -> np.ndarray | float:
+    if col not in df.columns:
+        return 1.0
+    vals = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    return np.where(vals >= 0.5, penalty, 1.0)
 
 
 def refresh_anchor_log_unit_price_column(df: pd.DataFrame, property_type: str = "") -> pd.Series:
@@ -207,142 +263,133 @@ def refresh_anchor_log_unit_price_column(df: pd.DataFrame, property_type: str = 
     学習・推論時の DataFrame 上で `micro_land_price` や `chome_oof_unit_price` が更新された際、
     それらを即座に `anchor_log_unit_price` に反映するベクトル化ヘルパー。
     """
-    if "anchor_log_unit_price" not in df.columns:
-        base = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
-    else:
-        base = pd.to_numeric(df["anchor_log_unit_price"], errors="coerce").fillna(0.0).astype(float)
+    base_raw = _col_numeric_or_default(df, "anchor_log_unit_price", 0.0)
+    base = (
+        base_raw.astype(float)
+        if isinstance(base_raw, pd.Series)
+        else pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+    )
 
-    is_tochi = property_type == "tochi"
-    if is_tochi and "micro_land_price" in df.columns and "area" in df.columns:
+    if property_type == "tochi" and "micro_land_price" in df.columns and "area" in df.columns:
         micro_man = (pd.to_numeric(df["micro_land_price"], errors="coerce").fillna(80000.0) / 10000.0).clip(lower=0.05)
         denom = pd.to_numeric(df["area"], errors="coerce").fillna(100.0).clip(lower=1.0)
-        eff_raw = df["effective_tochi_menseki"] if "effective_tochi_menseki" in df.columns else denom
-        eff_area = pd.to_numeric(eff_raw, errors="coerce").fillna(denom).clip(lower=1.0)
-        scale_d = pd.to_numeric(df["scale_discount"], errors="coerce").fillna(1.0) if "scale_discount" in df.columns else 1.0
-        front_f = pd.to_numeric(df["frontage_penalty_factor"], errors="coerce").fillna(1.0) if "frontage_penalty_factor" in df.columns else 1.0
-        road_f = pd.to_numeric(df["road_condition_factor"], errors="coerce").fillna(1.0) if "road_condition_factor" in df.columns else 1.0
-        shape_f = pd.to_numeric(df["plot_shape_penalty"], errors="coerce").fillna(1.0) if "plot_shape_penalty" in df.columns else 1.0
-        rights_f = pd.to_numeric(df["rights_ratio"], errors="coerce").fillna(1.0) if "rights_ratio" in df.columns else 1.0
-        fixed_sqm = pd.to_numeric(df["fixed_cost_per_sqm"], errors="coerce").fillna(0.0) if "fixed_cost_per_sqm" in df.columns else 0.0
-        saiken = (
-            np.where(pd.to_numeric(df["is_saikenchiku_fuka"], errors="coerce").fillna(0.0) >= 0.5, 0.25, 1.0)
-            if "is_saikenchiku_fuka" in df.columns
-            else 1.0
-        )
-        shigaika = (
-            np.where(pd.to_numeric(df["is_shigaika_chousei"], errors="coerce").fillna(0.0) >= 0.5, 0.35, 1.0)
-            if "is_shigaika_chousei" in df.columns
-            else 1.0
-        )
-        net_unit = (micro_man * (eff_area / denom) * scale_d * front_f * road_f * shape_f * rights_f * saiken * shigaika - fixed_sqm).clip(lower=0.02)
+        eff_series = _col_numeric_or_default(df, "effective_tochi_menseki", denom)
+        eff_area = pd.Series(eff_series, index=df.index, dtype=float).clip(lower=1.0)
+        scale_d = _col_numeric_or_default(df, "scale_discount", 1.0)
+        front_f = _col_numeric_or_default(df, "frontage_penalty_factor", 1.0)
+        road_f = _col_numeric_or_default(df, "road_condition_factor", 1.0)
+        shape_f = _col_numeric_or_default(df, "plot_shape_penalty", 1.0)
+        rights_f = _col_numeric_or_default(df, "rights_ratio", 1.0)
+        fixed_sqm = _col_numeric_or_default(df, "fixed_cost_per_sqm", 0.0)
+        saiken = _col_flag_multiplier(df, "is_saikenchiku_fuka", 0.25)
+        shigaika = _col_flag_multiplier(df, "is_shigaika_chousei", 0.35)
+        net_unit = (
+            micro_man * (eff_area / denom) * scale_d * front_f * road_f * shape_f * rights_f * saiken * shigaika
+            - fixed_sqm
+        ).clip(lower=0.02)
         base = pd.Series(np.log1p(net_unit), index=df.index, dtype=float)
 
     if "chome_oof_unit_price" in df.columns:
         oof = pd.to_numeric(df["chome_oof_unit_price"], errors="coerce").fillna(0.0)
-        valid_mask = oof > 0.05
         base = pd.Series(
-            np.where(valid_mask, 0.55 * oof + 0.45 * base, base),
+            np.where(oof > 0.05, 0.55 * oof + 0.45 * base, base),
             index=df.index,
             dtype=float,
         )
     return base
 
 
-def extract_land_valuation_extras(
-    property_obj: Any,
-    property_type: str,
-    combined_text: str,
-    gross_area: float,
-    effective_tochi_area: float,
-    tatemono_area: float,
-    chikunen: float,
-    micro_land_price: int,
-    average_land_price: int,
-    chome_infra_score: float,
-    maguchi_val: float,
-    road_width_val: float,
-    scale_discount: float,
-    road_condition_factor: float,
-    frontage_penalty_factor: float,
-    plot_shape_penalty: float,
-    rights_ratio: float,
-    is_saikenchiku_fuka: float,
-    is_shigaika_chousei: float,
-    furuya_demolition_cost: float,
-    cost_approach_value: float,
-    income_approach_value: float,
-    mkt_comparison_master: dict | None,
-    address1: str,
-    address2: str,
-) -> dict[str, float]:
-    """全物件種別に共通または土地・戸建てに特化した追加数値特徴量を一括生成する。"""
-    norm_text = unicodedata.normalize("NFKC", combined_text or "")
-    infra_score, infra_cost = _evaluate_infra_connection(norm_text, chome_infra_score)
-    elev_m = _extract_elevation_diff_m(property_obj, norm_text)
-    wall_cost = _estimate_retaining_wall_cost(norm_text, elev_m, gross_area if property_type == "tochi" else effective_tochi_area)
-
+def _compute_demolition_man(property_type: str, furuya_cost: float, tatemono_area: float, chikunen: float) -> float:
     if property_type == "mansion":
-        demolish_man = 0.0
+        return 0.0
+    if property_type == "tochi":
+        return float(furuya_cost)
+    return round(tatemono_area * 1.4, 2) if chikunen >= 35.0 and tatemono_area > 0 else 0.0
+
+
+def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]:
+    """全物件種別に共通または土地・戸建てに特化した追加数値特徴量を一括生成する。"""
+    norm_text = unicodedata.normalize("NFKC", ctx.combined_text or "")
+    infra_score, infra_cost = _evaluate_infra_connection(norm_text, ctx.chome_infra_score)
+    elev_m = _extract_elevation_diff_m(ctx.property_obj, norm_text)
+    wall_ref_area = ctx.gross_area if ctx.property_type == "tochi" else ctx.effective_tochi_area
+    wall_cost = _estimate_retaining_wall_cost(norm_text, elev_m, wall_ref_area)
+
+    demolish_man = _compute_demolition_man(
+        ctx.property_type, ctx.furuya_demolition_cost, ctx.tatemono_area, ctx.chikunen
+    )
+    if ctx.property_type == "mansion":
         infra_cost = 0.0
         wall_cost = 0.0
-    elif property_type == "tochi":
-        demolish_man = float(furuya_demolition_cost)
-    else:
-        demolish_man = round(tatemono_area * 1.4, 2) if chikunen >= 35.0 and tatemono_area > 0 else 0.0
 
     fixed_total = round(demolish_man + infra_cost + wall_cost, 2)
-    denom_sqm = max(10.0, float(gross_area if gross_area > 0 else effective_tochi_area))
+    denom_sqm = max(10.0, float(ctx.gross_area if ctx.gross_area > 0 else ctx.effective_tochi_area))
     fixed_per_sqm = round(fixed_total / denom_sqm, 4) if fixed_total > 0 else 0.0
 
-    is_measured = 1.0 if (any(k in norm_text for k in _MEASURED_BOUNDARY_KW) and "境界非明示" not in norm_text) else 0.0
+    is_measured = (
+        1.0 if (any(k in norm_text for k in _MEASURED_BOUNDARY_KW) and "境界非明示" not in norm_text) else 0.0
+    )
     is_cul_de_sac = 1.0 if any(k in norm_text for k in _CUL_DE_SAC_KW) else 0.0
     is_special_share = _detect_special_sale_share(norm_text)
 
+    has_land_component = ctx.property_type in ("tochi", "kodate", "apartment")
     subdiv_score = (
         _calculate_subdivision_potential(
-            effective_tochi_area, maguchi_val, road_width_val, is_saikenchiku_fuka, is_shigaika_chousei
+            ctx.effective_tochi_area,
+            ctx.maguchi_val,
+            ctx.road_width_val,
+            ctx.is_saikenchiku_fuka,
+            ctx.is_shigaika_chousei,
         )
-        if property_type in ("tochi", "kodate", "apartment")
+        if has_land_component
         else 0.0
     )
 
-    dcf_val = _compute_dcf_safe(property_obj, property_type)
+    dcf_val = _compute_dcf_safe(ctx.property_obj, ctx.property_type)
     kodate_res_land = (
         _compute_kodate_residual_land_value(
-            mkt_comparison_master, address1, address2, effective_tochi_area,
-            float(micro_land_price), scale_discount, road_condition_factor,
-            frontage_penalty_factor, fixed_total,
+            ctx.mkt_comparison_master,
+            ctx.address1,
+            ctx.address2,
+            ctx.effective_tochi_area,
+            float(ctx.micro_land_price),
+            ctx.scale_discount,
+            ctx.road_condition_factor,
+            ctx.frontage_penalty_factor,
+            fixed_total,
         )
-        if property_type in ("tochi", "kodate", "apartment")
+        if has_land_component
         else 0.0
     )
 
-    muni_denom = max(1.0, float(average_land_price))
-    micro_ratio = round(float(micro_land_price) / muni_denom, 4)
-    default_oof = round(float(math.log1p(max(0.05, float(micro_land_price) / 10000.0))), 6)
+    muni_denom = max(1.0, float(ctx.average_land_price))
+    micro_ratio = round(float(ctx.micro_land_price) / muni_denom, 4)
+    default_oof = round(float(math.log1p(max(0.05, float(ctx.micro_land_price) / 10000.0))), 6)
 
     anchor_log = compute_anchor_log_unit_price(
-        property_type=property_type,
-        gross_area=gross_area,
-        effective_tochi_area=effective_tochi_area,
-        micro_land_price=float(micro_land_price),
-        scale_discount=scale_discount,
-        frontage_penalty_factor=frontage_penalty_factor,
-        road_condition_factor=road_condition_factor,
-        plot_shape_penalty=plot_shape_penalty,
-        rights_ratio=rights_ratio,
-        is_saikenchiku_fuka=is_saikenchiku_fuka,
-        is_shigaika_chousei=is_shigaika_chousei,
-        fixed_cost_per_sqm=fixed_per_sqm,
-        cost_approach_value=cost_approach_value,
-        income_approach_value=income_approach_value,
-        dcf_theoretical_value=dcf_val,
+        AnchorPricingInput(
+            property_type=ctx.property_type,
+            gross_area=ctx.gross_area,
+            effective_tochi_area=ctx.effective_tochi_area,
+            micro_land_price=float(ctx.micro_land_price),
+            scale_discount=ctx.scale_discount,
+            frontage_penalty_factor=ctx.frontage_penalty_factor,
+            road_condition_factor=ctx.road_condition_factor,
+            plot_shape_penalty=ctx.plot_shape_penalty,
+            rights_ratio=ctx.rights_ratio,
+            is_saikenchiku_fuka=ctx.is_saikenchiku_fuka,
+            is_shigaika_chousei=ctx.is_shigaika_chousei,
+            fixed_cost_per_sqm=fixed_per_sqm,
+            cost_approach_value=ctx.cost_approach_value,
+            income_approach_value=ctx.income_approach_value,
+            dcf_theoretical_value=dcf_val,
+        )
     )
 
     return {
-        "micro_land_price": float(micro_land_price),
+        "micro_land_price": float(ctx.micro_land_price),
         "micro_to_muni_land_ratio": micro_ratio,
-        "chome_infra_score": float(chome_infra_score),
+        "chome_infra_score": float(ctx.chome_infra_score),
         "infra_connection_score": infra_score,
         "estimated_infra_cost_man": infra_cost,
         "elevation_diff_m": elev_m,

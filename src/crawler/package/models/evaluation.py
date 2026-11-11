@@ -382,6 +382,9 @@ class LandPricePotential(models.Model):
         return f"{self.prefecture}{self.city} ({self.get_land_use_display()}: {self.average_land_price}円/㎡{trend})"
 
 
+_VERBOSE_UPDATED_AT = "最終同期日時"
+
+
 class LandPricePointPotential(models.Model):
     """
     国土交通省 地価公示（L01）・都道府県地価調査（L02）の個別地点座標・ミクロ地価マスタ (Issue #1360)
@@ -409,7 +412,7 @@ class LandPricePointPotential(models.Model):
     has_gas = models.BooleanField(default=True, verbose_name="ガス供給有無")
     has_water = models.BooleanField(default=True, verbose_name="上水道有無")
     has_sewer = models.BooleanField(default=True, verbose_name="下水道有無")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
 
     class Meta:
         db_table = "land_price_point_potential"
@@ -592,7 +595,7 @@ class RentMarketPotential(models.Model):
     sample_count = models.IntegerField(null=True, blank=True, verbose_name="集計サンプル件数")
     source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
     gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
 
     class Meta:
         db_table = 'rent_market_potential'
@@ -629,7 +632,7 @@ class CapRateBenchmarkPotential(models.Model):
     survey_period = models.CharField(max_length=20, blank=True, default="", verbose_name="調査対象時点")
     source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
     gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_VERBOSE_UPDATED_AT)
 
     class Meta:
         db_table = 'cap_rate_benchmark_potential'

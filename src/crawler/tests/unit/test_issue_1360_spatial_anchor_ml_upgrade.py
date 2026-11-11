@@ -533,3 +533,40 @@ class TestIssue1360HierarchicalOofAnchorResidualAndCleansing:
         # 高価格エリア(idx 2,3)は低価格エリア(idx 0,1)より大幅に高い予測価格となること
         assert preds[2] > preds[0] * 5
         assert preds[3] > preds[1] * 5
+
+        from package.ml.inference.predictor import predict_both_stages
+
+        save_stage_models(ens, model_dir, "tochi", "second")
+        save_metadata(
+            model_dir,
+            {"tochi": {"first": ens.weights, "second": ens.weights}},
+            {"tochi": {"first": ens.smearing_factor, "second": ens.smearing_factor}},
+            mkt_master={},
+            location_encoders={"tochi": {"first": ens.location_encoder, "second": ens.location_encoder}},
+        )
+        reg_both = ModelRegistry(model_dir=model_dir)
+        both_preds = predict_both_stages(props[:2] + props[15:17], registry=reg_both)
+        assert len(both_preds) == 4
+        assert both_preds[2][0] > both_preds[0][0] * 5
+        assert both_preds[2][1] > both_preds[0][1] * 5
+
+    def test_dcf_valuation_first_import_order_has_no_circular_import(self):
+        """main.py 起動順（dcf_valuation ➔ features ➔ land_valuation_extras）で循環インポートが起きないことを検証"""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        crawler_dir = str(Path(__file__).resolve().parents[2])
+        res = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import setup_env; import package.ml.dcf_valuation; import package.ml.features; import main",
+            ],
+            cwd=crawler_dir,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        assert res.returncode == 0, f"Circular import detected:\n{res.stderr}\n{res.stdout}"

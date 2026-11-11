@@ -18,7 +18,7 @@ from .building import (
 )
 from .bias_correction import calculate_bias_correction_features
 from .feature_sets import FEATURE_SETS
-from .land_valuation_extras import extract_land_valuation_extras
+from .land_valuation_extras import LandValuationContext, extract_land_valuation_extras
 from .legal_furuya import (
     _extract_combined_text_for_prop,
     _extract_legal_and_furuya_features,
@@ -302,31 +302,33 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats.update(_extract_category_feature_updates(property_obj, combined_text, zone_name_prop))
     feats.update(
         extract_land_valuation_extras(
-            property_obj=property_obj,
-            property_type=property_type,
-            combined_text=combined_text,
-            gross_area=target_area,
-            effective_tochi_area=tochi_area,
-            tatemono_area=tatemono_area,
-            chikunen=chikunen,
-            micro_land_price=micro_land_price,
-            average_land_price=average_land_price,
-            chome_infra_score=chome_infra_score,
-            maguchi_val=maguchi_val,
-            road_width_val=road_width_val,
-            scale_discount=scale_discount,
-            road_condition_factor=road_condition_factor,
-            frontage_penalty_factor=frontage_penalty_factor,
-            plot_shape_penalty=float(feats.get("plot_shape_penalty", 1.0)),
-            rights_ratio=float(feats.get("rights_ratio", 1.0)),
-            is_saikenchiku_fuka=float(feats.get("is_saikenchiku_fuka", 0.0)),
-            is_shigaika_chousei=float(feats.get("is_shigaika_chousei", 0.0)),
-            furuya_demolition_cost=float(feats.get("furuya_demolition_cost", 0.0)),
-            cost_approach_value=float(feats["cost_approach_value"]),
-            income_approach_value=float(feats["income_approach_value"]),
-            mkt_comparison_master=mkt_comparison_master,
-            address1=address1,
-            address2=address2,
+            LandValuationContext(
+                property_obj=property_obj,
+                property_type=property_type,
+                combined_text=combined_text,
+                gross_area=target_area,
+                effective_tochi_area=tochi_area,
+                tatemono_area=tatemono_area,
+                chikunen=chikunen,
+                micro_land_price=micro_land_price,
+                average_land_price=average_land_price,
+                chome_infra_score=chome_infra_score,
+                maguchi_val=maguchi_val,
+                road_width_val=road_width_val,
+                scale_discount=scale_discount,
+                road_condition_factor=road_condition_factor,
+                frontage_penalty_factor=frontage_penalty_factor,
+                plot_shape_penalty=float(feats.get("plot_shape_penalty", 1.0)),
+                rights_ratio=float(feats.get("rights_ratio", 1.0)),
+                is_saikenchiku_fuka=float(feats.get("is_saikenchiku_fuka", 0.0)),
+                is_shigaika_chousei=float(feats.get("is_shigaika_chousei", 0.0)),
+                furuya_demolition_cost=float(feats.get("furuya_demolition_cost", 0.0)),
+                cost_approach_value=float(feats["cost_approach_value"]),
+                income_approach_value=float(feats["income_approach_value"]),
+                mkt_comparison_master=mkt_comparison_master,
+                address1=address1,
+                address2=address2,
+            )
         )
     )
 
