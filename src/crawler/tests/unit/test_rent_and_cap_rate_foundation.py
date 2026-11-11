@@ -508,7 +508,7 @@ def test_parsers_edge_cases_and_crawler_storage_and_rate_limit():
 
     with (
         patch("google.cloud.storage.Client", return_value=fake_client),
-        patch.dict("os.environ", {}, clear=False),
+        patch.dict("os.environ", {"GCS_BUCKET_NAME": "", "STORAGE_BUCKET": ""}, clear=False),
     ):
         gcs = GcsArchiveStorage(bucket_name=None)
         assert gcs.bucket_name == "realestate-images-sumifu-prod"
