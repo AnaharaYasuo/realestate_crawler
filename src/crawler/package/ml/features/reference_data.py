@@ -1,6 +1,7 @@
 """
 ML 参照マスタ（地価、自治体、駅、ハザード、用途地域、マクロ経済）管理およびキャッシュモジュール (Issue #713, Epic #710)
 """
+from collections.abc import Sequence
 import datetime
 import logging
 import math
@@ -13,10 +14,12 @@ from package.ml.features.constants import (
     PREFECTURE_BASE_POP_DENSITY,
 )
 from package.ml.features.reference_records import (
+    CapRateBenchmarkRecord,
     HazardMapRecord,
     LandPriceRecord,
     MacroEconomicRecord,
     MunicipalRecord,
+    RentMarketRecord,
     StationRecord,
     UrbanPlanningZoneRecord,
 )
@@ -234,7 +237,8 @@ def _clear_all_caches() -> None:
     for cache in (_muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache,
                   _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache,
                   _future_pop_cache, _future_pref_cache, _muni_yearly_cache, _muni_yearly_pref_cache,
-                  _station_yearly_cache, _urban_zone_cache, _urban_zone_pref_cache):
+                  _station_yearly_cache, _urban_zone_cache, _urban_zone_pref_cache,
+                  _rent_market_cache, _cap_rate_cache):
         cache.clear()
 
 
@@ -251,10 +255,12 @@ def _init_global_caches(force_refresh: bool = False) -> None:
         return
 
     from package.models.evaluation import (
+        CapRateBenchmarkPotential,
         HazardMapPotential,
         LandPricePotential,
         MacroEconomicIndex,
         MunicipalPotential,
+        RentMarketPotential,
         StationPotential,
         UrbanPlanningZonePotential,
         MunicipalFuturePotential,
@@ -275,6 +281,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
                 StationYearlyPotential,
                 UrbanInductionZoneMaster,
             )
+            loaded |= _init_rent_and_cap_rate_caches(RentMarketPotential, CapRateBenchmarkPotential)
             _caches_initialized = True
         except Exception as e:
             logger.warning("ML: _init_global_caches failed to load potential caches (falling back): %s", e)
@@ -528,7 +535,7 @@ def _get_designated_city_ward_median(address1: str, city_name: str, land_use: st
     if not ward_records:
         return None
     # 中央値を算出（偶数個の場合は中央2値の平均値でロバスト化）
-    def _median(vals: list[float | int]) -> float | int:
+    def _median(vals: Sequence[float | int]) -> float | int:
         if not vals:
             return 0
         n = len(vals)
@@ -793,3 +800,204 @@ def query_historical_momentum_features(address1: str, address2: str, station1: s
 _query_future_population_features = query_future_population_features
 _query_urban_induction_zone_features = query_urban_induction_zone_features
 _query_historical_momentum_features = query_historical_momentum_features
+
+_rent_market_cache: dict[tuple[str, str, str, str, str], list[RentMarketRecord]] = {}
+_cap_rate_cache: dict[tuple[str, str, str, str], list[CapRateBenchmarkRecord]] = {}
+
+_RENT_SOURCE_PRIORITY: dict[str, int] = {
+    "suumo_soba": 50,
+    "athome_souba": 40,
+    "homes_price": 40,
+    "internal_db": 35,
+    "estat_housing": 10,
+}
+
+_CAP_SOURCE_PRIORITY: dict[str, int] = {
+    "jrei_survey": 50,
+    "internal_db": 45,
+    "homes_toushi": 40,
+    "japan_reit": 25,
+}
+
+
+def _load_rent_market_records(rent_cls: Any) -> bool:
+    if _rent_market_cache:
+        return False
+    rows = rent_cls.objects.values(
+        "prefecture", "city", "station_name", "town_name",
+        "building_type", "layout_type", "age_band",
+        "monthly_rent_yen", "standard_area_sqm", "rent_per_sqm",
+        "sample_count", "source",
+    )
+    for r in rows:
+        rec = RentMarketRecord(
+            prefecture=r["prefecture"],
+            city=r["city"] or "",
+            station_name=r["station_name"] or "",
+            town_name=r["town_name"] or "",
+            building_type=r["building_type"] or "all",
+            layout_type=r["layout_type"] or "all",
+            age_band=r["age_band"] or "all",
+            monthly_rent_yen=int(r["monthly_rent_yen"]),
+            standard_area_sqm=float(r["standard_area_sqm"]),
+            rent_per_sqm=int(r["rent_per_sqm"]),
+            sample_count=r["sample_count"],
+            source=r["source"],
+        )
+        key = (rec.prefecture, rec.city, rec.station_name, rec.building_type, rec.layout_type)
+        _rent_market_cache.setdefault(key, []).append(rec)
+    return bool(_rent_market_cache)
+
+
+def _load_cap_rate_records(cap_cls: Any) -> bool:
+    if _cap_rate_cache:
+        return False
+    rows = cap_cls.objects.values(
+        "prefecture", "city", "station_name", "asset_type",
+        "expected_gross_yield", "expected_net_cap_rate", "standard_opex_ratio",
+        "rental_vacancy_rate", "total_vacancy_rate", "jgb_spread_bps",
+        "demand_supply_score", "sample_count", "survey_period", "source",
+    )
+    for r in rows:
+        rec = CapRateBenchmarkRecord(
+            prefecture=r["prefecture"],
+            city=r["city"] or "",
+            station_name=r["station_name"] or "",
+            asset_type=r["asset_type"] or "all",
+            expected_gross_yield=float(r["expected_gross_yield"]) if r["expected_gross_yield"] is not None else None,
+            expected_net_cap_rate=float(r["expected_net_cap_rate"]) if r["expected_net_cap_rate"] is not None else None,
+            standard_opex_ratio=float(r["standard_opex_ratio"] or 20.0),
+            rental_vacancy_rate=float(r["rental_vacancy_rate"]) if r["rental_vacancy_rate"] is not None else None,
+            total_vacancy_rate=float(r["total_vacancy_rate"]) if r["total_vacancy_rate"] is not None else None,
+            jgb_spread_bps=int(r["jgb_spread_bps"]) if r["jgb_spread_bps"] is not None else None,
+            demand_supply_score=float(r["demand_supply_score"]) if r["demand_supply_score"] is not None else None,
+            sample_count=r["sample_count"],
+            survey_period=r["survey_period"] or "",
+            source=r["source"],
+        )
+        key = (rec.prefecture, rec.city, rec.station_name, rec.asset_type)
+        _cap_rate_cache.setdefault(key, []).append(rec)
+    return bool(_cap_rate_cache)
+
+
+def _init_rent_and_cap_rate_caches(rent_cls: Any, cap_cls: Any) -> bool:
+    loaded = False
+    try:
+        loaded |= _load_rent_market_records(rent_cls)
+    except Exception as exc:
+        logger.debug("ML: _load_rent_market_records skipped: %s", exc)
+    try:
+        loaded |= _load_cap_rate_records(cap_cls)
+    except Exception as exc:
+        logger.debug("ML: _load_cap_rate_records skipped: %s", exc)
+    return loaded
+
+
+def _clean_station_query(station_name: str) -> str:
+    st = (station_name or "").strip()
+    if st.endswith("駅") and len(st) > 1:
+        st = st[:-1]
+    return st.strip()
+
+
+def query_rent_market_potential(
+    prefecture: str,
+    city: str = "",
+    station_name: str = "",
+    building_type: str = "all",
+    layout_type: str = "all",
+) -> tuple[int, str] | None:
+    """駅 ➔ 市区町村 ➔ 都道府県の階層カスケードで月額賃料単価 (円/㎡, source) を O(1) 検索する。"""
+    _init_global_caches()
+    pref = (prefecture or "").strip()
+    cty = (city or "").strip()
+    st = _clean_station_query(station_name)
+
+    geo_levels: list[tuple[str, str, str]] = []
+    if st and cty:
+        geo_levels.append((pref, cty, st))
+    if st:
+        geo_levels.append((pref, "", st))
+    if cty:
+        geo_levels.append((pref, cty, ""))
+    geo_levels.append((pref, "", ""))
+
+    spec_levels = [
+        (building_type, layout_type),
+        (building_type, "all"),
+        ("all", layout_type),
+        ("all", "all"),
+    ]
+
+    for g_pref, g_city, g_st in geo_levels:
+        for b_type, l_type in spec_levels:
+            candidates = _rent_market_cache.get((g_pref, g_city, g_st, b_type, l_type))
+            if candidates:
+                best = max(candidates, key=lambda r: _RENT_SOURCE_PRIORITY.get(r.source, 0))
+                return (best.rent_per_sqm, best.source)
+    return None
+
+
+def _pick_best_cap_record(candidates: list[CapRateBenchmarkRecord]) -> CapRateBenchmarkRecord | None:
+    with_yield = [
+        r for r in candidates
+        if r.expected_net_cap_rate is not None or r.expected_gross_yield is not None
+    ]
+    if not with_yield:
+        return None
+    best = max(with_yield, key=lambda r: _CAP_SOURCE_PRIORITY.get(r.source, 0))
+    if best.rental_vacancy_rate is not None:
+        return best
+    vac_donor = next((r for r in candidates if r.rental_vacancy_rate is not None), None)
+    if vac_donor is None:
+        return best
+    return CapRateBenchmarkRecord(
+        prefecture=best.prefecture,
+        city=best.city,
+        station_name=best.station_name,
+        asset_type=best.asset_type,
+        expected_gross_yield=best.expected_gross_yield,
+        expected_net_cap_rate=best.expected_net_cap_rate,
+        standard_opex_ratio=best.standard_opex_ratio,
+        rental_vacancy_rate=vac_donor.rental_vacancy_rate,
+        total_vacancy_rate=vac_donor.total_vacancy_rate,
+        jgb_spread_bps=best.jgb_spread_bps,
+        demand_supply_score=vac_donor.demand_supply_score or best.demand_supply_score,
+        sample_count=best.sample_count,
+        survey_period=best.survey_period,
+        source=best.source,
+    )
+
+
+def query_cap_rate_benchmark(
+    prefecture: str,
+    city: str = "",
+    station_name: str = "",
+    asset_type: str = "all",
+) -> CapRateBenchmarkRecord | None:
+    """駅 ➔ 市区町村 ➔ 都道府県 ➔ 全国の階層カスケードで期待利回り・空室率レコードを検索する。"""
+    _init_global_caches()
+    pref = (prefecture or "").strip()
+    cty = (city or "").strip()
+    st = _clean_station_query(station_name)
+
+    geo_levels: list[tuple[str, str, str]] = []
+    if st and cty:
+        geo_levels.append((pref, cty, st))
+    if st:
+        geo_levels.append((pref, "", st))
+    if cty:
+        geo_levels.append((pref, cty, ""))
+    geo_levels.append((pref, "", ""))
+    geo_levels.append(("全国", "", ""))
+
+    asset_levels = [asset_type, "all"] if asset_type != "all" else ["all"]
+    for g_pref, g_city, g_st in geo_levels:
+        combined: list[CapRateBenchmarkRecord] = []
+        for a_type in asset_levels:
+            combined.extend(_cap_rate_cache.get((g_pref, g_city, g_st, a_type), []))
+        picked = _pick_best_cap_record(combined)
+        if picked is not None:
+            return picked
+    return None
+

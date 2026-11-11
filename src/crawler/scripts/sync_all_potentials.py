@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 外部データ一括同期および洗い替えランナー (scripts/sync_all_potentials.py)
 
@@ -9,28 +8,44 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _crawler_root not in sys.path:
     sys.path.insert(0, _crawler_root)
 
 import setup_env
+
 setup_env.init_environment()
 
 import realestateSettings
+
 realestateSettings.configure()
 
 from django.db import close_old_connections
-
-from scripts.data_import.sync_estat_municipalities import sync_municipalities
-from scripts.data_import.import_mlit_stations import import_mlit_stations
+from scripts.data_import.generate_building_master import (
+    generate_and_sync_building_master,
+)
+from scripts.data_import.import_hazard_and_urban_zones import (
+    import_hazard_map,
+    import_urban_planning_zones,
+)
+from scripts.data_import.import_ipss_future_population import (
+    sync_ipss_future_population,
+)
 from scripts.data_import.import_mlit_land_prices import import_land_prices
-from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
-from scripts.data_import.import_ipss_future_population import sync_ipss_future_population
+from scripts.data_import.import_mlit_stations import import_mlit_stations
 from scripts.data_import.import_urban_induction_zones import sync_urban_induction_zones
-from scripts.data_import.sync_yearly_historical_potentials import sync_municipal_yearly_potentials, sync_station_yearly_potentials
-from scripts.data_import.generate_building_master import generate_and_sync_building_master
+from scripts.data_import.sync_estat_municipalities import sync_municipalities
+from scripts.data_import.sync_rent_and_cap_rate_potentials import (
+    sync_rent_and_cap_rate_potentials,
+)
+from scripts.data_import.sync_yearly_historical_potentials import (
+    sync_municipal_yearly_potentials,
+    sync_station_yearly_potentials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +60,8 @@ def run_all_syncs(
     skip_induction_zones: bool = False,
     skip_historical: bool = False,
     skip_building_master: bool = False,
+    skip_rent_cap_rates: bool = False,
+    live_crawl_rent: bool = False,
     max_workers: int = 4,
 ) -> dict:
     """
@@ -77,12 +94,12 @@ def run_all_syncs(
                     results[name] = {"status": "success", "count": cnt}
                     logger.info(f"✅ Phase 1 Task '{name}' completed: {cnt} records")
                 except Exception as e:
-                    logger.exception(f"❌ Phase 1 Task '{name}' failed: {e}")
+                    logger.exception("❌ Phase 1 Task '%s' failed", name)
                     results[name] = {"status": "error", "error": str(e)}
 
     # Step 2: 自治体・駅マスターに依存する派生統計を並列同期
     close_old_connections()
-    derived_tasks = []
+    derived_tasks: list[tuple[str, Callable[..., Any]]] = []
     if not skip_land_prices:
         derived_tasks.append(("land_prices", import_land_prices))
     if not skip_hazard_map:
@@ -96,6 +113,11 @@ def run_all_syncs(
         derived_tasks.append(("station_yearly", sync_station_yearly_potentials))
     if not skip_building_master:
         derived_tasks.append(("building_master", generate_and_sync_building_master))
+    if not skip_rent_cap_rates:
+        def _run_rent_cap_sync() -> dict[str, Any]:
+            return sync_rent_and_cap_rate_potentials(enable_live_crawl=live_crawl_rent)
+
+        derived_tasks.append(("rent_and_cap_rates", _run_rent_cap_sync))
 
     if derived_tasks:
         logger.info("=" * 60)
@@ -112,7 +134,7 @@ def run_all_syncs(
                     results[name] = {"status": "success", "count": cnt}
                     logger.info(f"✅ Phase 2 Task '{name}' completed: {cnt} records")
                 except Exception as e:
-                    logger.exception(f"❌ Phase 2 Task '{name}' failed: {e}")
+                    logger.exception("❌ Phase 2 Task '%s' failed", name)
                     results[name] = {"status": "error", "error": str(e)}
 
     close_old_connections()
@@ -135,6 +157,8 @@ def main():
     parser.add_argument("--skip-induction-zones", action="store_true", help="Skip induction zones sync")
     parser.add_argument("--skip-historical", action="store_true", help="Skip historical potentials sync")
     parser.add_argument("--skip-building-master", action="store_true", help="Skip building master sync")
+    parser.add_argument("--skip-rent-cap-rates", action="store_true", help="Skip rent market and cap-rate sync")
+    parser.add_argument("--live-crawl-rent", action="store_true", help="Enable live portal crawling for rent/cap-rate")
 
     args = parser.parse_args()
     run_all_syncs(
@@ -147,6 +171,8 @@ def main():
         skip_induction_zones=args.skip_induction_zones,
         skip_historical=args.skip_historical,
         skip_building_master=args.skip_building_master,
+        skip_rent_cap_rates=args.skip_rent_cap_rates,
+        live_crawl_rent=args.live_crawl_rent,
         max_workers=args.workers,
     )
 

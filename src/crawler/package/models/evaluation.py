@@ -517,3 +517,73 @@ class UrbanInductionZoneMaster(models.Model):
 
     def __str__(self):
         return f"{self.prefecture}{self.city}{self.town_name} (都市機能誘導: {self.is_urban_induction_zone}, 居住誘導: {self.is_residential_induction_zone})"
+
+
+class RentMarketPotential(models.Model):
+    """
+    全国地域・駅・メッシュ別の構造化家賃相場・㎡単価マスタ (Issue #1354)
+    原本テキストは Cloud Storage (rag/raw/rent_mesh/) に保持し、構造化数値を保持する。
+    """
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="市区町村")
+    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="駅名 (正規化名)")
+    town_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="町丁目・メッシュ名")
+    building_type = models.CharField(max_length=30, db_index=True, default="all", verbose_name="建物種別 (mansion/apartment/kodate/all)")
+    layout_type = models.CharField(max_length=30, default="all", verbose_name="間取り区分")
+    age_band = models.CharField(max_length=30, default="all", verbose_name="築年帯")
+    monthly_rent_yen = models.IntegerField(verbose_name="月額家賃相場 (円)")
+    standard_area_sqm = models.DecimalField(max_digits=6, decimal_places=2, verbose_name="換算基準専有面積 (㎡)")
+    rent_per_sqm = models.IntegerField(verbose_name="月額賃料単価 (円/㎡)")
+    sample_count = models.IntegerField(null=True, blank=True, verbose_name="集計サンプル件数")
+    source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
+    gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+
+    class Meta:
+        db_table = 'rent_market_potential'
+        unique_together = (
+            'prefecture', 'city', 'station_name', 'town_name',
+            'building_type', 'layout_type', 'age_band', 'source',
+        )
+        verbose_name = "地域・駅別家賃相場マスタ"
+        verbose_name_plural = "地域・駅別家賃相場マスタ"
+
+    def __str__(self):
+        loc = f"{self.prefecture}{self.city}{self.town_name}"
+        st = f"/{self.station_name}駅" if self.station_name else ""
+        return f"{loc}{st} [{self.building_type}/{self.layout_type}] {self.rent_per_sqm}円/㎡ ({self.source})"
+
+
+class CapRateBenchmarkPotential(models.Model):
+    """
+    地域・駅・アセットクラス別のキャップレート（期待/実勢利回り）・空室率・標準経費率マスタ (Issue #1354)
+    原本テキストは Cloud Storage (rag/raw/rent_mesh/) に保持し、構造化数値を保持する。
+    """
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="市区町村")
+    station_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="駅名 (正規化名)")
+    asset_type = models.CharField(max_length=40, db_index=True, default="all", verbose_name="アセット区分")
+    expected_gross_yield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待・実勢表面利回り (%)")
+    expected_net_cap_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="期待実質利回り / NCF Cap Rate (%)")
+    standard_opex_ratio = models.DecimalField(max_digits=5, decimal_places=2, default=20.00, verbose_name="標準運営経費率 OPEX率 (%)")
+    rental_vacancy_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="賃貸用住宅空室率 (%)")
+    total_vacancy_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="住宅全般空室率 (%)")
+    jgb_spread_bps = models.IntegerField(null=True, blank=True, verbose_name="10年国債利回りスプレッド (bps)")
+    demand_supply_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="検索需要/掲載供給バランス指数")
+    sample_count = models.IntegerField(null=True, blank=True, verbose_name="集計サンプル件数")
+    survey_period = models.CharField(max_length=20, blank=True, default="", verbose_name="調査対象時点")
+    source = models.CharField(max_length=50, db_index=True, verbose_name="データソース識別子")
+    gcs_raw_key = models.CharField(max_length=500, blank=True, default="", verbose_name="GCS原本保存パス")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最終同期日時")
+
+    class Meta:
+        db_table = 'cap_rate_benchmark_potential'
+        unique_together = ('prefecture', 'city', 'station_name', 'asset_type', 'source')
+        verbose_name = "地域・アセット別キャップレートマスタ"
+        verbose_name_plural = "地域・アセット別キャップレートマスタ"
+
+    def __str__(self):
+        loc = f"{self.prefecture}{self.city}"
+        st = f"/{self.station_name}駅" if self.station_name else ""
+        return f"{loc}{st} [{self.asset_type}] Gross:{self.expected_gross_yield}% Net:{self.expected_net_cap_rate}% ({self.source})"
+
