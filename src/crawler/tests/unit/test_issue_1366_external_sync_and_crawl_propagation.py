@@ -251,6 +251,7 @@ def test_sync_all_potentials_respect_ttl_and_weekly_retrain_schedule():
             "cpi_core": 113.2,
         },
     )
+    MacroEconomicIndex.objects.filter(year_month="2026-12").delete()
     assert _is_macro_fresh(datetime.date(2026, 11, 11)) is True
     assert _is_macro_fresh(datetime.date(2026, 12, 1)) is False
 
