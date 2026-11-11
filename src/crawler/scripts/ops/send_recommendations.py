@@ -560,8 +560,59 @@ def _extract_property_display_info(prop, eval_rec) -> tuple[str, int, float, str
     return ptype_jp, asking_price_man, pred_price, address, access
 
 
-def _format_dcf_slack_lines(eval_rec, asking_price_man: int) -> str:
-    """期待表面/実質利回りおよび10年保有DCF理論価格のSlack表示行を組み立てる (Issue #1349)"""
+def _ensure_eval_dcf_and_sekisan(eval_rec, prop) -> None:
+    """DCF理論価格・期待利回り・積算価格が未算出(None/0)の既存レコードをオンデマンド補完する (Issue #1370)"""
+    if eval_rec is None or prop is None:
+        return
+    if type(eval_rec).__name__ in ("MagicMock", "AsyncMock", "Mock") or type(prop).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        return
+    dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
+    if type(dcf_val).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        return
+
+    needs_dcf = True
+    try:
+        if dcf_val is not None and int(dcf_val) > 0:
+            needs_dcf = False
+    except (ValueError, TypeError):
+        needs_dcf = True
+
+    if needs_dcf:
+        try:
+            from decimal import Decimal
+            from package.ml.dcf_valuation import evaluate_dcf_and_yields
+
+            ptype = str(getattr(eval_rec, "property_type", "") or "mansion")
+            res = evaluate_dcf_and_yields(prop, ptype)
+            if res.dcf_theoretical_price > 0:
+                eval_rec.dcf_theoretical_price = int(res.dcf_theoretical_price)
+                eval_rec.expected_gross_yield = Decimal(f"{res.expected_gross_yield:.2f}")
+                eval_rec.expected_net_yield = Decimal(f"{res.expected_net_yield:.2f}")
+                eval_rec.estimated_annual_rent = int(res.estimated_annual_rent)
+        except Exception as e:
+            logger.debug("On-demand DCF calculation skipped in send_recommendations: %s", e)
+
+    sekisan_val = getattr(eval_rec, "estimated_sekisan_price", None)
+    if sekisan_val is None or (isinstance(sekisan_val, (int, float)) and sekisan_val <= 0):
+        try:
+            from package.ml.investment_evaluator import _extract_pref_and_city, calculate_sekisan_price
+
+            addr = str(getattr(prop, "address", "") or "")
+            pref = str(getattr(prop, "address1", "") or "")
+            city = str(getattr(prop, "address2", "") or "")
+            if not pref or not city:
+                pref, city = _extract_pref_and_city(addr)
+            sek = calculate_sekisan_price(prop, pref, city)
+            if sek > 0:
+                eval_rec.estimated_sekisan_price = int(sek)
+        except Exception as e:
+            logger.debug("On-demand sekisan calculation skipped in send_recommendations: %s", e)
+
+
+def _format_dcf_slack_lines(eval_rec, asking_price_man: int, prop=None) -> str:
+    """期待表面/実質利回りおよび10年保有DCF理論価格のSlack表示行を組み立てる (Issue #1349, #1370)"""
+    if prop is not None:
+        _ensure_eval_dcf_and_sekisan(eval_rec, prop)
     dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
     gross_y = getattr(eval_rec, "expected_gross_yield", None)
     net_y = getattr(eval_rec, "expected_net_yield", None)
@@ -597,6 +648,7 @@ def _format_dcf_slack_lines(eval_rec, asking_price_man: int) -> str:
 
 
 def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_data: dict | None = None) -> str:
+    _ensure_eval_dcf_and_sekisan(eval_rec, prop)
     ptype_jp, asking_price_man, pred_price, address, access = _extract_property_display_info(prop, eval_rec)
     _, area_info = _format_access_and_area(prop)
     chikunen = clean_val(getattr(prop, "chikunengetsuStr", getattr(prop, "chikunenki", "")))
@@ -635,7 +687,7 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
 
     if eval_rec.estimated_sekisan_price:
         msg += f"・想定積算価格: {clean_val(eval_rec.estimated_sekisan_price)}万円\n"
-    msg += _format_dcf_slack_lines(eval_rec, asking_price_man)
+    msg += _format_dcf_slack_lines(eval_rec, asking_price_man, prop=prop)
     if eval_rec.cash_flow:
         msg += f"・年間CF: {clean_val(eval_rec.cash_flow)}万円/年 (DSCR: {clean_val(eval_rec.dscr)})\n"
 

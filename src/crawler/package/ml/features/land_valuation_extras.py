@@ -70,6 +70,7 @@ class AnchorPricingInput:
     mlit_tx_unit_price_man: float = 0.0
     dem_south_aspect_score: float = 0.0
     dem_depression_depth_m: float = 0.0
+    effective_land_price_multiplier: float | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class LandValuationContext:
     mkt_comparison_value: float = 0.0
     building_depreciation_ratio: float = 0.5
     demolition_cost_discount: float = 0.0
+    effective_land_price_multiplier: float | None = None
 
 
 def _evaluate_infra_connection(norm_text: str, chome_infra_score: float) -> tuple[float, float]:
@@ -225,13 +227,19 @@ def _compute_kodate_residual_land_value(
 
 
 def _resolve_legal_land_multipliers(
-    property_type: str, is_saikenchiku_fuka: float, is_shigaika_chousei: float
+    property_type: str,
+    is_saikenchiku_fuka: float,
+    is_shigaika_chousei: float,
+    effective_land_price_multiplier: float | None = None,
 ) -> tuple[float, float]:
-    """土地更地（建築不可＝0.25）と既存建物付き（既得権居住・賃貸可＝0.48）の法的減価率を区別する。"""
+    """土地更地（建築不可＝0.25）と既存建物付き（既得権居住・賃貸可＝0.48）の法的減価率および市街化調整区域・地目比準乗数を区別する。"""
     saiken_pen = 0.25 if property_type == "tochi" else 0.48
-    shigaika_pen = 0.35 if property_type == "tochi" else 0.50
     saiken_m = saiken_pen if is_saikenchiku_fuka >= 0.5 else 1.0
-    shigaika_m = shigaika_pen if is_shigaika_chousei >= 0.5 else 1.0
+    if effective_land_price_multiplier is not None and 0.0 < float(effective_land_price_multiplier) <= 1.0:
+        shigaika_m = float(effective_land_price_multiplier)
+    else:
+        shigaika_pen = 0.35 if property_type == "tochi" else 0.50
+        shigaika_m = shigaika_pen if is_shigaika_chousei >= 0.5 else 1.0
     return saiken_m, shigaika_m
 
 
@@ -244,7 +252,10 @@ def _compute_net_land_from_input(inp: AnchorPricingInput) -> float:
     denom = max(1.0, float(inp.gross_area))
     micro_man = max(0.05, float(inp.micro_land_price) / 10000.0)
     saiken_m, shigaika_m = _resolve_legal_land_multipliers(
-        inp.property_type, inp.is_saikenchiku_fuka, inp.is_shigaika_chousei
+        inp.property_type,
+        inp.is_saikenchiku_fuka,
+        inp.is_shigaika_chousei,
+        inp.effective_land_price_multiplier,
     )
     dem_m = _dem_terrain_multiplier(inp.dem_south_aspect_score, inp.dem_depression_depth_m)
     if inp.property_type == "mansion":
@@ -268,7 +279,11 @@ def _compute_net_land_from_input(inp: AnchorPricingInput) -> float:
 
 def _compute_kodate_anchor_unit(inp: AnchorPricingInput, net_land_man: float, denom: float) -> float:
     phys_total = net_land_man + max(0.0, float(inp.bldg_component_man))
-    has_severe_defect = inp.is_saikenchiku_fuka >= 0.5 or inp.is_shigaika_chousei >= 0.5
+    has_severe_defect = (
+        inp.is_saikenchiku_fuka >= 0.5
+        or inp.is_shigaika_chousei >= 0.5
+        or (inp.effective_land_price_multiplier is not None and inp.effective_land_price_multiplier < 0.90)
+    )
     if not has_severe_defect:
         ref_val = (
             float(inp.mlit_tx_unit_price_man) * denom
@@ -283,7 +298,10 @@ def _compute_kodate_anchor_unit(inp: AnchorPricingInput, net_land_man: float, de
 def _compute_apartment_anchor_unit(inp: AnchorPricingInput, net_land_man: float, denom: float) -> float:
     phys_total = net_land_man + max(0.0, float(inp.bldg_component_man))
     saiken_m, shigaika_m = _resolve_legal_land_multipliers(
-        inp.property_type, inp.is_saikenchiku_fuka, inp.is_shigaika_chousei
+        inp.property_type,
+        inp.is_saikenchiku_fuka,
+        inp.is_shigaika_chousei,
+        inp.effective_land_price_multiplier,
     )
     inc_candidates = [v for v in (inp.dcf_theoretical_value, inp.income_approach_value) if v and v > 0]
     inc_total = (sum(inc_candidates) / len(inc_candidates)) if inc_candidates else phys_total
@@ -302,7 +320,12 @@ def compute_anchor_log_unit_price(inp: AnchorPricingInput) -> float:
 
     if inp.property_type == "tochi":
         net_unit = max(0.02, net_land_man / denom)
-        has_defect = inp.is_saikenchiku_fuka >= 0.5 or inp.is_shigaika_chousei >= 0.5 or inp.rights_ratio < 0.9
+        has_defect = (
+            inp.is_saikenchiku_fuka >= 0.5
+            or inp.is_shigaika_chousei >= 0.5
+            or inp.rights_ratio < 0.9
+            or (inp.effective_land_price_multiplier is not None and inp.effective_land_price_multiplier < 0.90)
+        )
         if inp.mlit_tx_unit_price_man > 0 and not has_defect:
             tx_adj = float(inp.mlit_tx_unit_price_man) * float(inp.plot_shape_penalty) * float(inp.road_condition_factor)
             net_unit = max(0.02, 0.80 * net_unit + 0.20 * tx_adj - float(inp.fixed_cost_per_sqm) * 0.2)
@@ -350,7 +373,10 @@ def _vectorized_net_land_man(df: pd.DataFrame, property_type: str, denom: pd.Ser
     rights_f = _col_series(df, "rights_ratio", 1.0)
     fixed_sqm = _col_series(df, "fixed_cost_per_sqm", 0.0)
     saiken = _col_flag_multiplier(df, "is_saikenchiku_fuka", 0.25 if property_type == "tochi" else 0.48)
-    shigaika = _col_flag_multiplier(df, "is_shigaika_chousei", 0.35 if property_type == "tochi" else 0.50)
+    if "effective_land_price_multiplier" in df.columns:
+        shigaika = _col_series(df, "effective_land_price_multiplier", 1.0).clip(lower=0.10, upper=1.0).to_numpy(dtype=float)
+    else:
+        shigaika = _col_flag_multiplier(df, "is_shigaika_chousei", 0.35 if property_type == "tochi" else 0.50)
 
     qual_mult = (scale_d * front_f * road_f * shape_f * rights_f).to_numpy(dtype=float) * saiken * shigaika
     net_land = (eff_area * micro_man * qual_mult - fixed_sqm * denom).clip(lower=0.0)
@@ -543,6 +569,7 @@ def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]
         mlit_tx_unit_price_man=tx_hit.tx_unit_price_man,
         dem_south_aspect_score=dem_feat.dem_south_aspect_score,
         dem_depression_depth_m=dem_feat.dem_depression_depth_m,
+        effective_land_price_multiplier=ctx.effective_land_price_multiplier,
     )
     net_land_man = round(_compute_net_land_from_input(anchor_inp), 2)
     net_land_sqm = round(net_land_man / denom_sqm, 4)

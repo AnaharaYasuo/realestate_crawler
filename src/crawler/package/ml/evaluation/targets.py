@@ -68,8 +68,12 @@ def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = 
             return False
         # 指定日時より古い場合は再処理対象（スキップしない）
         return analyzed_at >= reevaluate_before
-    # 正常な推計価格（>0）が算出済みの場合はスキップ、未推計または0円なら再推計対象
-    return bool(existing_eval and existing_eval.first_stage_predicted_price is not None and existing_eval.first_stage_predicted_price > 0)
+    # 正常な推計価格（>0）およびDCF理論価格が算出済みの場合はスキップ、未推計または0円なら再推計対象 (Issue #1370)
+    if not existing_eval or existing_eval.first_stage_predicted_price is None or existing_eval.first_stage_predicted_price <= 0:
+        return False
+    if hasattr(existing_eval, "dcf_theoretical_price") and existing_eval.dcf_theoretical_price is None:
+        return False
+    return True
 
 
 def iter_active_items(
