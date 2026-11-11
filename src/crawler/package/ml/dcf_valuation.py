@@ -20,6 +20,7 @@ from package.ml.features.parsers import (
     calculate_chikunen_feature,
     calculate_shin_taishin,
     extract_clean_address,
+    extract_group_labels,
     extract_traffic_and_walk_min,
     parse_floor_features,
     parse_kouzou,
@@ -32,12 +33,14 @@ from package.ml.features.reference_data import (
     query_cap_rate_benchmark,
     query_future_population_features,
     query_hazard_features,
+    query_micro_land_price_features,
     query_municipal_potential,
     query_rent_market_potential,
     query_station_volume,
     resolve_zone_limits,
 )
 from package.utils import converter
+from package.utils.gsi_geocoder import lookup_cached_coordinates
 
 PTYPE_MANSION = "mansion"
 PTYPE_KODATE = "kodate"
@@ -123,6 +126,7 @@ class _PropertyContext:
     landslide_risk: int
     jgb_10y: float
     combined_text: str
+    road_frontage_mult: float = 1.0
 
 
 def _get_val(obj: Any, name: str, default: Any = None) -> Any:
@@ -160,12 +164,27 @@ def _resolve_chikunen(property_obj: Any, norm_type: str, base_date: datetime.dat
     return max(0.0, float(age))
 
 
+def _resolve_dcf_coords(property_obj: Any, chome_group: str) -> tuple[float | None, float | None]:
+    raw_lat = safe_float(_get_val(property_obj, "latitude", None) or _get_val(property_obj, "lat", None), None)
+    raw_lon = safe_float(_get_val(property_obj, "longitude", None) or _get_val(property_obj, "lon", None), None)
+    if raw_lat is not None and raw_lon is not None:
+        return float(raw_lat), float(raw_lon)
+    addr_q = str(_get_val(property_obj, "address", "") or chome_group or "")
+    return lookup_cached_coordinates(addr_q) or (None, None)
+
+
 def _build_property_context(property_obj: Any, property_type: str) -> _PropertyContext:
     norm_type = _normalize_ptype(property_type, property_obj)
     base_date = datetime.date.today()
     address1, address2, station1, _ = extract_clean_address(property_obj)
     max_youseki, _, _, _, _ = resolve_zone_limits(property_obj)
     avg_land_price, _, _, _ = blend_land_prices(address1, address2, max_youseki)
+    _, chome_group = extract_group_labels(property_obj, address1, address2)
+    lat_v, lon_v = _resolve_dcf_coords(property_obj, chome_group)
+    avg_land_price, _ = query_micro_land_price_features(
+        address1, address2, chome_group, max_youseki, int(avg_land_price),
+        station_name=station1, latitude=lat_v, longitude=lon_v,
+    )
     _, raw_inc, _, _, pop_density = query_municipal_potential(address1, address2)
     income = float(raw_inc) if raw_inc is not None else 3600.0
     st_vol = query_station_volume(station1)
@@ -218,6 +237,7 @@ def _build_property_context(property_obj: Any, property_type: str) -> _PropertyC
         landslide_risk=landslide_risk,
         jgb_10y=jgb_10y,
         combined_text=combined_text,
+        road_frontage_mult=float(tochi_factors.road_condition_factor * tochi_factors.frontage_penalty_factor),
     )
 
 
@@ -585,7 +605,16 @@ def _calc_land_residual_man(ctx: _PropertyContext) -> float:
         eff_area = ctx.senyu_area if ctx.senyu_area > 0.0 else 55.0
         return (eff_area * 0.20) * (ctx.avg_land_price / 10000.0) * rights_ratio * unbuildable_discount
     eff_land = ctx.tochi_area if ctx.tochi_area > 0.0 else 100.0
-    return eff_land * (ctx.avg_land_price / 10000.0) * ctx.scale_discount * rights_ratio * unbuildable_discount
+    shigaika_discount = 0.45 if ("市街化調整" in ctx.combined_text or "調整区域" in ctx.combined_text) else 1.0
+    return (
+        eff_land
+        * (ctx.avg_land_price / 10000.0)
+        * ctx.scale_discount
+        * ctx.road_frontage_mult
+        * rights_ratio
+        * unbuildable_discount
+        * shigaika_discount
+    )
 
 
 def _estimate_tochi_dev_residual_and_capex(

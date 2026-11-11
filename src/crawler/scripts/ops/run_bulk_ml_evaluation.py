@@ -4,6 +4,7 @@ import argparse
 import datetime
 import os
 import sys
+from typing import Any
 
 _scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _crawler_dir = os.path.dirname(_scripts_dir)
@@ -44,6 +45,8 @@ def run_bulk_evaluation(
     skip_uncrawled: bool = False,
     reevaluate_before: datetime.date | datetime.datetime | None = None,
     skip_duplicate_check: bool = False,
+    concurrency: int | None = None,
+    batch_size: int | None = None,
 ) -> None:
     """CLI および外部呼び出し用のバルク評価実行（後方互換 monkeypatch 対応）"""
     import package.ml.evaluation.notifications as notif_mod
@@ -53,20 +56,39 @@ def run_bulk_evaluation(
     runner_mod.evaluate_single_model = getattr(this_mod, "_evaluate_single_model", _evaluate_single_model)
     runner_mod.get_all_property_models = tgts_mod.get_all_property_models = getattr(this_mod, "get_all_property_models", get_all_property_models)
     notif_mod.send_dev_report = getattr(this_mod, "send_dev_report", send_dev_report)
-    _orig_run_bulk_evaluation(
-        force=force,
-        limit_per_model=limit_per_model,
-        skip_portals=skip_portals,
-        skip_uncrawled=skip_uncrawled,
-        reevaluate_before=reevaluate_before,
-        skip_duplicate_check=skip_duplicate_check,
-    )
+    kwargs: dict[str, Any] = {
+        "force": force,
+        "limit_per_model": limit_per_model,
+        "skip_portals": skip_portals,
+        "skip_uncrawled": skip_uncrawled,
+        "reevaluate_before": reevaluate_before,
+        "skip_duplicate_check": skip_duplicate_check,
+    }
+    if concurrency is not None:
+        kwargs["concurrency"] = concurrency
+    if batch_size is not None:
+        kwargs["batch_size"] = batch_size
+    _orig_run_bulk_evaluation(**kwargs)
 
 def main() -> None:
     """CLI エントリポイント"""
     parser = argparse.ArgumentParser(description="Bulk ML Evaluation Batch")
     parser.add_argument("--force", action="store_true", help="Force re-evaluation of already evaluated properties")
     parser.add_argument("--limit", type=int, default=None, help="Limit properties per model for testing")
+    parser.add_argument(
+        "--workers", "--concurrency",
+        dest="concurrency",
+        type=int,
+        default=None,
+        help="Number of parallel evaluation worker threads (e.g. 16)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        dest="batch_size",
+        type=int,
+        default=None,
+        help="Database bulk_create / bulk_update write batch size (e.g. 100)",
+    )
     parser.add_argument(
         "--before-date",
         type=str,
@@ -106,6 +128,8 @@ def main() -> None:
         skip_uncrawled=args.skip_uncrawled,
         reevaluate_before=reevaluate_before,
         skip_duplicate_check=args.skip_duplicate_check,
+        concurrency=args.concurrency,
+        batch_size=args.batch_size,
     )
 
 

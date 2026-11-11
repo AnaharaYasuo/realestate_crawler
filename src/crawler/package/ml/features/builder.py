@@ -54,6 +54,7 @@ from .reference_data import (
     _calculate_regional_sensitivity_features,
     _extract_macro_features,
     _init_global_caches,
+    _query_hierarchy_centroid,
     _query_micro_land_price_features,
     _query_municipal_potential,
     _query_station_volume,
@@ -75,16 +76,24 @@ def _first_valid_attr(obj, *names, default=''):
     return default
 
 
-def _resolve_property_coordinates(property_obj, chome_group: str) -> tuple[float | None, float | None]:
+def _resolve_property_coordinates(
+    property_obj, chome_group: str, address1: str = '', address2: str = '', station1: str = ''
+) -> tuple[float | None, float | None]:
     lat_val = safe_float(_first_valid_attr(property_obj, 'latitude', 'lat', default=None), None)
     lon_val = safe_float(_first_valid_attr(property_obj, 'longitude', 'lon', 'lng', default=None), None)
     if lat_val is not None and lon_val is not None:
         return float(lat_val), float(lon_val)
-    addr_q = str(_get_attr(property_obj, 'address', '') or chome_group or '')
-    return lookup_cached_coordinates(addr_q) or (None, None)
+    for query_str in (str(_get_attr(property_obj, 'address', '') or ''), chome_group):
+        if query_str:
+            hit = lookup_cached_coordinates(query_str)
+            if hit is not None:
+                return hit
+    return _query_hierarchy_centroid(address1, address2, chome_group, station1)
 
 
 def _resolve_gross_tochi_area(property_obj, property_type: str, effective_tochi_area: float) -> float:
+    if property_type == 'mansion':
+        return 0.0
     raw = safe_float(_get_attr(property_obj, 'tochiMenseki', None), 0.0)
     if raw <= 0.0 and property_type == 'tochi':
         raw = safe_float(_get_attr(property_obj, 'area', None), 0.0)
@@ -128,7 +137,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     effective_walk_min = _calculate_effective_walk_min(walk_min, bus_use, bus_min, bus_walk, pop_density)
     max_youseki, max_kenpei, zone_max_kenpei, zone_max_youseki, zone_name_prop = _resolve_zone_limits(property_obj)
     average_land_price, estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate = _blend_land_prices(address1, address2, max_youseki)
-    lat_val, lon_val = _resolve_property_coordinates(property_obj, chome_group)
+    lat_val, lon_val = _resolve_property_coordinates(property_obj, chome_group, address1, address2, station1)
     micro_land_price, chome_infra_score = _query_micro_land_price_features(
         address1, address2, chome_group, max_youseki, average_land_price,
         station_name=station1, latitude=lat_val, longitude=lon_val,
@@ -143,7 +152,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         mkt_comparison_value, income_approach_value, gross_yield, annual_rent
     ) = _calculate_appraisal_values(
         property_obj, property_type, area, tatemono_area, tochi_area,
-        chikunen, max_youseki, average_land_price, income, mkt_comparison_master,
+        chikunen, max_youseki, micro_land_price, income, mkt_comparison_master,
         address1, address2
     )
 
@@ -155,7 +164,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         volume_digest_factor, road_condition_factor, frontage_penalty_factor,
         residual_land_value, road_direction_str, road_type_str, road_structure_str, chimoku_str
     ) = _calculate_tochi_appraisal_factors(
-        property_obj, property_type, tochi_area, max_youseki, average_land_price, setback_ratio_temp, scale_discount
+        property_obj, property_type, tochi_area, max_youseki, micro_land_price, setback_ratio_temp, scale_discount
     )
     is_maguchi_missing, is_road_width_missing = (
         (0.0, 0.0) if property_type == 'mansion' else detect_road_missingness(property_obj)
@@ -174,7 +183,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     combined_text = _extract_combined_text_for_prop(property_obj)
     legal_furuya_feats = _extract_legal_and_furuya_features(
         property_type, combined_text, chikunen, tochi_area, tatemono_area,
-        average_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
+        micro_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
     )
     bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text, building_master_lookup)
 
@@ -184,13 +193,13 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         walk_min_elasticity, effective_station_dist,
         chikunen_resistance, area_intensity
     ) = _calculate_regional_sensitivity_features(
-        property_type, walk_min, pop_density, passenger_volume, average_land_price,
+        property_type, walk_min, pop_density, passenger_volume, micro_land_price,
         area, tatemono_area, tochi_area, chikunen, scale_discount
     )
 
     bias_feats = calculate_bias_correction_features(
         property_obj, property_type, chikunen, tatemono_area,
-        average_land_price, kouzou_str, combined_text, legal_furuya_feats.get("is_shigaika_chousei", 0.0)
+        micro_land_price, kouzou_str, combined_text, legal_furuya_feats.get("is_shigaika_chousei", 0.0)
     )
 
     target_area = area if property_type in ('mansion', 'tochi') else tatemono_area
@@ -328,6 +337,12 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                 mkt_comparison_master=mkt_comparison_master,
                 address1=address1,
                 address2=address2,
+                chome_group=chome_group,
+                latitude=lat_val,
+                longitude=lon_val,
+                mkt_comparison_value=float(feats["mkt_comparison_value"]),
+                building_depreciation_ratio=float(feats["building_depreciation_ratio"]),
+                demolition_cost_discount=float(feats["demolition_cost_discount"]),
             )
         )
     )

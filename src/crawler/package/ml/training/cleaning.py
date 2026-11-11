@@ -19,6 +19,14 @@ def _resolve_reference_land_man(df: pd.DataFrame) -> pd.Series | None:
     return None
 
 
+def _resolve_lot_leverage(df: pd.DataFrame, ptype: str) -> pd.Series | float:
+    if ptype not in ("kodate", "apartment") or "tochi_menseki" not in df.columns or "area" not in df.columns:
+        return 1.0
+    tochi = pd.to_numeric(df["tochi_menseki"], errors="coerce").fillna(0.0)
+    area = pd.to_numeric(df["area"], errors="coerce").clip(lower=1.0)
+    return (tochi / area).clip(lower=1.0, upper=8.0)
+
+
 def _apply_anchor_ratio_filtering(df: pd.DataFrame, ptype: str) -> pd.DataFrame:
     """基準地価（ミクロ地価または市区町村地価）に対する実売単価比で桁ミス異常値を除外し、都心適正高額物件を保護する。"""
     ref_man = _resolve_reference_land_man(df)
@@ -35,7 +43,8 @@ def _apply_anchor_ratio_filtering(df: pd.DataFrame, ptype: str) -> pd.DataFrame:
     if ptype == "tochi":
         keep = (~valid_ref) | ((ratio >= 0.03) & (ratio <= 15.0))
     else:
-        max_allowed = ref_man * 18.0 + 120.0
+        lot_lev = _resolve_lot_leverage(df, ptype)
+        max_allowed = ref_man * lot_lev * 18.0 + 120.0
         keep = (~valid_ref) | ((unit_man >= 0.25) & (unit_man <= max_allowed))
 
     pre_count = len(df)
@@ -52,7 +61,8 @@ def _anchor_consistent_mask(df: pd.DataFrame, ptype: str) -> pd.Series:
         return pd.Series(False, index=df.index)
     unit_man = pd.to_numeric(df["price"], errors="coerce") / pd.to_numeric(df["area"], errors="coerce").clip(lower=1.0)
     valid = ref_man.notna() & (ref_man >= 50.0)
-    upper_mult = 3.5 if ptype == "tochi" else 8.0
+    lot_lev = _resolve_lot_leverage(df, ptype)
+    upper_mult = 3.5 if ptype == "tochi" else 8.0 * lot_lev
     return valid & (unit_man >= ref_man * 0.25) & (unit_man <= ref_man * upper_mult)
 
 

@@ -185,6 +185,19 @@ class TestIssue1360ParserAndFeatureIntegrity:
             assert cached == pytest.approx((35.6412, 139.6001))
             assert mock_get.call_count == 1
 
+            # バッチジオコーディング＆手動シード検証
+            gsi_geocoder.seed_coordinate_cache({"東京都港区赤坂1-1": (35.6721, 139.7370)})
+            batch_res = gsi_geocoder.batch_geocode_addresses(
+                ["東京都港区赤坂1-1", "東京都世田谷区成城6-2-2"],
+                max_workers=2,
+                cache_path=cache_file,
+            )
+            assert batch_res == 1
+            assert gsi_geocoder.lookup_cached_coordinates("東京都港区赤坂1-1", cache_path=cache_file) == pytest.approx(
+                (35.6721, 139.7370)
+            )
+        gsi_geocoder.reset_geocode_cache()
+
 
 class TestIssue1360SpatialPointKnnAndGeoJson:
     def teardown_method(self):
@@ -604,3 +617,291 @@ class TestIssue1360HierarchicalOofAnchorResidualAndCleansing:
         mig.unapply(after_state, editor)
         assert "land_price_point_potential" not in existing
         assert editor.delete_model.call_count == 1
+
+    def test_gsi_dem_png_decode_and_terrain_horn_derivatives(self, tmp_path):
+        """国土地理院DEM PNGデコード（正・負標高・無効値）と3×3 Horn傾斜角・南向き度・窪地深・擁壁推論の検証"""
+        import struct
+        import zlib
+        from package.utils import gsi_geocoder
+        from package.utils.gsi_dem_terrain import (
+            DemTerrainFeatures,
+            batch_warm_dem_cache,
+            compute_terrain_from_grid,
+            decode_gsi_dem_png_bytes,
+            lookup_cached_dem_features,
+            reset_dem_cache,
+            seed_dem_cache_entry,
+        )
+
+        def _encode_rgb_png(rgb_grid: np.ndarray) -> bytes:
+            h, w, _ = rgb_grid.shape
+            raw_rows = b"".join(b"\x00" + rgb_grid[r].astype(np.uint8).tobytes() for r in range(h))
+
+            def _chunk(tag: bytes, payload: bytes) -> bytes:
+                crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
+                return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
+
+            ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+            return (
+                b"\x89PNG\r\n\x1a\n"
+                + _chunk(b"IHDR", ihdr)
+                + _chunk(b"IDAT", zlib.compress(raw_rows))
+                + _chunk(b"IEND", b"")
+            )
+
+        def _val_to_rgb(elev_m: float | None) -> tuple[int, int, int]:
+            if elev_m is None:
+                return (128, 0, 0)
+            v = round(elev_m * 100.0)
+            if v < 0:
+                v += 1 << 24
+            return ((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
+
+        rgb = np.zeros((4, 4, 3), dtype=np.uint8)
+        rgb[0, 0] = _val_to_rgb(41.08)
+        rgb[0, 1] = _val_to_rgb(-1.25)
+        rgb[0, 2] = _val_to_rgb(None)
+        decoded = decode_gsi_dem_png_bytes(_encode_rgb_png(rgb))
+        assert decoded[0, 0] == pytest.approx(41.08, abs=1e-2)
+        assert decoded[0, 1] == pytest.approx(-1.25, abs=1e-2)
+        assert np.isnan(decoded[0, 2])
+
+        # 南下がり斜面（北=行小が高く、南=行大が低い）＋中央が周囲より低い窪地検証
+        grid = np.zeros((16, 16), dtype=np.float64)
+        for r in range(16):
+            grid[r, :] = 30.0 - r * 2.0
+        south_slope = compute_terrain_from_grid(grid, px=5, py=5, lat=35.68, zoom=15)
+        assert south_slope is not None
+        assert south_slope.dem_elevation_m == pytest.approx(20.0, abs=0.1)
+        assert south_slope.dem_slope_deg > 10.0
+        assert south_slope.dem_south_aspect_score > 0.85
+
+        pit = np.full((16, 16), 25.0, dtype=np.float64)
+        pit[5, 5] = 22.0
+        pit_feats = compute_terrain_from_grid(pit, px=5, py=5, lat=35.68, zoom=15)
+        assert pit_feats is not None
+        assert pit_feats.dem_depression_depth_m == pytest.approx(3.0, abs=0.05)
+
+        cache_file = tmp_path / "dem_cache.json"
+        tile_grid = np.zeros((256, 256), dtype=np.float64)
+        for r in range(256):
+            tile_grid[r, :] = 80.0 - r * 0.5
+        try:
+            reset_dem_cache()
+            with patch("package.utils.gsi_dem_terrain._fetch_tile_array", return_value=tile_grid):
+                warmed = batch_warm_dem_cache([(35.6895, 139.6917)], max_workers=2, cache_path=cache_file)
+                assert warmed == 1
+                hit = lookup_cached_dem_features(35.6895, 139.6917, cache_path=cache_file)
+                assert hit.dem_slope_deg > 1.0
+
+            # 備考欄に記載がなくても急傾斜DEM座標（14度）から擁壁・造成リスクが自動補完されること
+            seed_dem_cache_entry(
+                35.4510,
+                139.6310,
+                DemTerrainFeatures(dem_elevation_m=42.0, dem_slope_deg=14.0, dem_south_aspect_score=-0.5, dem_depression_depth_m=0.0),
+                cache_path=cache_file,
+            )
+            gsi_geocoder.seed_coordinate_cache({"神奈川県横浜市西区紅葉ケ丘1-1": (35.4510, 139.6310)})
+            steep_prop = _DummyProp(
+                tochiMenseki=110.0,
+                address1="神奈川県",
+                address2="横浜市西区",
+                address="神奈川県横浜市西区紅葉ケ丘1-1",
+            )
+            f_steep = build_features(steep_prop, "tochi")
+            assert f_steep["dem_slope_deg"] == pytest.approx(14.0)
+            assert f_steep["retaining_wall_cost_man"] > 0.0
+        finally:
+            reset_dem_cache()
+            gsi_geocoder.reset_geocode_cache()
+
+    def test_mlit_transaction_parser_csv_and_hierarchy_lookup(self, tmp_path):
+        """国交省実成約レコード（JSON/CSV/ZIP）の正規化と丁目→市区町村→都道府県フォールバック検証"""
+        import gzip
+        import json
+        import zipfile
+        from package.utils.mlit_transaction_data import (
+            _decode_xit001_response,
+            build_benchmark_maps,
+            load_mlit_csv_or_zip_records,
+            lookup_transaction_benchmark,
+            parse_mlit_trade_record,
+            reset_transaction_benchmark_cache,
+            save_transaction_benchmarks,
+        )
+
+        rec_land = parse_mlit_trade_record({
+            "Type": "宅地(土地)",
+            "Prefecture": "東京都",
+            "Municipality": "世田谷区",
+            "DistrictName": "成城",
+            "TradePrice": "92000000",
+            "Area": "100",
+        })
+        assert rec_land is not None
+        assert rec_land[3] == "tochi"
+        assert rec_land[4] == pytest.approx(92.0)
+
+        rec_kodate = parse_mlit_trade_record({
+            "種類": "宅地(土地と建物)",
+            "都道府県名": "東京都",
+            "市区町村名": "世田谷区",
+            "地区名": "成城",
+            "取引価格（総額）": "78000000",
+            "延床面積（㎡）": "95",
+            "面積（㎡）": "110",
+        })
+        assert rec_kodate is not None
+        assert rec_kodate[3] == "kodate"
+        assert rec_kodate[4] == pytest.approx(7800.0 / 95.0, rel=1e-3)
+
+        # 農地・林地は除外されること
+        assert parse_mlit_trade_record({"Type": "農地", "Prefecture": "茨城県", "TradePrice": "1000000", "Area": "500"}) is None
+
+        # gzip レスポンス解凍
+        gz_payload = gzip.compress(json.dumps({"data": [{"Type": "宅地(土地)"}]}).encode("utf-8"))
+        decoded = _decode_xit001_response(gz_payload)
+        assert len(decoded) == 1
+
+        # CSV + ZIP 読込と階層バックオフ検証
+        csv_text = (
+            "種類,都道府県名,市区町村名,地区名,取引価格（総額）,面積（㎡）,延床面積（㎡）\n"
+            "宅地(土地),東京都,世田谷区,成城,90000000,100,\n"
+            "宅地(土地),東京都,世田谷区,成城,94000000,100,\n"
+            "宅地(土地),東京都,世田谷区,成城,88000000,100,\n"
+        )
+        zip_path = tmp_path / "mlit_sample.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("tokyo.csv", csv_text.encode("utf-8-sig"))
+        loaded = load_mlit_csv_or_zip_records(zip_path)
+        assert len(loaded) == 3
+
+        bench = build_benchmark_maps(
+            loaded,
+            asking_records=[("東京都", "世田谷区", "東京都世田谷区成城", "tochi", 100.0)],
+        )
+        cache_file = tmp_path / "tx_bench.json"
+        try:
+            reset_transaction_benchmark_cache()
+            save_transaction_benchmarks(bench, path=cache_file)
+            res = lookup_transaction_benchmark("東京都", "世田谷区", "東京都世田谷区成城", "tochi", path=cache_file)
+            assert res.tx_unit_price_man == pytest.approx(90.0, rel=1e-2)
+            assert res.asking_to_tx_spread_ratio == pytest.approx(100.0 / 90.0, rel=1e-2)
+            # 未知町丁目は同一市区町村へフォールバックすること
+            res_city = lookup_transaction_benchmark("東京都", "世田谷区", "東京都世田谷区未知町", "tochi", path=cache_file)
+            assert res_city.tx_unit_price_man == pytest.approx(90.0, rel=1e-2)
+        finally:
+            reset_transaction_benchmark_cache()
+
+    def test_kodate_and_apartment_land_component_transfer_and_oof_anchor_leverage(self):
+        """戸建て・アパートへの土地評価哲学の転用（広い敷地レバレッジ・OOFアンカー保持・古アパート土地出口価値）検証"""
+        from package.ml.dcf_valuation import evaluate_dcf_and_yields
+        from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
+        from package.ml.investment_evaluator import calculate_sekisan_price
+        from package.parser.baseParser import InvestmentParserBase, KodateParserBase
+
+        # KodateParserBase / InvestmentParserBase でも接道文字列から幅員と間口を厳密分離すること
+        assert KodateParserBase._extract_maguchi_decimal("南側 幅員4.0m 公道 接面9.2m") == Decimal("9.2")
+        assert InvestmentParserBase._extract_maguchi_decimal("東側 道路5.0m 間口12.4m") == Decimal("12.4")
+
+        # 同一エリア・同一延床90㎡・築28年でも、敷地180㎡の戸建ては敷地55㎡よりアンカー単価が大幅に高いこと
+        spacious_kodate = _DummyProp(
+            tatemonoMenseki=90.0,
+            tochiMenseki=180.0,
+            chikunen=28,
+            kouzou="木造",
+            maguchi=11.0,
+            roadWidth=6.0,
+            address1="東京都",
+            address2="世田谷区",
+            address="東京都世田谷区成城6-2-1",
+            station1="成城学園前",
+            railwayWalkMinute1=7,
+        )
+        compact_kodate = _DummyProp(
+            tatemonoMenseki=90.0,
+            tochiMenseki=55.0,
+            chikunen=28,
+            kouzou="木造",
+            maguchi=5.5,
+            roadWidth=4.0,
+            address1="東京都",
+            address2="世田谷区",
+            address="東京都世田谷区成城6-2-2",
+            station1="成城学園前",
+            railwayWalkMinute1=7,
+        )
+        with patch(
+            "package.ml.features.builder._query_micro_land_price_features",
+            return_value=(800000, 1.0),
+        ):
+            f_spacious = build_features(spacious_kodate, "kodate")
+            f_compact = build_features(compact_kodate, "kodate")
+
+        assert f_spacious["lot_to_building_ratio"] == pytest.approx(2.0)
+        assert f_compact["lot_to_building_ratio"] == pytest.approx(55.0 / 90.0, rel=1e-2)
+        assert f_spacious["net_land_component_man"] > f_compact["net_land_component_man"] * 2.5
+        assert f_spacious["land_value_share"] > 0.80
+        assert f_spacious["anchor_log_unit_price"] > f_compact["anchor_log_unit_price"] + 0.50
+
+        # OOF 丁目単価（log1p空間）ブレンド後も敷地倍率レバレッジ差が消滅せず維持されること
+        df_oof = pd.DataFrame([f_spacious, f_compact])
+        df_oof["chome_oof_unit_price"] = float(np.log1p(95.0))
+        refreshed = refresh_anchor_log_unit_price_column(df_oof, "kodate")
+        assert refreshed.iloc[0] > refreshed.iloc[1] + 0.35
+
+        # 築38年木造アパートでも DCF / 積算価格が micro_land_price と土地補正係数を反映すること
+        aged_apt = _DummyProp(
+            price=Decimal(85000000),
+            hyoumenRimawari=Decimal("6.5"),
+            tatemonoMenseki=Decimal("160.0"),
+            tochiMenseki=Decimal("220.0"),
+            kouzou="木造",
+            chikunen=38,
+            chikunengetsuStr="1988年4月",
+            maguchi=Decimal("12.0"),
+            roadWidth=Decimal("6.0"),
+            roadStructure="角地",
+            address1="東京都",
+            address2="目黒区",
+            address="東京都目黒区自由が丘2-1-1",
+            railwayWalkMinute1=6,
+        )
+        with patch(
+            "package.ml.dcf_valuation.query_micro_land_price_features",
+            return_value=(950000, 1.0),
+        ), patch(
+            "package.ml.features.reference_data.query_micro_land_price_features",
+            return_value=(950000, 1.0),
+        ), patch(
+            "package.ml.investment_evaluator.get_average_land_price",
+            return_value=400000,
+        ):
+            dcf_res = evaluate_dcf_and_yields(aged_apt, "apartment")
+            sekisan_man = calculate_sekisan_price(aged_apt, "東京都", "目黒区")
+        assert dcf_res.dcf_theoretical_price > 10_000
+        # 旧市区町村平均(40万/㎡×220㎡=8,800万)ではなく micro_land_price(95万/㎡=20,900万)ベースになること
+        assert sekisan_man > 18_000
+
+    def test_bulk_ml_evaluation_cli_forwards_workers_and_batch_size(self):
+        """run_bulk_ml_evaluation.py が --workers 16 --batch-size 100 を runner へ正確に転送することを検証"""
+        import scripts.ops.run_bulk_ml_evaluation as cli_mod
+
+        with patch.object(cli_mod, "run_bulk_evaluation") as mock_run, patch(
+            "sys.argv",
+            [
+                "run_bulk_ml_evaluation.py",
+                "--force",
+                "--no-skip-portals",
+                "--workers",
+                "16",
+                "--batch-size",
+                "100",
+            ],
+        ):
+            cli_mod.main()
+        _, kwargs = mock_run.call_args
+        assert kwargs["concurrency"] == 16
+        assert kwargs["batch_size"] == 100
+        assert kwargs["force"] is True
+        assert kwargs["skip_portals"] is False

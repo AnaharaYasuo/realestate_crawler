@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 国土交通省 地価公示（L01）・都道府県地価調査（L02）全国高速バルクインポート・同期モジュール
 (scripts/data_import/import_mlit_land_prices.py)
@@ -231,6 +230,59 @@ def _resolve_survey_fields(props: dict[str, Any], default_survey: str) -> dict[s
     }
 
 
+def _parse_positive_int_price(raw_price: Any) -> int | None:
+    try:
+        val = int(float(raw_price))
+    except (TypeError, ValueError):
+        return None
+    return val if val > 0 else None
+
+
+def _build_single_point_record(
+    idx: int,
+    feat: dict[str, Any],
+    default_survey: str,
+) -> dict[str, Any] | None:
+    props = feat.get("properties") or {}
+    lon, lat = _extract_lon_lat(feat.get("geometry"))
+    if lon is None or lat is None:
+        return None
+
+    parsed = _resolve_survey_fields(props, default_survey=default_survey)
+    land_price = _parse_positive_int_price(parsed["price"])
+    if land_price is None:
+        return None
+
+    pref, city = split_prefecture_and_city(parsed["addr"])
+    if not pref or not city:
+        return None
+
+    land_use = "residential" if "住" in parsed["use_code"] else "commercial"
+    chome_key = normalize_chome_key(pref, city, parsed["addr"])
+    survey = parsed["survey"]
+    base_code = parsed["raw_code"] or str(idx)
+    point_code = f"{survey}:{pref}:{city}:{base_code}:{lat:.5f}:{lon:.5f}"[:100]
+    return {
+        "point_code": point_code,
+        "survey_type": survey,
+        "prefecture": pref,
+        "city": city,
+        "chome_key": chome_key[:150],
+        "latitude": lat,
+        "longitude": lon,
+        "land_price": land_price,
+        "growth_rate": _parse_optional_decimal(parsed["growth"]),
+        "land_use": land_use,
+        "zone_name": parsed["zone_name"][:100],
+        "road_width": parsed["road_width"],
+        "station_name": parsed["station_name"][:100],
+        "station_distance_m": parsed["station_distance_m"],
+        "has_gas": parsed["has_gas"],
+        "has_water": parsed["has_water"],
+        "has_sewer": parsed["has_sewer"],
+    }
+
+
 def extract_point_records_from_geojson_features(
     features: list[dict[str, Any]],
     default_survey: str = "L01",
@@ -240,52 +292,11 @@ def extract_point_records_from_geojson_features(
     seen_codes: set[str] = set()
 
     for idx, feat in enumerate(features):
-        props = feat.get("properties") or {}
-        lon, lat = _extract_lon_lat(feat.get("geometry"))
-        if lon is None or lat is None:
+        rec = _build_single_point_record(idx, feat, default_survey)
+        if rec is None or rec["point_code"] in seen_codes:
             continue
-
-        parsed = _resolve_survey_fields(props, default_survey=default_survey)
-        raw_price = parsed["price"]
-        try:
-            land_price = int(float(raw_price))
-        except (TypeError, ValueError):
-            continue
-        if land_price <= 0:
-            continue
-
-        pref, city = split_prefecture_and_city(parsed["addr"])
-        if not pref or not city:
-            continue
-
-        land_use = "residential" if "住" in parsed["use_code"] else "commercial"
-        chome_key = normalize_chome_key(pref, city, parsed["addr"])
-        survey = parsed["survey"]
-        base_code = parsed["raw_code"] or str(idx)
-        point_code = f"{survey}:{pref}:{city}:{base_code}:{lat:.5f}:{lon:.5f}"[:100]
-        if point_code in seen_codes:
-            continue
-        seen_codes.add(point_code)
-
-        point_records.append({
-            "point_code": point_code,
-            "survey_type": survey,
-            "prefecture": pref,
-            "city": city,
-            "chome_key": chome_key[:150],
-            "latitude": lat,
-            "longitude": lon,
-            "land_price": land_price,
-            "growth_rate": _parse_optional_decimal(parsed["growth"]),
-            "land_use": land_use,
-            "zone_name": parsed["zone_name"][:100],
-            "road_width": parsed["road_width"],
-            "station_name": parsed["station_name"][:100],
-            "station_distance_m": parsed["station_distance_m"],
-            "has_gas": parsed["has_gas"],
-            "has_water": parsed["has_water"],
-            "has_sewer": parsed["has_sewer"],
-        })
+        seen_codes.add(rec["point_code"])
+        point_records.append(rec)
 
     return point_records
 

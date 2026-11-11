@@ -73,3 +73,9 @@ terraform.tfvars
 .worktrees/
 worktrees/
 tmp_rag_out/
+
+# Local open-data caches (GSI geocode / DEM terrain / MLIT transaction benchmarks)
+src/crawler/data/gsi_geocode_cache.json
+src/crawler/data/gsi_dem_terrain_cache.json
+src/crawler/data/mlit_transaction_benchmarks.json
+src/crawler/data/mlit_csv/

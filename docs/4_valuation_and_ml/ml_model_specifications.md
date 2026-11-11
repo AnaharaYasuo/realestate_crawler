@@ -652,12 +652,16 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 1. **地点別地価マスタの新設（Migration `0071_add_land_price_point_potential.py`）**:
    - 国土数値情報の地価公示（L01）および都道府県地価調査（L02）の全調査地点について、座標を破棄せず `land_price_point_potential` テーブルへ保持する。
    - 保持属性: `point_code`（一意識別子）、`survey_type`（`L01`/`L02`）、`prefecture`、`city`、`chome_key`（正規化町丁目キー）、`latitude`、`longitude`、`land_price`（円/㎡）、`growth_rate`（%）、`land_use`（`residential`/`commercial`）、`zone_name`、`road_width`（m）、`station_name`、`station_distance_m`（m）、`has_gas`、`has_water`、`has_sewer`。
-2. **国土地理院（GSI）無料ジオコーダ＆インメモリ空間KNN/IDW補間（`query_micro_land_price_features`）**:
-   - 物件の緯度経度（または正規化町丁目 `chome_key` 一致地点の重心・駅座標）を用い、同一用途区分の近傍標準地（最大 $k=5$ 地点）から Haversine 距離減衰重み $w_k = 1 / (d_k + 0.15\text{km})^2$ による逆距離加重（IDW）補間単価を算出する（地点マスタ未ロード時は市区町村基準地価へ安全にフォールバック）。
-   - 全物件種別へ以下のミクロ空間特徴量を供給する：
-     - `micro_land_price`: 町丁目一致＋空間KNN逆距離加重によるミクロ基準地価（円/㎡）
-     - `micro_to_muni_land_ratio`: 市区町村平均地価に対するミクロ立地倍率（$\text{micro\_land\_price} / \max(1, \text{average\_land\_price})$）
-     - `chome_infra_score`: 該当町丁目・周辺標準地における都市ガス・上下水道整備スコア（0.0〜1.0）
+2. **国土地理院（GSI）無料ジオコーダ・5m/10m標高DEMタイル・インメモリ空間KNN/IDW補間（`query_micro_land_price_features`, `gsi_dem_terrain.py`）**:
+   - `sync_mlit_open_geo_and_transactions.py` により、DB内の全ユニーク町丁目・住所を国土地理院 `AddressSearch` API で事前バッチ座標解決（`gsi_geocode_cache.json`）し、未ヒット時も `LandPricePointPotential` の町丁目重心座標へフォールバックする。
+   - 物件の緯度経度を用い、同一用途区分の近傍標準地（最大 $k=5$ 地点）から Haversine 距離減衰重み $w_k = 1 / (d_k + 0.15\text{km})^2$ による逆距離加重（IDW）補間単価（`micro_land_price`, `micro_to_muni_land_ratio`, `chome_infra_score`）を算出する。
+   - さらに APIキー不要の国土地理院 標高タイル（`dem5a_png` ズーム15［5m航空レーザ測量］およびフォールバック `dem_png` ズーム14［10m］、RGB 0.01m単位公式仕様）をタイル単位で一括取得・キャッシュ（`gsi_dem_terrain_cache.json`）し、対象座標と周囲8近傍の標高から以下の微地形特徴量を全物件へ付与する：
+     - `dem_elevation_m`: 現地標高（m）
+     - `dem_slope_deg`: Horn法 3×3 差分による敷地傾斜角（度）。HTMLに「傾斜地」記載がなくても急傾斜（10度以上）を検知し、造成・擁壁コスト推定（`retaining_wall_cost_man`）へ連動させる。
+     - `dem_south_aspect_score`: 南北傾斜方位スコア（$-1.0\sim +1.0$、正値は南ひな段の日照プレミアム、負値は北下がり斜面減価）
+     - `dem_depression_depth_m`: 周囲8近傍平均標高に対する局所窪地深さ（m、正値はすり鉢状低地・排水リスク、負値は微高地）
+3. **国交省 不動産情報ライブラリ実成約データ（`XIT001` / 公式CSV）＆ 掲載終了成約スプレッド統合（`mlit_transaction_data.py`）**:
+   - 旧 `webland` API 廃止に対応し、不動産情報ライブラリ `XIT001` gzip API（`REINFOLIB_API_KEY` 設定時）および公式ダウンロード CSV/ZIP（APIキー不要）の取込、ならびに公的L01/L02正常取引価格と自社DB内の掲載終了物件（`is_published=False` 最終価格）×現在売出価格の比較から、町丁目・市区町村×物件種別ごとの実成約基準単価（`mlit_tx_unit_price_man`、万円/㎡）および売出上乗せ乖離率（`asking_to_tx_spread_ratio`）を算出し全4種別へ供給する。
 
 ### 14.3 階層型 Empirical-Bayes OOF Target Encoding の学習・永続化・推論統合 (`MicroLocationTargetEncoder`)
 - `package/ml/training/target_encoding.py` にて、`GroupKFold` 分割および時間減衰サンプル重み（`sample_weight`）を厳守したリークゼロの階層型 Empirical-Bayes 縮小推定エンコーダを実装する：
@@ -666,8 +670,8 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 - 学習完了時に全学習データでフィットしたエンコーダ辞書を `location_encoders.joblib` として保存し、`ModelRegistry` および `predictor.py` が推論時に自動適用する。
 
 ### 14.4 パーサー間口抽出修正・目的変数分母保護・非課金テキスト固定費構造化
-1. **間口（`maguchi`）と前面道路幅員（`road_width`）の混同根絶 ＆ 欠損フラグ導入**:
-   - `TochiParserBase._extract_maguchi_decimal` および `appraisal._fallback_road_dimensions` において、「北側 幅員4.0m 公道 接面8.5m」のような接道文字列から先頭の幅員数値を間口として誤抽出する不具合を修正し、`間口`・`接面`・`接道長` 明示キーワードを優先抽出する。
+1. **間口（`maguchi`）と前面道路幅員（`road_width`）の混同根絶 ＆ 欠損フラグ導入（全種別共通化）**:
+   - `ParserBase._extract_maguchi_decimal`、`ParserBase.get_douro_haba` および `appraisal._fallback_road_dimensions` において、「北側 幅員4.0m 公道 接面8.5m」や「南側 接面8.5m 公道 幅員4.0m」のような接道文字列から幅員と間口を取り違える不具合を修正し、`TochiParserBase`・`KodateParserBase`・`InvestmentParserBase` の全種別基底パーサーで共有する。
    - 実測値が存在せず標準値（間口6.0m・幅員4.0m）で補完したことを示す明示フラグ `is_maguchi_missing`, `is_road_width_missing` を `tochi`, `kodate`, `apartment` に追加する。
 2. **公簿/契約面積（`area`）と有効敷地面積（`effective_tochi_menseki`）の分離**:
    - 土地（`tochi`）の目的変数 $y = \log(1 + \text{price} / \text{area})$ の分母 `area` にはセットバック控除前の公簿・実測土地面積（`tochiMenseki`）を一貫保持し、セットバック控除後の建築有効面積は `effective_tochi_menseki` として独立供給することで、学習・推論間の分母変動ノイズを排除する。
@@ -689,9 +693,24 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
    - ミクロ基準地価・取引事例単価・固定費控除単価（`fixed_cost_per_sqm`）・権利/調整区域補正を統合したネット基準対数単価 `anchor_log_unit_price` を算出。
    - 各ベースモデル（LightGBM / XGBoost / CatBoost / RandomForest）を `AnchorResidualEstimator` でラップし、学習時は個別格差残差 $r_i = y_i - a_i$ をフィット、推論時は $\hat{y}_i = \max(0, a_i + \hat{r}_i)$ を返すことで、既存のアンサンブル重み最適化・Duan's Smearing・$P_{10}$ お宝スコア算出と100%互換を保ったまま地域水準暗記負荷を解消する。
 3. **基準単価比（Anchor-Ratio）クレンジング (`clean_training_data`)**:
-   - 全国一律の `price`/`area` IQR除外で都心高額物件が誤除外されたり地方の異常売出値・持分売買が残存する問題に対し、`is_special_sale_share` の除外およびエリア基準単価比（$\text{unit\_price} / u_{\text{anchor}}$）の極端な外れ値フィルタを導入する。
+   - 全国一律の `price`/`area` IQR除外で都心高額物件が誤除外されたり地方の異常売出値・持分売買が残存する問題に対し、`is_special_sale_share` の除外およびエリア基準単価比（$\text{unit\_price} / u_{\text{anchor}}$、戸建て・一棟アパートは敷地レバレッジ比 $\max(1.0, \text{tochi\_menseki} / \text{area})$ を考慮）の極端な外れ値フィルタを導入する。
 
+### 14.6 土地構成要素を有する物件種別（戸建て・一棟アパート・区分マンション敷地権）への土地物理査定転用仕様
+土地（`tochi`）で確立した空間KNNミクロ地価・接道/間口/形状/権利/調整区域減価・非比例固定費控除（解体・インフラ・擁壁）の物理査定思想を、土地が構成要素となる全物件種別（`kodate`, `apartment`, および `mansion` の敷地権持分）へ一貫転用する。
 
-
-
+1. **全評価モジュールへのミクロ空間地価（`micro_land_price`）統一配線**:
+   - `builder.py` の原価法・取引事例比較法・収益還元法・残余法・地域感応度計算、`dcf_valuation.py` の10年後出口土地残存価値（`_calc_land_residual_man`）、および `investment_evaluator.py` の積算価格（`calculate_sekisan_price`）のすべてにおいて、従来の市区町村平均地価ではなく `LandPricePointPotential`（L01+L02空間KNN/町丁目補間）による `micro_land_price` を一貫適用する。
+2. **土地構成要素の分解特徴量（全種別統合）**:
+   - 戸建て・一棟アパートの目的変数は延床面積（`area = tatemono_area`）あたりの対数単価であるため、同一町丁目・同一建物面積であっても敷地広狭（`effective_tochi_menseki / area`）により建物㎡あたりの土地価値寄与が数倍変動する。これを直接表現するため以下の特徴量を算出・配線する：
+     - `lot_to_building_ratio`: 建物面積に対する有効敷地面積比率（$\text{effective\_tochi\_menseki} / \max(1, \text{area})$）
+     - `net_land_component_man`: 規模格差・間口・前面道路・敷地形状・権利割合・再建築不可（既存建物既得権考慮）・市街化調整区域の各補正を乗じ、インフラ引込費・擁壁造成費・耐用年数満了時の解体費負担を控除した正味物理土地価値（万円）
+     - `bldg_component_man`: 構造別再調達原価×経年減価後の建物純価値（万円）
+     - `net_land_per_sqm`: 目的変数分母（`area`）1㎡あたりの正味土地価値（$\text{net\_land\_component\_man} / \max(1, \text{area})$、万円/㎡）
+     - `land_value_share`: 物理総額に占める土地価値比率（$\text{net\_land\_component\_man} / \max(1, \text{net\_land\_component\_man} + \text{bldg\_component\_man})$）
+3. **戸建て・一棟アパート向け物理土地＋建物・DCFハイブリッドアンカー ＆ 敷地レバレッジ連動OOFブレンド**:
+   - **戸建て（`kodate`）**: 正味物理土地価値 `net_land_component_man` ＋ 経年減価建物価値 `bldg_component_man`（法的瑕疵がない場合は取引事例比較価格を20%ブレンド）を延床面積で除した理論単価をアンカーとし、耐用年数超過の築古戸建てが「古家付土地」と連続的に一致する物理整合性を保証する。
+   - **一棟アパート（`apartment`）**: 築浅時は10年DCF/収益還元価値を主軸（65%）としつつ、経年劣化（`building_depreciation_ratio` 低下）に伴い正味物理土地＋建物価値（出口土地値）への重みを最大80%まで連続シフトさせ、かつ正味土地清算価値（`0.92 * net_land_component_man`）を下限フロアとする。
+   - **敷地レバレッジ・個別減価を保存する町丁目OOFブレンド**: `refresh_anchor_log_unit_price_column` で `chome_oof_unit_price` をブレンドする際、町丁目平均単価をそのまま混合して個別物件の敷地広狭（`lot_to_building_ratio`）や再建築不可・固定費控除を希釈させないよう、`land_value_share` に応じて敷地レバレッジ倍率・物理減価率・固定費控除単価で町丁目OOF単価を個別補正した上でブレンドする。
+4. **バルク価格推定バッチの並列数・書き込みバッチサイズ制御（`run_bulk_ml_evaluation.py`）**:
+   - CLI引数 `--workers`（別名 `--concurrency`）および `--batch-size` により、並列ワーカースレッド数（例: 16並列）および `PropertyEvaluation` の一括DB更新バッチサイズ（例: 100件単位）を明示指定可能とする。
 

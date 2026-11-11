@@ -572,8 +572,8 @@ def _get_land_price_stats(address1: str, address2: str, land_use: str, pref_cach
         growth = float(lp.land_price_growth_rate) if lp.land_price_growth_rate is not None else None
         return lp.average_land_price, lp.estimated_rosenka_price, lp.estimated_fixed_asset_price, growth
 
-    # 郡部・町・村の場合は、政令指定都市などの高額地価を含む県平均へ安易にフォールバックさせず、全国町村基準地価へフォールバックさせるため None を返す
-    if _is_rural_district(address2):
+    # 郡部・町・村または東京都23区（区固有基準値あり）の場合は、県平均へ安易に縮小させず地区基準値へフォールバックさせる
+    if _is_rural_district(address2) or _match_tokyo_district_price(address1, address2) is not None:
         return None, None, None, None
 
     pref_list = pref_cache.get(address1, [])
@@ -1251,4 +1251,22 @@ def query_micro_land_price_features(
     return int(max(1000, fallback_muni_price)), default_infra
 
 
+def query_hierarchy_centroid(
+    prefecture: str,
+    city: str,
+    chome_group: str,
+    station_name: str = "",
+) -> tuple[float | None, float | None]:
+    """町丁目 ➔ 町名 ➔ 最寄駅 ➔ 市区町村の公的地点座標重心 `(lat, lon)` を O(1) で返す。"""
+    _init_global_caches()
+    pts = _resolve_hierarchy_points((prefecture or "").strip(), (city or "").strip(), chome_group or "", station_name)
+    if not pts:
+        return None, None
+    return (
+        sum(r.latitude for r in pts) / len(pts),
+        sum(r.longitude for r in pts) / len(pts),
+    )
+
+
 _query_micro_land_price_features = query_micro_land_price_features
+_query_hierarchy_centroid = query_hierarchy_centroid

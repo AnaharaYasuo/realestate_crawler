@@ -661,6 +661,15 @@ class ParserBase(metaclass=ABCMeta):
                     return num
         return ""
 
+    _EXPLICIT_ROAD_WIDTH_RE = re.compile(
+        r"(?:幅員|道路幅?)[\s:：約]{0,10}(\d{1,4}(?:\.\d{1,3})?)\s{0,5}[mｍ]"
+    )
+    _EXPLICIT_MAGUCHI_RE = re.compile(
+        r"(?:間口|接面|接道長)[\s:：約]{0,10}(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]"
+    )
+    _BARE_METER_RE = re.compile(r"(?:約\s{0,5})?(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]")
+    _ROAD_WIDTH_PREFIX_RE = re.compile(r"(?:幅員|道路幅?)[\s:：約]{0,10}\d")
+
     def get_douro_haba(self, response: BeautifulSoup) -> str:
         """道路幅員の抽出"""
         specs = self._get_specs(response)
@@ -671,9 +680,55 @@ class ParserBase(metaclass=ABCMeta):
                 return num or val
         setsudou = self.get_setsudou(response)
         if setsudou:
+            explicit = self._EXPLICIT_ROAD_WIDTH_RE.search(setsudou)
+            if explicit:
+                return explicit.group(1)
             clean = setsudou.replace(" ", "").replace("　", "")
             return self._extract_number_before_unit(clean, ("m", "ｍ"))
         return ""
+
+    @classmethod
+    def _extract_maguchi_decimal(
+        cls, val: str, *, allow_bare_meter: bool = True
+    ) -> Decimal | None:
+        if not val:
+            return None
+        explicit = cls._EXPLICIT_MAGUCHI_RE.search(val)
+        if explicit:
+            try:
+                return Decimal(explicit.group(1))
+            except Exception:
+                return None
+        if not allow_bare_meter or cls._ROAD_WIDTH_PREFIX_RE.search(val):
+            return None
+        bare = cls._BARE_METER_RE.search(val)
+        if bare:
+            try:
+                return Decimal(bare.group(1))
+            except Exception:
+                return None
+        return None
+
+    def _resolve_maguchi_candidate(self, response: BeautifulSoup) -> tuple[str, bool]:
+        specs = self._get_specs(response)
+        direct_val = specs.get("間口", "") or specs.get("接面", "")
+        if direct_val:
+            return direct_val, True
+        setsudou_val = specs.get("接道状況", "") or specs.get("接道", "")
+        if setsudou_val:
+            return setsudou_val, False
+        if not response:
+            return "", False
+        for label, allow_bare in (("間口", True), ("接面", True), ("接道状況", False), ("接道", False)):
+            tag = self._getValueByLabel(response, label)
+            if tag:
+                txt = tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
+                return txt, allow_bare
+        return "", False
+
+    def get_maguchi(self, response: BeautifulSoup) -> Decimal | None:
+        val, allow_bare = self._resolve_maguchi_candidate(response)
+        return self._extract_maguchi_decimal(val, allow_bare_meter=allow_bare)
 
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
         """引渡時期の抽出"""
@@ -2817,55 +2872,6 @@ class TochiParserBase(ParserBase):
         specs = self._get_specs(response)
         return specs.get("用途地域", "")
 
-    _EXPLICIT_MAGUCHI_RE = re.compile(
-        r"(?:間口|接面|接道長)[\s:：約]{0,10}(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]"
-    )
-    _BARE_METER_RE = re.compile(r"(?:約\s{0,5})?(\d{1,5}(?:\.\d{1,3})?)\s{0,5}[mｍ]")
-    _ROAD_WIDTH_PREFIX_RE = re.compile(r"(?:幅員|道路幅?)[\s:：約]{0,10}\d")
-
-    @classmethod
-    def _extract_maguchi_decimal(
-        cls, val: str, *, allow_bare_meter: bool = True
-    ) -> Decimal | None:
-        if not val:
-            return None
-        explicit = cls._EXPLICIT_MAGUCHI_RE.search(val)
-        if explicit:
-            try:
-                return Decimal(explicit.group(1))
-            except Exception:
-                return None
-        if not allow_bare_meter or cls._ROAD_WIDTH_PREFIX_RE.search(val):
-            return None
-        bare = cls._BARE_METER_RE.search(val)
-        if bare:
-            try:
-                return Decimal(bare.group(1))
-            except Exception:
-                return None
-        return None
-
-    def _resolve_maguchi_candidate(self, response: BeautifulSoup) -> tuple[str, bool]:
-        specs = self._get_specs(response)
-        direct_val = specs.get("間口", "") or specs.get("接面", "")
-        if direct_val:
-            return direct_val, True
-        setsudou_val = specs.get("接道状況", "") or specs.get("接道", "")
-        if setsudou_val:
-            return setsudou_val, False
-        if not response:
-            return "", False
-        for label, allow_bare in (("間口", True), ("接面", True), ("接道状況", False), ("接道", False)):
-            tag = self._getValueByLabel(response, label)
-            if tag:
-                txt = tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
-                return txt, allow_bare
-        return "", False
-
-    def get_maguchi(self, response: BeautifulSoup) -> Decimal | None:
-        val, allow_bare = self._resolve_maguchi_candidate(response)
-        return self._extract_maguchi_decimal(val, allow_bare_meter=allow_bare)
-
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
         return (
@@ -2951,7 +2957,7 @@ class InvestmentParserBase(ParserBase):
             m = DECIMAL_REGEX.search(val)
             if m:
                 parsed = Decimal(m.group(1))
-                return parsed if Decimal(0) <= parsed < Decimal("1000") else None
+                return parsed if Decimal(0) <= parsed < Decimal(1000) else None
         return None
 
     def get_annual_rent_str(self, response: BeautifulSoup) -> str:

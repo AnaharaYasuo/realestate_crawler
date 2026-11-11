@@ -8,6 +8,8 @@ import json
 import logging
 import threading
 import unicodedata
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -113,3 +115,64 @@ def geocode_address_gsi(
             _persist_cache_file(target_path)
 
     return coords
+
+
+def seed_coordinate_cache(
+    entries: dict[str, tuple[float, float]],
+    *,
+    persist: bool = True,
+    cache_path: Path | None = None,
+) -> int:
+    """公的地点地価（L01/L02）等の既知座標でジオコーダキャッシュを事前シードする。"""
+    target_path = cache_path or _DEFAULT_CACHE_PATH
+    _load_disk_cache(target_path)
+    added = 0
+    with _CACHE_LOCK:
+        for raw_addr, coords in entries.items():
+            key = normalize_geocode_query(raw_addr)
+            if key and key not in _MEMORY_CACHE and coords is not None:
+                _MEMORY_CACHE[key] = (float(coords[0]), float(coords[1]))
+                added += 1
+        if persist and added > 0:
+            _persist_cache_file(target_path)
+    return added
+
+
+def batch_geocode_addresses(
+    addresses: Iterable[str],
+    *,
+    max_workers: int = 8,
+    timeout: float = 5.0,
+    cache_path: Path | None = None,
+) -> int:
+    """未キャッシュ住所群を並列で国土地理院API解決し、完了時に1回だけJSONへ永続化する。"""
+    target_path = cache_path or _DEFAULT_CACHE_PATH
+    _load_disk_cache(target_path)
+    pending = sorted({normalize_geocode_query(a) for a in addresses if a})
+    missing = [k for k in pending if k not in _MEMORY_CACHE]
+    if not missing:
+        return 0
+
+    resolved_count = 0
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+        fut_map = {pool.submit(_fetch_gsi_coordinates, key, timeout): key for key in missing}
+        for fut in as_completed(fut_map):
+            key = fut_map[fut]
+            coords = fut.result()
+            with _CACHE_LOCK:
+                _MEMORY_CACHE[key] = coords
+            if coords is not None:
+                resolved_count += 1
+
+    with _CACHE_LOCK:
+        _persist_cache_file(target_path)
+    return resolved_count
+
+
+def reset_geocode_cache() -> None:
+    """テスト用: メモリ上のジオコーダキャッシュをクリアする。"""
+    global _DISK_LOADED
+    with _CACHE_LOCK:
+        _MEMORY_CACHE.clear()
+        _DISK_LOADED = False
+
