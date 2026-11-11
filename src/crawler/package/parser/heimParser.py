@@ -37,11 +37,11 @@ class HeimParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
     def getRootDestUrl(self, link_url):
