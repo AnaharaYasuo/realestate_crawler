@@ -41,7 +41,7 @@ jobs:
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add docs/api/openapi.yaml
-            git commit -m "chore(docs): auto-generate Swagger OpenAPI spec [skip ci]"
+            git commit -m "chore(docs): auto-generate Swagger OpenAPI spec"
             git push
             echo "Swagger specification automatically generated and pushed."
           else
