@@ -22,8 +22,10 @@ from pathlib import Path
 
 import numpy as np
 import requests
+from package.utils.open_data_cache_sync import ensure_local_cache_from_storage
 
 logger = logging.getLogger(__name__)
+MLIT_TX_BENCH_FILENAME = "mlit_transaction_benchmarks.json"
 
 REINFOLIB_XIT001_URL = "https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001"
 _DEFAULT_BENCH_PATH = Path(__file__).resolve().parents[2] / "data" / "mlit_transaction_benchmarks.json"
@@ -271,7 +273,7 @@ def _populate_bench_dict(src: object, dst: dict[str, tuple[float, float, int]]) 
 
 
 def load_transaction_benchmarks(path: Path | None = None, *, force_reload: bool = False) -> None:
-    """JSONファイルから実成約ベンチマーク辞書をメモリへロードする。"""
+    """JSONファイル（未配置時はGCS `ml_reference_data/` から自動取得）より実成約ベンチマーク辞書をロードする。"""
     global _LOADED
     if _LOADED and not force_reload:
         return
@@ -279,6 +281,7 @@ def load_transaction_benchmarks(path: Path | None = None, *, force_reload: bool 
     with _LOCK:
         if _LOADED and not force_reload:
             return
+        ensure_local_cache_from_storage(target, MLIT_TX_BENCH_FILENAME)
         if target.exists():
             try:
                 raw = json.loads(target.read_text(encoding="utf-8"))

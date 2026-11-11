@@ -2194,6 +2194,24 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.info(f"Hit limit {limit}. Exiting...")
                 os._exit(0)
 
+    @staticmethod
+    def _compute_inline_dcf_defaults(item, property_type: str, interior_score: float = 3.0, layout_score: float = 3.0) -> dict:
+        try:
+            from package.ml.dcf_valuation import evaluate_dcf_and_yields
+
+            dcf_res = evaluate_dcf_and_yields(
+                item, property_type, interior_score=interior_score, layout_score=layout_score
+            )
+            return {
+                "expected_gross_yield": dcf_res.expected_gross_yield,
+                "expected_net_yield": dcf_res.expected_net_yield,
+                "estimated_annual_rent": dcf_res.estimated_annual_rent,
+                "dcf_theoretical_price": dcf_res.dcf_theoretical_price,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Inline DCF calculation skipped for %s: %s", getattr(item, "pageUrl", ""), exc)
+            return {}
+
     async def _run_stage1_eval(self, item, company, property_type, asking_price, property_eval_cls, predict_first_stage):
         price_stage1 = await sync_to_async(predict_first_stage)(item)
         is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
@@ -2203,6 +2221,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             chidai_val = parse_chidai(item.chidaiStr)
         monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
         liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+        dcf_defaults = await sync_to_async(self._compute_inline_dcf_defaults)(item, property_type)
 
         eval_record, _ = await sync_to_async(property_eval_cls.objects.update_or_create)(
             property_url=item.pageUrl,
@@ -2214,7 +2233,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 "is_first_stage_passed": is_passed,
                 "analysis_status": "pending",
                 "monthly_land_rent": monthly_rent,
-                "land_rent_liability": liability
+                "land_rent_liability": liability,
+                **dcf_defaults,
             }
         )
         return eval_record, price_stage1, is_passed
@@ -2406,6 +2426,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         eval_record.maintenance_comment = analysis_res['maintenance_comment']
         eval_record.analysis_status = "completed"
         eval_record.analyzed_at = timezone.now()
+
+        dcf_stage2 = await sync_to_async(self._compute_inline_dcf_defaults)(
+            item, property_type, float(interior_score or 3.0), float(layout_score or 3.0)
+        )
+        for field_name, field_val in dcf_stage2.items():
+            setattr(eval_record, field_name, field_val)
 
         if PropertyTypeDetector.is_investment(property_type):
             from package.ml.investment_evaluator import evaluate_investment_property

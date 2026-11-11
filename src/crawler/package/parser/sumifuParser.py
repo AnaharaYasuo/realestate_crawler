@@ -236,36 +236,37 @@ class SumifuParser(ParserBase):
             return ""
 
     def _parseDouroText(self, text):
-        # Example: "東4m(公道)接面5.1m" or "一方道路・南西17.2m(公道)接面2m"
+        # Example: "東4m(公道)接面5.1m" or "南側 接面8.5m(公道) 幅員4.0m"
         result = {}
         if not text: return result
         
-        # Direction
         muki_match = re.search(r'([東西南北]{1,2})', text)
         if muki_match:
             result['douroMuki'] = muki_match.group(1)
         
-        # Width
-        haba_match = re.search(r'(\d{1,5}(?:\.\d{1,3})?)m', text)
+        setsumen_pat = r'(?:接面|間口|接道長)[\s:：約]{0,6}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]'
+        setsumen_match = re.search(setsumen_pat, text)
+        if setsumen_match:
+            try: result['setsumen'] = Decimal(setsumen_match.group(1))
+            except Exception: pass
+
+        haba_match = re.search(
+            r'(?:幅員|道路幅?|公道|私道)[\s:：約]{0,6}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]',
+            text,
+        )
+        if not haba_match:
+            cleaned = re.sub(setsumen_pat, '', text)
+            haba_match = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ]', cleaned)
         if haba_match:
             try: result['douroHaba'] = Decimal(haba_match.group(1))
             except Exception: pass
         
-        # Type (Public/Private)
         if "公道" in text:
             result['douroKubun'] = "公道"
         elif "私道" in text:
             result['douroKubun'] = "私道"
         
-        # Road name/info
         result['douro'] = text
-        
-        # Setsumen
-        setsumen_match = re.search(r'接面(\d+(\.\d+)?)m', text)
-        if setsumen_match:
-            try: result['setsumen'] = Decimal(setsumen_match.group(1))
-            except Exception: pass
-            
         return result
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
@@ -617,7 +618,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
                 links = response.select(fallback_selector)
 
         for link in links:
-            href = link.get("href")
+            raw_href = link.get("href")
+            href = raw_href if isinstance(raw_href, str) else ""
             if not href or not self._href_matches_property_type(href):
                 continue
             joined_url = urllib.parse.urljoin(self.BASE_URL, href)
@@ -1049,14 +1051,6 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseFloor(self, response, specs=None) -> str:
         target_specs = specs or self._get_specs(response)
         return target_specs.get("階数", "") or target_specs.get("所在階", "") or super()._parseFloor(response, target_specs)
-
-    def _parseSouKosu(self, response, specs=None):
-        target_specs = specs or self._get_specs(response)
-        val = target_specs.get("総戸数", "")
-        if val:
-            m = DIGIT_REGEX.search(val)
-            return int(m.group(1)) if m else None
-        return super()._parseSouKosu(response, target_specs)
 
     def _parseManagementFee(self, response, specs=None):
         target_specs = specs or self._get_specs(response)

@@ -178,17 +178,44 @@ OOF深層残差分析により判明した大面積帯（268㎡超）の単価�
 
 ---
 
-## 4. 外部基礎データ一括同期・非破壊洗い替え仕様 (External Data Sync Runner)
+## 4. 外部基礎データ全14種の一括同期・定期更新・GCS永続化・新規クロール反映仕様 (Issue #1360, #1366)
 
-### 4.1 概要と実行スクリプト
-[scripts/sync_all_potentials.py](file:///c:/Users/weare/Documents/realestate_crawler/src/crawler/scripts/sync_all_potentials.py) により、以下の3つの公的・外部基礎データを1コマンド（または定期cronバッチ）で一括同期・洗い替え（Upsert）します。
+### 4.1 概要と一括同期オーケストレータ
+[`scripts/sync_all_potentials.py`](../../src/crawler/scripts/sync_all_potentials.py) および日次バッチ [`scripts/ops/run_ml_pipeline.py`](../../src/crawler/scripts/ops/run_ml_pipeline.py)（Cloud Scheduler `realestate-ml-pipeline-daily-prod`: **毎日 05:10 JST** 起動）により、本システムが参照する**全14種の外部公的データ・市場マスタ・空間キャッシュ**を API キー課金ゼロ（AI不使用）で定期同期・非破壊洗い替え（Upsert）します。
 
-1. **e-Stat 市区町村別統計 (`sync_estat_municipalities.py`)**: 総務省API連携による人口増加率・1人あたり平均所得の同期。
-2. **国土交通省 駅別乗降人員 (`import_mlit_stations.py`)**: 国土数値情報による全国駅の乗降人員マスタ更新。
-3. **国土交通省 地価公示・地価調査 (`import_mlit_land_prices.py`)**: 市区町村別・用途区分（住宅地/商業地）別の平均平米単価更新。
+### 4.2 全14種の外部・参照データ一覧と定期更新スケジュール（SSOT）
 
-### 4.2 非破壊性の担保（自然キー動的結合）
-マスタデータが定期洗い替え（削除・再作成・更新）された場合でも、既存の物件データ（各社モデルレコード）や過去の査定データ（`PropertyEvaluation`）との結合関係が壊れないよう、DB物理外部キー（ForeignKey）によるID結合を廃止し、**自然キー（都道府県名・市区町村名・駅名・路線名の文字列）による動的結合（Dynamic Natural Key Join）** を採用しています。
+| # | データ名称 | 保存先 (DB テーブル / GCS キー) | 同期スクリプト | 原典公表周期 | 自動更新スケジュール / 鮮度TTL (`--respect-ttl`) |
+| :---: | :--- | :--- | :--- | :---: | :--- |
+| **1** | **総務省 e-Stat 人口・世帯・課税所得** | `municipal_potential` (`MunicipalPotential`) | [`sync_estat_municipalities.py`](../../src/crawler/scripts/data_import/sync_estat_municipalities.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
+| **2** | **国土数値情報 S12 駅別乗降客数** | `station_potential` (`StationPotential`) | [`import_mlit_stations.py`](../../src/crawler/scripts/data_import/import_mlit_stations.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
+| **3** | **国土数値情報 A29 用途地域規制** | `urban_planning_zone_potential` (`UrbanPlanningZonePotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
+| **4** | **国土数値情報 洪水・土砂災害ハザード** | `hazard_map_potential` (`HazardMapPotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
+| **5** | **社人研 (IPSS) 2035年将来推計人口** | `future_population_potential` (`FuturePopulationPotential`) | [`import_ipss_future_population.py`](../../src/crawler/scripts/data_import/import_ipss_future_population.py) | 5年ごと | **四半期更新**（TTL 90日、空テーブル時は即時取得） |
+| **6** | **国交省 立地適正化計画（居住/都市機能誘導区域）** | `urban_induction_zone_potential` (`UrbanInductionZonePotential`) | [`import_urban_induction_zones.py`](../../src/crawler/scripts/data_import/import_urban_induction_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
+| **7** | **自治体・駅 過去時系列推移（3年CAGR）** | `municipal_yearly_potential` / `station_yearly_potential` | [`sync_yearly_historical_potentials.py`](../../src/crawler/scripts/data_import/sync_yearly_historical_potentials.py) | 年次 | **月次更新**（TTL 30日、当月未同期時は即時更新） |
+| **8** | **国交省 L01地価公示（3月）・L02基準地価（9月）**<br>（市区町村平均＋全国4.7万標準地座標） | `land_price_potential` + `land_price_point_potential` (`LandPricePointPotential`) | [`import_mlit_land_prices.py`](../../src/crawler/scripts/data_import/import_mlit_land_prices.py) | 年2回 (3月・9月) | **月次更新（公表期3・4・9・10月はTTL 14日、他月は30日）**。1,000件単位マルチロー `INSERT ... ON DUPLICATE KEY UPDATE` により高速一括同期 |
+| **9** | **賃料相場・期待利回りベンチマーク**<br>（e-Stat・JREI・自社DB集計・ポータル実クロール） | `rent_market_potential` / `cap_rate_benchmark_potential` + GCS `rag/raw/rent_mesh/` | [`sync_rent_and_cap_rate_potentials.py`](../../src/crawler/scripts/data_import/sync_rent_and_cap_rate_potentials.py) | 随時 / 半年 | **自社DB集計は日次更新**、外部ポータル賃料メッシュ収集（`enable_live_crawl=True`）は**週次（日曜）更新** |
+| **10** | **マクロ経済指標（国交省REPI・財務省10年国債利回り・フラット35・日経平均・東証REIT・建設物価・コアCPI）** | `macro_economic_index` (`MacroEconomicIndex`) | [`sync_macro_economic_indices.py`](../../src/crawler/scripts/data_import/sync_macro_economic_indices.py) | 月次 / 日次 | **日次チェック・当月分自動同期**。財務省公式国債金利CSV（`jgbcm.csv`）等の無料公開統計から最新月次レコードを自動補完・更新し、将来年月でもデータ切れを起こさない |
+| **11** | **国土地理院 (GSI) 住所・町丁目ジオコーディング座標** | ローカル `data/gsi_geocode_cache.json` ⇄ **GCS `ml_reference_data/gsi_geocode_cache.json`** | [`sync_mlit_open_geo_and_transactions.py`](../../src/crawler/scripts/data_import/sync_mlit_open_geo_and_transactions.py) | 日次差分 | **日次差分更新＋GCS永続化**。既解決町丁目はスキップし、新規クロールで出現した未解決町丁目のみGSI API解決 |
+| **12** | **国土地理院 (GSI) 5m/10m 標高DEM微地形**<br>（標高・傾斜角・南向きスコア・窪地深さ） | ローカル `data/gsi_dem_terrain_cache.json` ⇄ **GCS `ml_reference_data/gsi_dem_terrain_cache.json`** | [`sync_mlit_open_geo_and_transactions.py`](../../src/crawler/scripts/data_import/sync_mlit_open_geo_and_transactions.py) | 日次差分 | **日次差分更新＋GCS永続化**。新規座標の11mメッシュのみタイル取得・Horn法微地形計算 |
+| **13** | **国交省 実成約単価 (`XIT001`/公式CSV) ＆ 自社掲載終了成約スプレッド** | ローカル `data/mlit_transaction_benchmarks.json` ⇄ **GCS `ml_reference_data/mlit_transaction_benchmarks.json`** | [`sync_mlit_open_geo_and_transactions.py`](../../src/crawler/scripts/data_import/sync_mlit_open_geo_and_transactions.py) | 四半期 / 日次 | **日次再集計＋GCS永続化**。日々の掲載終了物件（`is_published=False`）と現在売出物件のスプレッドを反映 |
+| **14** | **マンション建物マスタ ＆ MLモデル4種別・階層型OOFエンコーダ** | `building_master` + **GCS `ml_models/*.joblib` (`location_encoders.joblib` 含)** | [`generate_building_master.py`](../../src/crawler/scripts/data_import/generate_building_master.py) / [`train.py`](../../src/crawler/package/ml/train.py) | 日次 / 週次 | `BuildingMaster` は**日次更新**。MLモデル・`location_encoders.joblib` は**週次（毎週日曜）自動再学習**により新規町丁目・最新相場を追随 |
+
+### 4.3 Cloud Run エフェメラル環境における GCS 双方向キャッシュ同期 (`open_data_cache_sync.py`)
+Cloud Run Service（`realestate-api-prod`）および Cloud Run Job（各社クローラー・`realestate-ml-pipeline-prod`）のローカルディスクはコンテナ再起動ごとに初期化されるため、JSON キャッシュ3種（`gsi_geocode_cache.json`, `gsi_dem_terrain_cache.json`, `mlit_transaction_benchmarks.json`）は以下の通り GCS（`STORAGE_BUCKET` 配下 `ml_reference_data/`）と自動同期します。
+1. **初回参照時の自動プル (`ensure_local_cache_from_storage`)**: ローカル `data/` にファイルが存在しない場合、ストレージマネージャ経由で `ml_reference_data/<filename>` を自動ダウンロードしてからメモリへ展開する。
+2. **バッチ更新完了時の自動プッシュ (`upload_cache_to_storage`)**: `sync_mlit_open_geo_and_transactions.py` 実行完了時に更新済み3ファイルを `ml_reference_data/` へアップロードし、全コンテナ間で単一の最新キャッシュを共有する。
+
+### 4.4 今後クロールされる新規物件へのリアルタイム完全伝播保証
+新しくクロールされた物件レコード（詳細ページ保存直後のインライン査定 [`_perform_inline_ml_evaluation`](../../src/crawler/package/api/api.py)、URL指定オンデマンド査定 `/api/evaluation/predict-by-url`、および日次バルク推論 [`run_bulk_ml_evaluation.py`](../../src/crawler/scripts/ops/run_bulk_ml_evaluation.py)）のすべてで同一の特徴量・評価品質を保証します：
+1. **パーサー層での間口・道路幅員厳密分離**: `ParserBase` 共通メソッドおよび各社固有パーサー（`MitsuiParser`, `SumifuParser` 等）の双方で、`「接面8.5m 公道 幅員4.0m」` 等の接道文字列から幅員（`douroHaba`/`roadWidth`）と間口（`setsumen`/`maguchi`）を混同せず抽出する。
+2. **APIシリアライザの全属性・別名カラム完全保持 (`serialize_property`)**: インライン推論や URL 指定推論が経由する [`serialize_property`](../../src/crawler/package/ml/inference/api_client.py) において、`propertyType` に加え会社別カラム名（`setsumen`, `douroHaba`, `douro`, `okuyuki`, `chisei`, `setsubi`, `kenchikuJoken`, `boukaChiiki`, `privateRoadBurden`, `kuiki`, `chidai`, `busUse1` 等）を欠落なく転送し、Django モデル直接評価時と 100% 同一の特徴量ベクトルを生成する。
+3. **未見町丁目・新規座標のオンデマンド軽量解決**: 新規クロール物件が GCS キャッシュ未登録の新規町丁目だった場合、単発推論時（バルク一括実行中および単体テスト実行中を除く）に国土地理院 API へ軽量タイムアウト（2.5秒）でオンデマンド照会して座標・5m/10m DEM微地形を即時解決し、次回日次バッチで GCS キャッシュへ恒久統合する。
+4. **インライン評価での DCF・期待利回り即時永続化**: 新規クロール時の `_run_stage1_eval` / `_run_stage2_and_notify` でも決定論的 DCF エンジン（`evaluate_dcf_and_yields`）を即時実行し、`dcf_theoretical_price`・`expected_gross_yield`・`expected_net_yield`・`estimated_annual_rent` を初回保存時点から `PropertyEvaluation` に格納する。
+
+### 4.5 非破壊性の担保（自然キー動的結合）
+マスタデータが定期洗い替え（Upsert）された場合でも、既存の物件データ（各社モデルレコード）や過去の査定データ（`PropertyEvaluation`）との結合関係が壊れないよう、DB物理外部キー（ForeignKey）によるID結合を廃止し、**自然キー（都道府県名・市区町村名・町丁目キー・駅名・座標メッシュキー）による動的結合（Dynamic Natural Key Join）** を採用しています。
 
 ---
 
