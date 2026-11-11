@@ -2151,3 +2151,58 @@ WARNING: Skipping save for this property due to validation errors.
 | `chidaiStr` | Text | YES (blank=True) | 地代元表記（例: "20年 20,000円", "20,000円/月"） |
 | `chidai` | Integer | YES (null=True) | 月額地代（数値・円、例: 20000） |
 
+## 30. 全国地域・駅別家賃相場マスタ (RentMarketPotential)
+
+### 30.1 rent_market_potential
+**テーブル名**: `rent_market_potential`  
+**目的**: 全国47都道府県の市区町村・駅・町丁目メッシュごとに、建物種別（マンション・アパート・一戸建て・総合）×間取り×築年帯別の月額家賃相場および1㎡あたり賃料単価を保持し、AI不使用の賃料推定・DCF理論価格算出に高速供給する（原本テキストはGCS `rag/raw/rent_mesh/` に保持）。
+
+| カラム名 | 型 | NULL | インデックス | 説明 |
+|---------|---|------|------------|------|
+| `id` | AutoField | NO | PRIMARY KEY | 主キー |
+| `prefecture` | VARCHAR(100) | NO | INDEX | 都道府県名（例: `東京都`） |
+| `city` | VARCHAR(100) | NO | INDEX | 市区町村名（駅単体・県平均時は空文字 `""`） |
+| `station_name` | VARCHAR(100) | NO | INDEX | 正規化駅名（市区町村単位時は空文字 `""`） |
+| `town_name` | VARCHAR(100) | NO | INDEX | 町丁目・メッシュ名（未指定時は空文字 `""`） |
+| `building_type` | VARCHAR(30) | NO | INDEX | 建物種別 (`mansion`, `apartment`, `kodate`, `all`) |
+| `layout_type` | VARCHAR(30) | NO | - | 間取り区分 (`1R`, `1K`, `1DK`, `1LDK`, `2K`, `2DK`, `2LDK`, `3K`, `3DK`, `3LDK`, `4LDK+`, `all`) |
+| `age_band` | VARCHAR(30) | NO | - | 築年帯 (`all`, `0_5`, `5_10`, `10_20`, `20_plus`) |
+| `monthly_rent_yen` | INT | NO | - | 月額家賃相場（円） |
+| `standard_area_sqm` | DECIMAL(6,2) | NO | - | 換算基準専有面積（㎡） |
+| `rent_per_sqm` | INT | NO | - | 月額賃料単価（円/㎡） |
+| `sample_count` | INT | YES | - | 集計サンプル件数 |
+| `source` | VARCHAR(50) | NO | INDEX | データソース識別子 (`suumo_soba`, `athome_souba`, `homes_price`, `estat_housing`, `internal_db`) |
+| `gcs_raw_key` | VARCHAR(500) | NO | - | GCS上の元テキスト/HTML保存パス（未保存時は空文字 `""`） |
+| `updated_at` | DATETIME | NO | - | 最終同期日時 (`auto_now=True`) |
+
+**複合一意制約**: `('prefecture', 'city', 'station_name', 'town_name', 'building_type', 'layout_type', 'age_band', 'source')`
+
+## 31. 地域・アセット別キャップレート＆空室率マスタ (CapRateBenchmarkPotential)
+
+### 31.1 cap_rate_benchmark_potential
+**テーブル名**: `cap_rate_benchmark_potential`  
+**目的**: 都道府県・市区町村・駅およびアセットクラスごとに、期待表面利回り・期待実質利回り（NCF Cap Rate）・標準運営経費率（OPEX率）・賃貸空室率・長期国債スプレッド・需給バランス指数を保持する（原本テキストはGCS `rag/raw/rent_mesh/` に保持）。
+
+| カラム名 | 型 | NULL | インデックス | 説明 |
+|---------|---|------|------------|------|
+| `id` | AutoField | NO | PRIMARY KEY | 主キー |
+| `prefecture` | VARCHAR(100) | NO | INDEX | 都道府県名（全国指標時は `全国`） |
+| `city` | VARCHAR(100) | NO | INDEX | 市区町村名（県・ゾーン基準時は空文字 `""`） |
+| `station_name` | VARCHAR(100) | NO | INDEX | 正規化駅名（市区町村・県単位時は空文字 `""`） |
+| `asset_type` | VARCHAR(40) | NO | INDEX | アセット区分 (`mansion`, `apartment_rc`, `apartment_wood`, `kodate`, `commercial`, `all`) |
+| `expected_gross_yield` | DECIMAL(5,2) | YES | - | 期待・実勢表面利回り (%) |
+| `expected_net_cap_rate` | DECIMAL(5,2) | YES | - | 期待実質利回り / NCF還元利回り (%) |
+| `standard_opex_ratio` | DECIMAL(5,2) | NO | - | 標準運営経費率 OPEX率 (%, デフォルト `20.00`) |
+| `rental_vacancy_rate` | DECIMAL(5,2) | YES | - | 賃貸用住宅空室率 (%) |
+| `total_vacancy_rate` | DECIMAL(5,2) | YES | - | 住宅全般空室率 (%) |
+| `jgb_spread_bps` | INT | YES | - | 新発10年国債利回り対比スプレッド (bps) |
+| `demand_supply_score` | DECIMAL(5,2) | YES | - | 賃貸検索需要/掲載供給バランス指数 |
+| `sample_count` | INT | YES | - | 集計サンプル件数 |
+| `survey_period` | VARCHAR(20) | NO | - | 調査対象時点（例: `2026-11`） |
+| `source` | VARCHAR(50) | NO | INDEX | データソース識別子 (`homes_toushi`, `jrei_survey`, `japan_reit`, `internal_db`) |
+| `gcs_raw_key` | VARCHAR(500) | NO | - | GCS上の元テキスト/HTML保存パス（未保存時は空文字 `""`） |
+| `updated_at` | DATETIME | NO | - | 最終同期日時 (`auto_now=True`) |
+
+**複合一意制約**: `('prefecture', 'city', 'station_name', 'asset_type', 'source')`
+
+

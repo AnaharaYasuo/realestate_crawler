@@ -106,3 +106,38 @@ class UrbanInductionZoneRecord:
     is_urban_induction_zone: bool
     is_residential_induction_zone: bool
     plan_status: str
+
+
+@dataclass(slots=True, frozen=True)
+class RentMarketRecord:
+    prefecture: str
+    city: str
+    station_name: str
+    town_name: str
+    building_type: str
+    layout_type: str
+    age_band: str
+    monthly_rent_yen: int
+    standard_area_sqm: float
+    rent_per_sqm: int
+    sample_count: int | None
+    source: str
+
+
+@dataclass(slots=True, frozen=True)
+class CapRateBenchmarkRecord:
+    prefecture: str
+    city: str
+    station_name: str
+    asset_type: str
+    expected_gross_yield: float | None
+    expected_net_cap_rate: float | None
+    standard_opex_ratio: float
+    rental_vacancy_rate: float | None
+    total_vacancy_rate: float | None
+    jgb_spread_bps: int | None
+    demand_supply_score: float | None
+    sample_count: int | None
+    survey_period: str
+    source: str
+
