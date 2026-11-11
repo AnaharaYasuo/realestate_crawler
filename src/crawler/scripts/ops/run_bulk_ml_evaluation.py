@@ -68,7 +68,15 @@ def run_bulk_evaluation(
         kwargs["concurrency"] = concurrency
     if batch_size is not None:
         kwargs["batch_size"] = batch_size
-    _orig_run_bulk_evaluation(**kwargs)
+    prev_bulk_flag = os.environ.get("BULK_ML_EVALUATION_RUNNING")
+    os.environ["BULK_ML_EVALUATION_RUNNING"] = "1"
+    try:
+        _orig_run_bulk_evaluation(**kwargs)
+    finally:
+        if prev_bulk_flag is None:
+            os.environ.pop("BULK_ML_EVALUATION_RUNNING", None)
+        else:
+            os.environ["BULK_ML_EVALUATION_RUNNING"] = prev_bulk_flag
 
 def main() -> None:
     """CLI エントリポイント"""

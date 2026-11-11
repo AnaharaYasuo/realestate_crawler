@@ -13,8 +13,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
+from package.utils.open_data_cache_sync import (
+    allow_ondemand_open_geo,
+    ensure_local_cache_from_storage,
+)
 
 logger = logging.getLogger(__name__)
+GSI_GEOCODE_CACHE_FILENAME = "gsi_geocode_cache.json"
 
 GSI_GEOCODE_URL = "https://msearch.gsi.go.jp/address-search/AddressSearch"
 _DEFAULT_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "gsi_geocode_cache.json"
@@ -43,6 +48,7 @@ def _load_disk_cache(cache_path: Path) -> None:
     with _CACHE_LOCK:
         if _DISK_LOADED:
             return
+        ensure_local_cache_from_storage(cache_path, GSI_GEOCODE_CACHE_FILENAME)
         if cache_path.exists():
             try:
                 _parse_cached_entries(json.loads(cache_path.read_text(encoding="utf-8")))
@@ -51,12 +57,24 @@ def _load_disk_cache(cache_path: Path) -> None:
         _DISK_LOADED = True
 
 
-def lookup_cached_coordinates(address: str, cache_path: Path | None = None) -> tuple[float, float] | None:
-    """外部ネットワーク通信を行わずローカルキャッシュのみから (lat, lon) を参照する。"""
+def lookup_cached_coordinates(
+    address: str,
+    cache_path: Path | None = None,
+    *,
+    allow_ondemand: bool | None = None,
+) -> tuple[float, float] | None:
+    """ローカル/GCSキャッシュから (lat, lon) を参照し、単発実行時の未見町丁目は軽量オンデマンド解決する。"""
     target_path = cache_path or _DEFAULT_CACHE_PATH
     _load_disk_cache(target_path)
     key = normalize_geocode_query(address)
-    return _MEMORY_CACHE.get(key) if key else None
+    if not key:
+        return None
+    if key in _MEMORY_CACHE:
+        return _MEMORY_CACHE[key]
+    use_ondemand = allow_ondemand_open_geo() if allow_ondemand is None else allow_ondemand
+    if use_ondemand:
+        return geocode_address_gsi(address, timeout=2.5, persist_cache=False, cache_path=target_path)
+    return None
 
 
 def _extract_valid_japan_coords(items: object) -> tuple[float, float] | None:

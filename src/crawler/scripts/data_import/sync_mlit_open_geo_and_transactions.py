@@ -37,16 +37,24 @@ from package.ml.features.parsers import (
 )
 from package.ml.training.data_loader import collect_model_classes_by_type
 from package.models.evaluation import LandPricePointPotential
-from package.utils.gsi_dem_terrain import batch_warm_dem_cache
+from package.utils.gsi_dem_terrain import (
+    _DEFAULT_CACHE_PATH as DEM_CACHE_PATH,
+)
+from package.utils.gsi_dem_terrain import (
+    GSI_DEM_CACHE_FILENAME,
+    batch_warm_dem_cache,
+)
 from package.utils.gsi_geocoder import (
     _DEFAULT_CACHE_PATH as GEOCODE_CACHE_PATH,
 )
 from package.utils.gsi_geocoder import (
+    GSI_GEOCODE_CACHE_FILENAME,
     batch_geocode_addresses,
     lookup_cached_coordinates,
     seed_coordinate_cache,
 )
 from package.utils.mlit_transaction_data import (
+    MLIT_TX_BENCH_FILENAME,
     PREF_CODE_TO_NAME,
     build_benchmark_maps,
     fetch_reinfolib_xit001_trades,
@@ -54,6 +62,7 @@ from package.utils.mlit_transaction_data import (
     parse_mlit_trade_record,
     save_transaction_benchmarks,
 )
+from package.utils.open_data_cache_sync import upload_cache_to_storage
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +164,7 @@ def _collect_db_chomes_and_price_records() -> tuple[set[str], list[tuple[str, st
         for item in model_entries:
             model_cls = item[1] if isinstance(item, tuple) else item
             try:
+                close_old_connections()
                 _scan_single_model_rows(model_cls, ptype, unique_chomes, closed_tx, active_ask)
             except Exception as e:  # noqa: BLE001
                 logger.warning("Skipping %s during open-data scan: %s", getattr(model_cls, "__name__", model_cls), e)
@@ -187,29 +197,43 @@ def _collect_external_mlit_trades(csv_dir: Path | None, years: tuple[int, ...]) 
     return records
 
 
+def _upload_synced_open_data_caches(tx_bench_path: Path) -> None:
+    for local_path, remote_name in (
+        (GEOCODE_CACHE_PATH, GSI_GEOCODE_CACHE_FILENAME),
+        (DEM_CACHE_PATH, GSI_DEM_CACHE_FILENAME),
+        (tx_bench_path, MLIT_TX_BENCH_FILENAME),
+    ):
+        upload_cache_to_storage(local_path, remote_name)
+
+
 def sync_open_geo_and_transactions(
     *,
     max_workers: int = 8,
     max_geocode_queries: int = 12000,
     csv_dir: Path | None = None,
 ) -> dict[str, int]:
-    """GSI座標・5m/10m標高DEM・国交省実成約/売止ベンチマークを一括同期する。"""
+    """GSI座標・5m/10m標高DEM・国交省実成約/売止ベンチマークを一括同期しGCSへ永続化する。"""
     close_old_connections()
     seeded_cnt, l01_coords, l01_tx = _seed_chome_centroids_from_land_points()
     unique_chomes, closed_tx, active_ask = _collect_db_chomes_and_price_records()
 
-    sorted_chomes = sorted(unique_chomes)[:max_geocode_queries]
-    geocoded_cnt = batch_geocode_addresses(sorted_chomes, max_workers=max_workers)
+    uncached_chomes = [
+        ch
+        for ch in sorted(unique_chomes)
+        if lookup_cached_coordinates(ch, cache_path=GEOCODE_CACHE_PATH, allow_ondemand=False) is None
+    ][:max_geocode_queries]
+    geocoded_cnt = batch_geocode_addresses(uncached_chomes, max_workers=max_workers)
     logger.info(
-        "GSI Geocode Sync: seeded=%d from L01/L02, newly_resolved=%d (unique_chomes=%d)",
+        "GSI Geocode Sync: seeded=%d from L01/L02, newly_resolved=%d (uncached_batch=%d, unique_chomes=%d)",
         seeded_cnt,
         geocoded_cnt,
+        len(uncached_chomes),
         len(unique_chomes),
     )
 
     dem_coords: list[tuple[float, float]] = list(l01_coords)
     for ch in unique_chomes:
-        pt = lookup_cached_coordinates(ch, cache_path=GEOCODE_CACHE_PATH)
+        pt = lookup_cached_coordinates(ch, cache_path=GEOCODE_CACHE_PATH, allow_ondemand=False)
         if pt is not None:
             dem_coords.append(pt)
     dem_warmed = batch_warm_dem_cache(dem_coords, max_workers=max_workers)
@@ -222,6 +246,7 @@ def sync_open_geo_and_transactions(
 
     bench_payload = build_benchmark_maps(all_tx, asking_records=active_ask)
     out_path = save_transaction_benchmarks(bench_payload)
+    _upload_synced_open_data_caches(out_path)
     logger.info(
         "Transaction Benchmark Sync saved to %s (chome=%d, city=%d, pref=%d)",
         out_path,

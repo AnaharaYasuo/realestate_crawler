@@ -19,9 +19,14 @@ from pathlib import Path
 
 import numpy as np
 import requests
+from package.utils.open_data_cache_sync import (
+    allow_ondemand_open_geo,
+    ensure_local_cache_from_storage,
+)
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+GSI_DEM_CACHE_FILENAME = "gsi_dem_terrain_cache.json"
 
 GSI_DEM5A_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem5a_png/{z}/{x}/{y}.png"
 GSI_DEM10B_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png"
@@ -68,6 +73,7 @@ def _ensure_disk_cache_loaded(cache_path: Path) -> None:
     with _CACHE_LOCK:
         if _DISK_LOADED:
             return
+        ensure_local_cache_from_storage(cache_path, GSI_DEM_CACHE_FILENAME)
         if cache_path.exists():
             try:
                 _parse_terrain_json(json.loads(cache_path.read_text(encoding="utf-8")))
@@ -89,16 +95,21 @@ def lookup_cached_dem_features(
     lat: float | None,
     lon: float | None,
     cache_path: Path | None = None,
+    *,
+    allow_ondemand: bool | None = None,
 ) -> DemTerrainFeatures:
-    """外部通信を一切行わずローカルキャッシュのみから微地形特徴量を返す（ML特徴量抽出用）。"""
+    """ローカル/GCSキャッシュから微地形特徴量を返し、単発推論時の未見座標は軽量オンデマンド解決する。"""
     if lat is None or lon is None:
         return DEFAULT_DEM_FEATURES
     target_path = cache_path or _DEFAULT_CACHE_PATH
     _ensure_disk_cache_loaded(target_path)
     hit = _TERRAIN_CACHE.get(coord_cache_key(lat, lon))
-    if hit is None:
-        return DEFAULT_DEM_FEATURES
-    return DemTerrainFeatures(*hit)
+    if hit is not None:
+        return DemTerrainFeatures(*hit)
+    use_ondemand = allow_ondemand_open_geo() if allow_ondemand is None else allow_ondemand
+    if use_ondemand:
+        return fetch_and_compute_dem_features(float(lat), float(lon), persist_cache=False, cache_path=target_path)
+    return DEFAULT_DEM_FEATURES
 
 
 def latlon_to_tile_pixel(lat: float, lon: float, zoom: int) -> tuple[int, int, int, int]:
