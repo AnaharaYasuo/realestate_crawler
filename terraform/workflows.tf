@@ -1,10 +1,11 @@
 # Google Cloud Workflows Pipeline Orchestration
-# クロール (5h上限) -> ML学習 -> 価格推定・割安配信 -> ProxySQL停止を直列オーケストレーション
+# クロール (5h上限) -> 完了判定 -> ProxySQL停止をオーケストレーション
+# ML学習・価格推定・割安配信は 05:10 JST に独立した Cloud Scheduler から実行される (Issue #1143, #1348)
 
 resource "google_workflows_workflow" "daily_pipeline_workflow" {
   name            = "realestate-daily-pipeline-${var.environment}"
   region          = var.region
-  description     = "Daily orchestrated pipeline for crawl, ML training, estimation & recommendation with 7h deadline"
+  description     = "Daily orchestrated pipeline for crawl execution with 5h deadline"
   service_account = google_service_account.crawler_runner.email
 
   # ワークフロー全体の上限: 7時間 (25,200秒)

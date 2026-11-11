@@ -22,7 +22,6 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
         zone             = var.zone
         proxysqlInstance = google_compute_instance.proxysql_instance.name
         crawlerJob       = google_cloud_run_v2_job.crawler_pipeline_job.name
-        mlPipelineJob    = google_cloud_run_v2_job.ml_pipeline_job.name
         skipPortals      = true
         skipUncrawled    = true
         skipUrlCheck     = true

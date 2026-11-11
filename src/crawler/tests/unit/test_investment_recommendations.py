@@ -70,9 +70,9 @@ def test_evaluate_investment_candidate_pred_price_must_exceed_asking_price():
     assert "25.0% 割安" in reason2
     assert priority2 >= 70.0
 
-def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
-    """投資スコアが高くても理論予測価格が売出価格の3倍超または1/3未満の極端な異常値の場合は除外されることを検証 (Issue #1116)"""
-    # 例: フローラ・国分寺ＡＢ (売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 約48.9倍)
+def test_evaluate_investment_candidate_extreme_prediction_gap_passed():
+    """二次スクリーニングが存在するため一次スクリーニングでの上限閾値は不要、予測価格が売出価格を下回る場合のみ除外されることを検証 (Issue #1348)"""
+    # 例: フローラ・国分寺ＡＢ (売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 高い割安度でも一次スクリーニングは通過)
     rec_flora = MockEvaluation(
         "investmentapartment",
         total_investment_score=100.0,
@@ -80,12 +80,11 @@ def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
         id=999
     )
     prop_flora = MockProperty(rec_flora.property_url, 35600000)
-    is_rec, reason, priority = _evaluate_candidate(rec_flora, prop_flora)
-    assert is_rec is False
-    assert reason == ""
-    assert priority == 0.0
+    is_rec, reason, _priority = _evaluate_candidate(rec_flora, prop_flora)
+    assert is_rec is True
+    assert "割安" in reason
 
-    # 極端に低い予測値（売出価格 3,000万円 に対し 予測価格 500万円 -> 約0.16倍）
+    # 予測値が売出価格を下回る場合（売出価格 3,000万円 に対し 予測価格 500万円 -> 約0.16倍、割安でない）は除外
     rec_low = MockEvaluation(
         "investmentapartment",
         total_investment_score=85.0,
@@ -93,7 +92,7 @@ def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
         id=1000
     )
     prop_low = MockProperty(rec_low.property_url, 30000000)
-    is_rec, reason, priority = _evaluate_candidate(rec_low, prop_low)
+    is_rec, reason, _priority = _evaluate_candidate(rec_low, prop_low)
     assert is_rec is False
 
 def test_evaluate_investment_candidate_by_discount():

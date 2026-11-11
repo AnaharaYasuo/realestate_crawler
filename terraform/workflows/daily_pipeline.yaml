@@ -1,5 +1,6 @@
 # Cloud Workflows Definition: Real Estate Pipeline Daily Orchestration
-# 7時間 (25,200s) の全体タイムアウト枠内で、ProxySQL起動 -> クロール (5h上限) -> ML学習 -> バルク価格推定・お宝配信 -> ProxySQL停止を一貫実行
+# 7時間 (25,200s) の全体タイムアウト枠内で、ProxySQL起動 -> クロール (5h上限) -> 完了判定を一貫実行
+# ML推定・割安配信は 05:10 JST に独立した Cloud Scheduler から実行される (Issue #1143, #1348)
 main:
   params: [args]
   steps:
@@ -12,7 +13,6 @@ main:
           - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
           - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
           - crawlerJob: ${default(map.get(args, "crawlerJob"), "realestate-crawler-pipeline-prod")}
-          - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
           - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 10800)}  # 3時間 (10,800s)
           - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
           - crawlerFailed: false
@@ -23,11 +23,9 @@ main:
           - skipPortals: ${default(map.get(args, "skipPortals"), true)}
           - skipUncrawled: ${default(map.get(args, "skipUncrawled"), true)}
           - explicitTaskCount: ${default(map.get(args, "taskCount"), null)}
-          - skipTrain: ${default(map.get(args, "skipTrain"), true)}
           - skipUrlCheck: ${default(map.get(args, "skipUrlCheck"), not default(map.get(args, "enableUrlCheck"), false))}
           - crawlerArgs: []
           - effectiveTaskCount: null
-          - mlArgs: ["--force", "--skip-train"]
 
     - buildCrawlerArgs:
         steps:
@@ -51,19 +49,16 @@ main:
                 - condition: ${skipPortals}
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-portals"])}
-                    - mlArgs: ${list.concat(mlArgs, ["--skip-portals"])}
           - checkSkipUncrawled:
               switch:
                 - condition: ${skipUncrawled}
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-uncrawled"])}
-                    - mlArgs: ${list.concat(mlArgs, ["--skip-uncrawled"])}
           - checkSkipUrlCheck:
               switch:
                 - condition: ${skipUrlCheck}
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-url-check"])}
-                    - mlArgs: ${list.concat(mlArgs, ["--skip-url-check"])}
           - checkTaskCount:
               switch:
                 - condition: ${explicitTaskCount != null}
@@ -123,39 +118,6 @@ main:
                         assign:
                           - crawlerFailed: true
                           - crawlerError: ${crawlErr}
-
-            - calculateRemainingTime:
-                assign:
-                  - elapsedSoFar: ${sys.now() - pipelineStart}
-                  - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
-                  - mlEffectiveTimeout: ${int(math.max(math.min(7200, remainingMLTimeout), 60))}
-
-            - checkMLDeadline:
-                switch:
-                  - condition: ${remainingMLTimeout < 60}
-                    next: checkFinalStatus
-
-            - runMLAndEstimation:
-                call: googleapis.run.v2.projects.locations.jobs.run
-                args:
-                  name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
-                  body:
-                    overrides:
-                      containerOverrides:
-                        - args: ${mlArgs}
-                  connector_params:
-                    skip_polling: true
-                result: mlOperation
-
-            - resolveMLExecution:
-                assign:
-                  - mlExecutionName: ${default(map.get(map.get(mlOperation, "response"), "name"), map.get(map.get(mlOperation, "metadata"), "name"))}
-
-            - waitMLCompletion:
-                call: monitorJobExecution
-                args:
-                  executionName: ${mlExecutionName}
-                  timeoutSec: ${mlEffectiveTimeout}
         except:
           as: pipelineError
           steps:
@@ -169,7 +131,7 @@ main:
           - condition: ${crawlerFailed}
             raise:
               error: "CrawlerPhaseFailed"
-              message: '${"Crawler phase finished with failures, but ML estimation completed. Error: " + string(crawlerError)}'
+              message: '${"Crawler phase finished with failures. Error: " + string(crawlerError)}'
 
 # Subworkflow for polling Cloud Run Job execution until completed or timeout
 monitorJobExecution:

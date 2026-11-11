@@ -86,9 +86,11 @@ def test_evaluate_candidate_requires_positive_predicted_price_and_discount():
     assert "割安" in reason
     assert prio > 70.0
 
-    # 5. 異常な乖離（3倍超: 8000万円対2000万円）の場合: 安全弁ガードで除外
+    # 5. 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
+    # 高い割安度（3倍超: 8000万円対2000万円 = 75.0%割安）でも一次スクリーニングを通過
     eval_rec.first_stage_predicted_price = 8000
     is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
-    assert is_rec is False
+    assert is_rec is True
+    assert "割安" in reason
 
 
