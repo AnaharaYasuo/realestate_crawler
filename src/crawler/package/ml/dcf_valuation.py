@@ -224,7 +224,6 @@ def _build_property_context(property_obj: Any, property_type: str) -> _PropertyC
         combined_text=combined_text,
         chimoku_str=tochi_factors.chimoku_str,
         road_width_val=float(tochi_factors.road_width_val),
-        plot_adjustment_factor=float(tochi_factors.road_condition_factor * tochi_factors.frontage_penalty_factor),
         nearby_standard_price=float(avg_land_price),
     )
 

@@ -23,6 +23,7 @@ _COMBINED_TEXT_ATTRS: tuple[str, ...] = (
 )
 
 _SHIGAIKA_KEYWORDS: tuple[str, ...] = ("市街化調整", "調整区域")
+_TERM_SAIKENCHIKU_FUKA = "再建築不可"
 _SHINSHAKU_ZERO_KEYWORDS: tuple[str, ...] = (
     "既存宅地",
     "開発許可済",
@@ -57,11 +58,31 @@ _SHINSHAKU_THIRTY_KEYWORDS: tuple[str, ...] = (
     "３４条９号",
 )
 _UNBUILDABLE_STRICT_KEYWORDS: tuple[str, ...] = (
-    "再建築不可",
+    _TERM_SAIKENCHIKU_FUKA,
     "建築不可",
     "原則建築不可",
     "建築制限",
 )
+_FARMLAND_TOKENS: tuple[str, ...] = ("田", "畑", "農地", "純農地")
+_ZASSHU_TOKENS: tuple[str, ...] = ("雑種", "資材置場", "資材置き場", "車両置場")
+
+
+def _build_shigaika_inspection_text(property_obj: Any, combined_text: str) -> str:
+    text = combined_text or (extract_combined_text_for_prop(property_obj) if property_obj is not None else "")
+    if property_obj is None:
+        return text
+    kuiki_parts = [
+        str(_get_attr(property_obj, k, "") or "")
+        for k in ("kuiki", "urbanPlanning", "cityPlanning", "toshiKeikaku", "youtoChiiki")
+    ]
+    return f"{' '.join(p for p in kuiki_parts if p)} {text}".strip()
+
+
+def _resolve_road_width_for_shinshaku(property_obj: Any, road_width_val: float) -> float:
+    rw = safe_float(road_width_val, None)
+    if rw is None and property_obj is not None:
+        rw = safe_float(_get_attr(property_obj, "roadWidth", _get_attr(property_obj, "douroHaba", 4.0)), 4.0)
+    return float(rw or 4.0)
 
 
 def resolve_shigaika_shinshaku_rate(
@@ -78,29 +99,19 @@ def resolve_shigaika_shinshaku_rate(
         - 店舗・事務所などの建築が可能な幹線道路沿いなど: 30%減 (shinshaku_rate = 0.30)
         - 郊外型店舗が並ぶ・既存宅地・開発許可済・34条11号/12号など宅地と同等の取引実態がある地域: 0%減 (shinshaku_rate = 0.00)
     """
-    text = combined_text or (extract_combined_text_for_prop(property_obj) if property_obj is not None else "")
-    if property_obj is not None:
-        kuiki_parts = [
-            str(_get_attr(property_obj, k, "") or "")
-            for k in ("kuiki", "urbanPlanning", "cityPlanning", "toshiKeikaku", "youtoChiiki")
-        ]
-        text = f"{' '.join(p for p in kuiki_parts if p)} {text}".strip()
-
+    text = _build_shigaika_inspection_text(property_obj, combined_text)
     if not any(k in text for k in _SHIGAIKA_KEYWORDS):
         return 0.0, 0.0
 
-    has_strict_unbuildable = any(k in text for k in _UNBUILDABLE_STRICT_KEYWORDS)
-    if not has_strict_unbuildable and any(k in text for k in _SHINSHAKU_ZERO_KEYWORDS):
+    if any(k in text for k in _UNBUILDABLE_STRICT_KEYWORDS):
+        return 1.0, 0.50
+
+    if any(k in text for k in _SHINSHAKU_ZERO_KEYWORDS):
         return 1.0, 0.0
 
-    rw = safe_float(road_width_val, None)
-    if rw is None and property_obj is not None:
-        rw = safe_float(_get_attr(property_obj, "roadWidth", _get_attr(property_obj, "douroHaba", 4.0)), 4.0)
-    rw_val = float(rw or 4.0)
-
-    if not has_strict_unbuildable and (
-        any(k in text for k in _SHINSHAKU_THIRTY_KEYWORDS)
-        or (rw_val >= 6.0 and any(k in text for k in ("店舗", "事務所", "商業", "事業用")))
+    rw_val = _resolve_road_width_for_shinshaku(property_obj, road_width_val)
+    if any(k in text for k in _SHINSHAKU_THIRTY_KEYWORDS) or (
+        rw_val >= 6.0 and any(k in text for k in ("店舗", "事務所", "商業", "事業用"))
     ):
         return 1.0, 0.30
 
@@ -134,6 +145,17 @@ def compute_shigaika_land_unit_price(
     return round(min(method1_price, method2_price), 2)
 
 
+def _resolve_farmland_multiplier(c: str, in_chousei: bool, shinshaku: float) -> float | None:
+    if "純農地" in c or (in_chousei and any(k in c for k in _FARMLAND_TOKENS)):
+        base_farm = 0.28 if "田" in c else 0.35
+        return round(base_farm * max(0.60, 1.0 - shinshaku * 0.5), 4)
+    if "田" in c or "農地" in c:
+        return 0.63
+    if "畑" in c:
+        return 0.85
+    return None
+
+
 def resolve_chimoku_valuation_multiplier(
     chimoku_str: str = "",
     is_shigaika_chousei: float = 0.0,
@@ -149,26 +171,63 @@ def resolve_chimoku_valuation_multiplier(
     in_chousei = float(is_shigaika_chousei) >= 0.5
     shinshaku = min(0.80, max(0.0, float(shinshaku_rate)))
 
-    if any(k in c for k in ("純農地",)) or (in_chousei and any(k in c for k in ("田", "畑", "農地"))):
-        # 市街化調整区域内の農地（純農地・農地比準）
-        base_farm = 0.28 if "田" in c else 0.35
-        return round(base_farm * max(0.60, 1.0 - shinshaku * 0.5), 4)
-
-    if "田" in c or "農地" in c:
-        return 0.63
-    if "畑" in c:
-        return 0.85
+    farm_mult = _resolve_farmland_multiplier(c, in_chousei, shinshaku)
+    if farm_mult is not None:
+        return farm_mult
     if "山林" in c:
         return 0.40 if in_chousei else 0.68
     if "原野" in c:
         return 0.35 if in_chousei else 0.77
-    if "雑種" in c or any(k in c for k in ("資材置場", "資材置き場", "車両置場")):
-        if in_chousei:
-            # 雑種地は近傍宅地比準からしんしゃく割合および造成・地目減価を適用
-            eff_shinshaku = max(0.30, shinshaku)
-            return round(0.85 * (1.0 - eff_shinshaku), 4)
-        return 0.90
+    if any(k in c for k in _ZASSHU_TOKENS):
+        return round(0.85 * (1.0 - max(0.30, shinshaku)), 4) if in_chousei else 0.90
     return 1.0
+
+
+def _compute_shigaika_base_multiplier(
+    property_type: str,
+    combined_text: str,
+    nearby_standard_price: float,
+    estimated_fixed_asset_price: float | None,
+    shinshaku_rate: float,
+) -> float:
+    base_lp = max(1.0, float(nearby_standard_price))
+    eff_fixed_asset = (
+        max(float(estimated_fixed_asset_price), base_lp * 0.70)
+        if (estimated_fixed_asset_price is not None and float(estimated_fixed_asset_price) > 0)
+        else base_lp * 0.70
+    )
+    min_unit_std = compute_shigaika_land_unit_price(
+        nearby_standard_price=base_lp * 0.80,
+        estimated_fixed_asset_price=eff_fixed_asset,
+        plot_adjustment_factor=1.0,
+        shinshaku_rate=shinshaku_rate,
+        takuchi_bairitsu=1.10,
+    )
+    shigaika_mult = min_unit_std / base_lp
+    if property_type == "tochi" and shinshaku_rate >= 0.50 and _TERM_SAIKENCHIKU_FUKA in (combined_text or ""):
+        return min(shigaika_mult, 0.35)
+    return shigaika_mult
+
+
+def _combine_shigaika_and_chimoku_multiplier(
+    is_shigaika: float,
+    shigaika_mult: float,
+    shinshaku_rate: float,
+    chimoku_val: str,
+    combined_text: str,
+) -> float:
+    merged_text = f"{chimoku_val} {combined_text}"
+    if is_shigaika >= 0.5 and any(k in merged_text for k in _ZASSHU_TOKENS):
+        chimoku_mult = 0.85
+    elif is_shigaika >= 0.5 and any(k in merged_text for k in _FARMLAND_TOKENS):
+        chimoku_mult = resolve_chimoku_valuation_multiplier(
+            chimoku_val, is_shigaika_chousei=1.0, shinshaku_rate=shinshaku_rate, combined_text=combined_text
+        ) / max(0.10, shigaika_mult)
+    else:
+        chimoku_mult = resolve_chimoku_valuation_multiplier(
+            chimoku_val, is_shigaika_chousei=is_shigaika, shinshaku_rate=shinshaku_rate, combined_text=combined_text
+        )
+    return round(min(1.0, max(0.10, shigaika_mult * chimoku_mult)), 4)
 
 
 def resolve_effective_land_price_multiplier(
@@ -177,7 +236,6 @@ def resolve_effective_land_price_multiplier(
     combined_text: str = "",
     chimoku_str: str = "",
     road_width_val: float = 4.0,
-    plot_adjustment_factor: float = 1.0,
     nearby_standard_price: float = 100_000.0,
     estimated_fixed_asset_price: float | None = None,
 ) -> tuple[float, float, float]:
@@ -194,45 +252,16 @@ def resolve_effective_land_price_multiplier(
         if property_obj is not None
         else ""
     )
-
-    if is_shigaika >= 0.5:
-        base_lp = max(1.0, float(nearby_standard_price))
-        # 固定資産税評価額が地価公示の約70%ではなく別基準（例: 市街化調整区域の固定資産税評価額が基準単価の70%以下）で
-        # 与えられている場合はそれを使用するが、micro_land_price > average_land_price の空間補間時に
-        # 市区町村全体の平均固定資産税評価額で不当にキャップされないよう max(estimated_fixed, base_lp * 0.70) を基準とする
-        eff_fixed_asset = (
-            max(float(estimated_fixed_asset_price), base_lp * 0.70)
-            if (estimated_fixed_asset_price is not None and float(estimated_fixed_asset_price) > 0)
-            else base_lp * 0.70
+    shigaika_mult = (
+        _compute_shigaika_base_multiplier(
+            property_type, combined_text, nearby_standard_price, estimated_fixed_asset_price, shinshaku_rate
         )
-        min_unit_std = compute_shigaika_land_unit_price(
-            nearby_standard_price=base_lp * 0.80,
-            estimated_fixed_asset_price=eff_fixed_asset,
-            plot_adjustment_factor=1.0,
-            shinshaku_rate=shinshaku_rate,
-            takuchi_bairitsu=1.10,
-        )
-        shigaika_mult = min_unit_std / base_lp
-        # 建築不可更地の場合は下限キャップ
-        if property_type == "tochi" and shinshaku_rate >= 0.50 and "再建築不可" in (combined_text or ""):
-            shigaika_mult = min(shigaika_mult, 0.35)
-    else:
-        shigaika_mult = 1.0
-
-    # 雑種地・農地比準倍率の統合（調整区域の雑種地は shigaika_mult 側で (1-shinshaku) が反映済みのため地目固有減価のみ乗算）
-    if is_shigaika >= 0.5 and ("雑種" in chimoku_val or any(k in (combined_text or "") for k in ("資材置場", "資材置き場"))):
-        chimoku_mult = 0.85
-    elif is_shigaika >= 0.5 and any(k in f"{chimoku_val} {combined_text}" for k in ("田", "畑", "農地", "純農地")):
-        # 純農地は宅地基準に対し農地比準 (0.28〜0.35) を直接適用
-        chimoku_mult = resolve_chimoku_valuation_multiplier(
-            chimoku_val, is_shigaika_chousei=1.0, shinshaku_rate=shinshaku_rate, combined_text=combined_text
-        ) / max(0.10, shigaika_mult)
-    else:
-        chimoku_mult = resolve_chimoku_valuation_multiplier(
-            chimoku_val, is_shigaika_chousei=is_shigaika, shinshaku_rate=shinshaku_rate, combined_text=combined_text
-        )
-
-    eff_mult = round(min(1.0, max(0.10, shigaika_mult * chimoku_mult)), 4)
+        if is_shigaika >= 0.5
+        else 1.0
+    )
+    eff_mult = _combine_shigaika_and_chimoku_multiplier(
+        is_shigaika, shigaika_mult, shinshaku_rate, chimoku_val, combined_text
+    )
     return is_shigaika, shinshaku_rate, eff_mult
 
 
@@ -398,13 +427,16 @@ def extract_legal_and_furuya_features(
     income_approach_value: float,
     residual_land_value: float,
     property_obj: Any = None,
-    chimoku_str: str = "",
-    road_width_val: float = 4.0,
-    plot_shape_penalty: float = 1.0,
     estimated_fixed_asset_price: float | None = None,
 ) -> dict[str, float]:
     combined_text_lower = combined_text.lower()
-    is_saikenchiku_fuka = 1.0 if ("再建築不可" in combined_text) else 0.0
+    is_saikenchiku_fuka = 1.0 if (_TERM_SAIKENCHIKU_FUKA in combined_text) else 0.0
+    chimoku_str = (
+        str(_get_attr(property_obj, "chimoku", _get_attr(property_obj, "chimokuChisei", "")) or "")
+        if property_obj is not None
+        else ""
+    )
+    road_width_val = _resolve_road_width_for_shinshaku(property_obj, 4.0)
 
     is_shigaika_chousei, shinshaku_rate, eff_land_mult = resolve_effective_land_price_multiplier(
         property_obj=property_obj,
@@ -412,7 +444,6 @@ def extract_legal_and_furuya_features(
         combined_text=combined_text,
         chimoku_str=chimoku_str,
         road_width_val=road_width_val,
-        plot_adjustment_factor=plot_shape_penalty,
         nearby_standard_price=average_land_price,
         estimated_fixed_asset_price=estimated_fixed_asset_price,
     )
