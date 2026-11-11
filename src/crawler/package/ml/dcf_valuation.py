@@ -416,7 +416,7 @@ def _calc_legal_and_defect_spread(property_obj: Any, combined_text: str) -> floa
     return spread
 
 
-def _extract_annual_land_rent_yen(property_obj: Any, combined_text: str) -> int:
+def _extract_annual_land_rent_yen(property_obj: Any) -> int:
     raw_chidai = _get_val(property_obj, "chidai", None)
     if raw_chidai is None:
         chidai_str = str(_get_val(property_obj, "chidaiStr", "") or "")
@@ -474,7 +474,7 @@ def calculate_expected_yields(
     vacancy_rate, opex_ratio = _resolve_opex_and_vacancy(
         property_obj, ctx, estimated_annual_rent, std_opex, vac_base
     )
-    land_rent_yen = _extract_annual_land_rent_yen(property_obj, ctx.combined_text)
+    land_rent_yen = _extract_annual_land_rent_yen(property_obj)
     land_rent_ratio = (land_rent_yen / float(estimated_annual_rent)) if estimated_annual_rent > 0 else 0.0
 
     ncf_margin = max(0.32, (1.0 - vacancy_rate) - opex_ratio - min(0.25, land_rent_ratio))
@@ -493,37 +493,47 @@ def _resolve_rights_ratio(combined_text: str, chikunen: float) -> float:
     return 1.0
 
 
+def _calc_land_residual_man(ctx: _PropertyContext) -> float:
+    rights_ratio = _resolve_rights_ratio(ctx.combined_text, ctx.chikunen)
+    unbuildable_discount = 0.55 if TERM_UNBUILDABLE in ctx.combined_text else 1.0
+    if ctx.norm_type == PTYPE_MANSION:
+        eff_area = ctx.senyu_area if ctx.senyu_area > 0.0 else 55.0
+        return (eff_area * 0.20) * (ctx.avg_land_price / 10000.0) * rights_ratio * unbuildable_discount
+    eff_land = ctx.tochi_area if ctx.tochi_area > 0.0 else 100.0
+    return eff_land * (ctx.avg_land_price / 10000.0) * ctx.scale_discount * rights_ratio * unbuildable_discount
+
+
+def _estimate_tochi_dev_residual_and_capex(
+    property_obj: Any,
+    ctx: _PropertyContext,
+    lifespan: float,
+    unit_cost: float,
+) -> tuple[float, float]:
+    rentable_area, _ = _resolve_rent_areas(property_obj, ctx)
+    gross_build_area = rentable_area / _RENTABLE_RATIO_DEV
+    dev_cost_man = gross_build_area * max(22.0, unit_cost * 1.08)
+    if "古家" in ctx.combined_text and "更地渡" not in ctx.combined_text:
+        dev_cost_man += 180.0
+    rem_y10 = max(0.15, (lifespan - 10.0) / max(1.0, lifespan))
+    bldg_y10 = gross_build_area * unit_cost * rem_y10
+    return bldg_y10, dev_cost_man
+
+
 def _estimate_y10_residuals_and_initial_capex(
     property_obj: Any,
     ctx: _PropertyContext,
 ) -> tuple[float, float, float]:
     """(10年後土地残存価値[万], 10年後建物残存価値[万], 初期CapEx・開発建築費[万])"""
-    rights_ratio = _resolve_rights_ratio(ctx.combined_text, ctx.chikunen)
-    unbuildable_discount = 0.55 if TERM_UNBUILDABLE in ctx.combined_text else 1.0
-
-    if ctx.norm_type == PTYPE_MANSION:
-        eff_area = ctx.senyu_area if ctx.senyu_area > 0.0 else 55.0
-        land_man = (eff_area * 0.20) * (ctx.avg_land_price / 10000.0) * rights_ratio * unbuildable_discount
-    else:
-        eff_land = ctx.tochi_area if ctx.tochi_area > 0.0 else 100.0
-        land_man = eff_land * (ctx.avg_land_price / 10000.0) * ctx.scale_discount * rights_ratio * unbuildable_discount
-
+    land_man = _calc_land_residual_man(ctx)
     lifespan = float(LIFESPAN.get(ctx.kouzou_cat, 30))
     unit_cost = float(REPLACEMENT_COSTS.get(ctx.kouzou_cat, 20.0))
 
     if ctx.norm_type == PTYPE_TOCHI:
-        rentable_area, _ = _resolve_rent_areas(property_obj, ctx)
-        gross_build_area = rentable_area / _RENTABLE_RATIO_DEV
-        dev_unit_cost = max(22.0, unit_cost * 1.08)
-        dev_cost_man = gross_build_area * dev_unit_cost
-        if "古家" in ctx.combined_text and "更地渡" not in ctx.combined_text:
-            dev_cost_man += 180.0
-        rem_y10 = max(0.15, (lifespan - 10.0) / max(1.0, lifespan))
-        bldg_y10 = gross_build_area * unit_cost * rem_y10
+        bldg_y10, dev_cost_man = _estimate_tochi_dev_residual_and_capex(property_obj, ctx, lifespan, unit_cost)
         return land_man, bldg_y10, dev_cost_man
 
-    bldg_area = ctx.senyu_area if ctx.norm_type == PTYPE_MANSION else ctx.tatemono_area
-    bldg_area = bldg_area if bldg_area > 0.0 else 60.0
+    raw_bldg = ctx.senyu_area if ctx.norm_type == PTYPE_MANSION else ctx.tatemono_area
+    bldg_area = raw_bldg if raw_bldg > 0.0 else 60.0
     age_y10 = ctx.chikunen + float(_HOLDING_YEARS)
     if age_y10 >= lifespan:
         bldg_y10 = 0.0 if ctx.norm_type == PTYPE_MANSION else -max(80.0, bldg_area * 0.04)
@@ -580,6 +590,24 @@ def calculate_dcf_theoretical_price(
     return max(0, round(total_dcf_man))
 
 
+def _resolve_rent_decay_and_capex_ratio(ctx: _PropertyContext) -> tuple[float, float]:
+    if ctx.future_pop_change < -5.0:
+        pop_adj = 0.0015
+    elif ctx.future_pop_change > 2.0:
+        pop_adj = -0.0015
+    else:
+        pop_adj = 0.0
+    rent_decay = min(0.014, max(0.004, 0.007 + pop_adj))
+
+    if ctx.chikunen < 10.0:
+        capex_ratio = 0.030
+    elif ctx.chikunen < 25.0:
+        capex_ratio = 0.045
+    else:
+        capex_ratio = 0.060
+    return rent_decay, capex_ratio
+
+
 def evaluate_dcf_and_yields(
     property_obj: Any,
     property_type: str,
@@ -596,12 +624,9 @@ def evaluate_dcf_and_yields(
     gross_yield, net_yield, vac_rate, opex_ratio = calculate_expected_yields(
         property_obj, property_type, estimated_annual_rent=annual_rent, interior_score=interior_score, _ctx=ctx
     )
-    land_rent_yen = _extract_annual_land_rent_yen(property_obj, ctx.combined_text)
+    land_rent_yen = _extract_annual_land_rent_yen(property_obj)
     land_res_man, bldg_y10_man, init_capex_man = _estimate_y10_residuals_and_initial_capex(property_obj, ctx)
-
-    pop_adj = 0.0015 if ctx.future_pop_change < -5.0 else (-0.0015 if ctx.future_pop_change > 2.0 else 0.0)
-    rent_decay = min(0.014, max(0.004, 0.007 + pop_adj))
-    capex_ratio = 0.030 if ctx.chikunen < 10.0 else (0.045 if ctx.chikunen < 25.0 else 0.060)
+    rent_decay, capex_ratio = _resolve_rent_decay_and_capex_ratio(ctx)
     exit_spread = 0.50 if ctx.kouzou_cat in (STRUCT_RC, STRUCT_SRC) else 0.75
 
     dcf_price = calculate_dcf_theoretical_price(
