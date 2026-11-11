@@ -128,8 +128,6 @@ def test_daily_pipeline_yaml_selective_crawl_and_task_count():
     assert "taskCount" in body["overrides"]
     assert "containerOverrides" in body["overrides"]
 
-    # Check ML step includes containerOverrides with mlArgs or --skip-train
-    run_ml_step = next(s["runMLAndEstimation"] for s in try_step["try"]["steps"] if "runMLAndEstimation" in s)
-    ml_body = run_ml_step["args"]["body"]
-    assert "overrides" in ml_body
-    assert any("--skip-train" in str(c) or "mlArgs" in str(c) for c in ml_body["overrides"]["containerOverrides"])
+    # MLパイプラインは独立スケジュール化されたためWorkflows内にはMLステップが存在しないことを確認 (Issue #1348)
+    has_ml_step = any("runMLAndEstimation" in s for s in try_step["try"]["steps"])
+    assert has_ml_step is False
