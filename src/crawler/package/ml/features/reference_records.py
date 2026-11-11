@@ -30,6 +30,24 @@ class LandPriceRecord:
 
 
 @dataclass(slots=True, frozen=True)
+class LandPricePointRecord:
+    prefecture: str
+    city: str
+    chome_key: str
+    latitude: float
+    longitude: float
+    land_price: int
+    growth_rate: float | None
+    land_use: str
+    road_width: float | None = None
+    station_name: str = ""
+    station_distance_m: int | None = None
+    has_gas: bool = True
+    has_water: bool = True
+    has_sewer: bool = True
+
+
+@dataclass(slots=True, frozen=True)
 class StationRecord:
     station_name: str
     passenger_volume: int

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from package.ml.features import FEATURE_SETS, build_features_batch
+from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
 from package.ml.inference.ensemble import align_features, apply_smearing_and_ensemble
 from package.ml.inference.model_registry import ModelRegistry, get_default_registry
 from package.utils.property_type_detector import PropertyTypeDetector
@@ -25,9 +26,12 @@ def detect_property_type(property_obj: Any) -> str:
     return detected
 
 
-def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[str]) -> pd.DataFrame:
+def prepare_df_features(
+    features_list: list[dict[str, Any]] | pd.DataFrame,
+    feature_cols: list[str],
+) -> pd.DataFrame:
     """特徴量辞書リストから DataFrame を生成し、未定義列を 0.0 で初期化 (float32 でメモリ半減)"""
-    df = pd.DataFrame(features_list)
+    df = features_list.copy() if isinstance(features_list, pd.DataFrame) else pd.DataFrame(features_list)
     for col in feature_cols:
         if col not in df.columns:
             df[col] = 0.0
@@ -51,6 +55,25 @@ def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[
         df[float_cols] = df[float_cols].astype(np.float32)
 
     return df
+
+
+def _enrich_inference_df_with_location_encoder(
+    features_list: list[dict[str, Any]],
+    ptype: str,
+    loc_encoder: Any,
+) -> pd.DataFrame:
+    """文字列所在地列が残っている段階で階層ベイズエンコーダとアンカー対数単価を更新する"""
+    raw_df = pd.DataFrame(features_list)
+    if raw_df.empty:
+        return raw_df
+    transform_fn = getattr(loc_encoder, "transform", None) if loc_encoder is not None else None
+    if callable(transform_fn):
+        transformed = transform_fn(raw_df)
+        if isinstance(transformed, tuple) and len(transformed) == 2:
+            raw_df["chome_oof_unit_price"] = transformed[0]
+            raw_df["station_walk_oof_unit_price"] = transformed[1]
+    raw_df["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(raw_df, property_type=ptype)
+    return raw_df
 
 
 def group_properties_by_type(properties_list: list[Any]) -> dict[str, list[tuple[int, Any]]]:
@@ -157,8 +180,10 @@ def _predict_single_type_group(
     if stage_key == "second":
         attach_image_scores(group_features, sub_indices, interior_scores, layout_scores)
 
+    loc_encoder = reg.location_encoder(ptype, stage_key) if not callable(models_provider) else None
+    raw_df = _enrich_inference_df_with_location_encoder(group_features, ptype, loc_encoder)
     feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
-    df = prepare_df_features(group_features, feature_cols)
+    df = prepare_df_features(raw_df, feature_cols)
 
     weights, smearing_factor = _resolve_weights_and_smearing(
         reg, ptype, stage_key, dynamic_weights, smearing_factors
@@ -211,6 +236,27 @@ def bulk_predict(
     return final_results
 
 
+def _predict_stage_from_raw_features(
+    raw_features: list[dict[str, Any]],
+    ptype: str,
+    stage: str,
+    models_dict: dict[str, Any] | None,
+    reg: ModelRegistry,
+    models_provider: Any,
+    dynamic_weights: Any,
+    smearing_factors: Any,
+) -> list[int]:
+    if not models_dict:
+        return [0] * len(raw_features)
+    loc_enc = reg.location_encoder(ptype, stage) if not callable(models_provider) else None
+    raw_df = _enrich_inference_df_with_location_encoder(raw_features, ptype, loc_enc)
+    cols = FEATURE_SETS.get(ptype, {}).get(stage, [])
+    df_feat = prepare_df_features(raw_df, cols)
+    weights, sf = _resolve_weights_and_smearing(reg, ptype, stage, dynamic_weights, smearing_factors)
+    preds = predict_batch_ensemble(models_dict, weights, sf, df_feat)
+    return [int(max(0, val)) for val in preds]
+
+
 def predict_both_stages(
     properties_list: list[Any],
     interior_scores: list[float] | None = None,
@@ -242,24 +288,18 @@ def predict_both_stages(
         base_features = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
 
         # 一次推論
-        p1_list = [0] * len(sub_indices)
-        if models_first:
-            cols1 = FEATURE_SETS.get(ptype, {}).get("first", [])
-            df1 = prepare_df_features(base_features, cols1)
-            w1, sf1 = _resolve_weights_and_smearing(reg, ptype, "first", dynamic_weights, smearing_factors)
-            p1_arr = predict_batch_ensemble(models_first, w1, sf1, df1)
-            p1_list = [int(max(0, val)) for val in p1_arr]
+        p1_list = _predict_stage_from_raw_features(
+            base_features, ptype, "first", models_first, reg, models_provider, dynamic_weights, smearing_factors
+        )
 
         # 二次推論（室内・間取りスコアを付与）
         p2_list = [0] * len(sub_indices)
         if models_second:
             feat2 = [dict(f) for f in base_features]
             attach_image_scores(feat2, sub_indices, interior_scores, layout_scores)
-            cols2 = FEATURE_SETS.get(ptype, {}).get("second", [])
-            df2 = prepare_df_features(feat2, cols2)
-            w2, sf2 = _resolve_weights_and_smearing(reg, ptype, "second", dynamic_weights, smearing_factors)
-            p2_arr = predict_batch_ensemble(models_second, w2, sf2, df2)
-            p2_list = [int(max(0, val)) for val in p2_arr]
+            p2_list = _predict_stage_from_raw_features(
+                feat2, ptype, "second", models_second, reg, models_provider, dynamic_weights, smearing_factors
+            )
 
         for i, idx in enumerate(sub_indices):
             results[idx] = (p1_list[i], p2_list[i])

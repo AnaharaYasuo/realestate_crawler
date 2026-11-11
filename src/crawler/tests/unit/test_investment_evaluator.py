@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import pytest
 from package.ml.investment_evaluator import (
-    detect_structure_type,
-    parse_chikunen,
     calculate_loan_term,
-    evaluate_investment_property
+    detect_structure_type,
+    evaluate_investment_property,
+    get_average_land_price,
+    parse_chikunen,
 )
 from package.models.evaluation import PropertyEvaluation, LandPricePotential
 from django.utils import timezone
@@ -26,14 +27,19 @@ class DummyProperty:
 
 def test_detect_structure_type():
     assert detect_structure_type("RC造") == "RC"
+    assert detect_structure_type("SRC造") == "SRC"
+    assert detect_structure_type("鉄骨鉄筋コンクリート造") == "SRC"
     assert detect_structure_type("木造2階建") == "W"
     assert detect_structure_type("軽量鉄骨造") == "S"
+    assert detect_structure_type("その他不明構造") == "W"
     assert detect_structure_type(None) == "W"
 
 def test_parse_chikunen():
     current_year = timezone.now().year
     assert parse_chikunen("2016年10月") == current_year - 2016
     assert parse_chikunen("平成10年") == current_year - 1998
+    assert parse_chikunen("築14年") == 14
+    assert parse_chikunen("不明") == 20
     assert parse_chikunen(None) == 20
 
 def test_calculate_loan_term():
@@ -65,6 +71,8 @@ def test_evaluate_investment_property():
     )
     
     eval_rec = evaluate_investment_property(prop, eval_rec)
+    from package.ml.features.reference_data import reset_reference_caches
+    reset_reference_caches()
     
     # 期待値の計算検証
     # 土地: 100 * 50万 = 5000万 = 5000万円
@@ -81,3 +89,4 @@ def test_evaluate_investment_property():
     assert eval_rec.coc_return > Decimal("0.0")
     assert eval_rec.total_investment_score > 0
     assert eval_rec.investment_score == eval_rec.total_investment_score
+    assert get_average_land_price("存在しない県", "存在しない市") == 100000

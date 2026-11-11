@@ -8,8 +8,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from package.ml.constants import ALGOS
+from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
 from package.ml.training.metrics import calculate_mape
 from package.ml.training.regressors import get_regressor
+from package.ml.training.target_encoding import MicroLocationTargetEncoder
 from package.ml.training.tuning import tune_hyperparameters
 from scipy.optimize import minimize
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -28,10 +30,17 @@ GROUP_CANDIDATE_COLS: tuple[str, ...] = (
 class TrainedEnsemble(dict):
     """学習済みアンサンブルモデル構造体"""
 
-    def __init__(self, models: dict[str, Any], weights: dict[str, float] | None = None, smearing_factor: float = 1.0):
+    def __init__(
+        self,
+        models: dict[str, Any],
+        weights: dict[str, float] | None = None,
+        smearing_factor: float = 1.0,
+        location_encoder: Any = None,
+    ):
         super().__init__(models)
         self.weights = weights or {}
         self.smearing_factor = smearing_factor
+        self.location_encoder = location_encoder
 
 
 def _fill_empty_labels_with_singletons(vals: pd.Series) -> np.ndarray:
@@ -357,26 +366,39 @@ def train_and_compare(
     sample_weight: np.ndarray | None = None,
 ) -> TrainedEnsemble:
     """複数アルゴリズムの学習・CV比較・最適重み算出・アンサンブル構築"""
-    X, y = prepare_features_and_target(df, feature_cols)
-    groups = _resolve_group_labels(df)
-    rkf, cv_desc = get_cv_strategy(df, groups=groups)
+    df_work = df.copy()
+    groups = _resolve_group_labels(df_work)
+    rkf, cv_desc = get_cv_strategy(df_work, groups=groups)
+    y_raw = pd.Series(np.log1p(df_work["price"] / df_work["area"]), index=df_work.index)
+    loc_encoder = MicroLocationTargetEncoder(smoothing=8.0)
+    oof_chome, oof_st = loc_encoder.fit_transform_oof(
+        df_work, y_raw, rkf, groups=groups, sample_weight=sample_weight
+    )
+    df_work["chome_oof_unit_price"] = oof_chome
+    df_work["station_walk_oof_unit_price"] = oof_st
+    ptype_hint = "tochi" if stage_name.strip().lower().startswith("tochi") else ""
+    df_work["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(df_work, property_type=ptype_hint)
+
+    X, y = prepare_features_and_target(df_work, feature_cols)
     algos = list(ALGOS)
 
     logger.info("\n--- Tuning & Cross-Validating models for Stage: %s (%s) ---", stage_name, cv_desc)
 
-    oof_preds = {name: np.zeros(len(df)) for name in algos}
-    oof_counts = {name: np.zeros(len(df)) for name in algos}
+    oof_preds = {name: np.zeros(len(df_work)) for name in algos}
+    oof_counts = {name: np.zeros(len(df_work)) for name in algos}
     trained_models = {}
     for name in algos:
         trained_models[name] = train_single_algo(
-            name, X, y, df, rkf, sample_weight, feature_cols, oof_preds, oof_counts, groups=groups
+            name, X, y, df_work, rkf, sample_weight, feature_cols, oof_preds, oof_counts, groups=groups
         )
 
     optimal_weights, opt_w, oof_unit_preds = optimize_ensemble_weights(
-        df, oof_preds, oof_counts, algos, sample_weight=sample_weight
+        df_work, oof_preds, oof_counts, algos, sample_weight=sample_weight
     )
     smearing_factor = compute_smearing_factor(
-        df, oof_unit_preds, opt_w, sample_weight=sample_weight
+        df_work, oof_unit_preds, opt_w, sample_weight=sample_weight
     )
 
-    return TrainedEnsemble(trained_models, optimal_weights, smearing_factor)
+    return TrainedEnsemble(
+        trained_models, optimal_weights, smearing_factor, location_encoder=loc_encoder
+    )

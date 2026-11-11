@@ -90,3 +90,115 @@ def test_model_registry_parallel_loading_no_duplicate(tmp_path, monkeypatch):
     # ALGOS 分 (4 回) のみロードされ、10 スレッド並列でも二重ロードされないこと
     assert load_counts == 4
 
+
+def test_model_registry_location_encoders_and_disk_artifacts(tmp_path):
+    import joblib
+
+    joblib.dump({"tochi": {"first": "enc_first", "second": "enc_second"}}, tmp_path / "location_encoders.joblib")
+    joblib.dump({"mansion": {"first": 1.12}}, tmp_path / "smearing_factors.joblib")
+    joblib.dump({"mansion": {"first": {"lgb": 1.0}}}, tmp_path / "ensemble_weights.joblib")
+    joblib.dump({("東京都", "港区", "mansion", 0): 180.0}, tmp_path / "mkt_comparison_master.joblib")
+
+    reg = ModelRegistry(model_dir=str(tmp_path))
+    assert reg.location_encoder("tochi", "first_stage") == "enc_first"
+    assert reg.location_encoder("tochi", "second_stage") == "enc_second"
+    assert reg.location_encoder("mansion", "first_stage") is None
+    assert reg.smearing("mansion", "first_stage") == 1.12
+    assert reg.weights("mansion", "first_stage") == {"lgb": 1.0}
+    assert ("東京都", "港区", "mansion", 0) in reg.market_master()
+
+    reg.set_custom_location_encoders({"mansion": {"first": "custom_enc"}})
+    assert reg.location_encoder("mansion", "first") == "custom_enc"
+    reg.clear()
+    # clear後は再度ディスクから遅延ロードされる
+    assert reg.location_encoder("tochi", "first") == "enc_first"
+
+
+def test_model_registry_stage_normalization_and_legacy_fallback(tmp_path, monkeypatch):
+    import joblib
+
+    monkeypatch.setattr(mr_module, "ensure_models_available", lambda _: None)
+    reg = ModelRegistry(model_dir=str(tmp_path))
+    assert reg._normalize_stage("First") == "first_stage"
+    assert reg._normalize_stage("SECOND") == "second_stage"
+    assert reg._normalize_stage("custom") == "custom"
+
+    # first と second が別キャッシュキーとして独立管理されること
+    reg.set_custom_models("tochi", "first", {"lgb": _DummyModel(1.0)})
+    reg.set_custom_models("tochi", "second", {"lgb": _DummyModel(2.0)})
+    reg.set_custom_models("tochi", "custom", {"lgb": _DummyModel(3.0)})
+    assert reg.models("tochi", "first_stage")["lgb"].val == 1.0
+    assert reg.models("tochi", "second_stage")["lgb"].val == 2.0
+    assert reg.models("tochi", "custom")["lgb"].val == 3.0
+
+    # レガシーモデルファイル (`*_model.joblib`) は lgb のみフォールバックロードされ、他 algo ではロードされないこと
+    joblib.dump(_DummyModel(99.0), tmp_path / "kodate_first_stage_model.joblib")
+    loaded = reg.models("kodate", "first")
+    assert set(loaded.keys()) == {"lgb"}
+    assert loaded["lgb"].val == 99.0
+
+
+def test_default_registry_singleton_and_ensure_models_available(tmp_path, monkeypatch, caplog):
+    import logging
+
+    orig = mr_module._DEFAULT_REGISTRY
+    try:
+        mr_module.set_default_registry(None)
+        r1 = mr_module.get_default_registry()
+        assert isinstance(r1, ModelRegistry)
+        custom = ModelRegistry(model_dir=str(tmp_path))
+        mr_module.set_default_registry(custom)
+        assert mr_module.get_default_registry() is custom
+    finally:
+        mr_module.set_default_registry(orig)
+
+    # 1) model_dir=None の既定パス分岐（既存joblibあり相当で早期リターンさせる）
+    monkeypatch.setattr(mr_module.os, "makedirs", lambda *_a, **_k: None)
+    seen_dirs = []
+
+    def fake_listdir_nonempty(d):
+        seen_dirs.append(d)
+        return ["existing.joblib"]
+
+    monkeypatch.setattr(mr_module.os, "listdir", fake_listdir_nonempty)
+    mr_module.ensure_models_available(model_dir=None)
+    assert len(seen_dirs) == 1 and seen_dirs[0].endswith("models")
+    monkeypatch.undo()
+
+    # 2) 空ディレクトリからのダウンロード成功ログ ("Successfully downloaded") と 0件警告ログ ("No models found")
+    dl_dir = tmp_path / "dl1"
+    downloaded_pairs = []
+
+    class _FakeStorage:
+        def __init__(self, files):
+            self._files = files
+
+        def list_files(self, prefix):
+            assert prefix == "ml_models/"
+            return self._files
+
+        def download_file(self, key, dest):
+            downloaded_pairs.append((key, dest))
+
+    monkeypatch.setattr(
+        mr_module,
+        "get_storage_manager",
+        lambda: (_ for _ in ()).throw(AssertionError("default getter must not be called when custom getter is passed")),
+    )
+    with caplog.at_level(logging.INFO):
+        mr_module.ensure_models_available(
+            model_dir=str(dl_dir),
+            storage_manager_getter=lambda: _FakeStorage(["ml_models/a.joblib", "ml_models/readme.txt"]),
+        )
+    assert len(downloaded_pairs) == 1
+    assert "Successfully downloaded 1 models" in caplog.text
+
+    caplog.clear()
+    dl_dir2 = tmp_path / "dl2"
+    with caplog.at_level(logging.WARNING):
+        mr_module.ensure_models_available(
+            model_dir=str(dl_dir2),
+            storage_manager_getter=lambda: _FakeStorage([]),
+        )
+    assert "No models found in storage prefix" in caplog.text
+

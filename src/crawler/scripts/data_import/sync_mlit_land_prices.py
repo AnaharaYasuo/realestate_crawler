@@ -1,21 +1,26 @@
-# -*- coding: utf-8 -*-
-import os
-import sys
 import json
-import requests
 import logging
+import os
 import re
+import sys
 from collections import defaultdict
 
 # Django環境のロード
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import realestateSettings
+
 realestateSettings.configure()
 
 from package.models.evaluation import LandPricePotential
+from package.utils.mlit_transaction_data import (
+    PREF_CODE_TO_NAME,
+    REINFOLIB_XIT001_URL,
+    fetch_reinfolib_xit001_trades,
+)
 
-# 国土交通省 不動産取引価格情報取得APIエンドポイント
-MLIT_API_URL = "https://www.land.mlit.go.jp/webland/api/TradeListSearch"
+# 国土交通省 不動産情報ライブラリ 不動産価格情報取得APIエンドポイント (旧 webland 廃止に伴う移行)
+MLIT_API_URL = REINFOLIB_XIT001_URL
+logger = logging.getLogger(__name__)
 
 def safe_path(path: str) -> str:
     """Return the canonical path when it is within the working or repository tree.
@@ -32,96 +37,72 @@ def safe_path(path: str) -> str:
     return resolved
 
 
-def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=None):
-    """Aggregate MLIT trade data and upsert average land prices by municipality.
+def _classify_use_for_potential(raw_use: str) -> str | None:
+    if "住宅" in raw_use:
+        return "residential"
+    if any(k in raw_use for k in ("商業", "店舗", "事務所")):
+        return "commercial"
+    return None
 
-    Data is loaded from ``json_path`` when supplied, or from the MLIT API using
-    ``pref_code`` and ``year_quarter`` otherwise.
 
-    Returns:
-        bool: ``True`` after a successful sync; ``False`` on missing data or an
-        API, file, parsing, or database error.
-    """
-    trade_list = []
+def _extract_city_use_unit_price(trade: dict) -> tuple[str, str, float] | None:
+    city = str(trade.get("Municipality") or trade.get("City") or "").strip()
+    land_use = _classify_use_for_potential(str(trade.get("Use", "")))
+    if not city or not land_use:
+        return None
     try:
-        if json_path:
-            clean_path = safe_path(json_path)
-            logging.info(f"Loading real estate trade data from local JSON file: {clean_path}...")
-            with open(clean_path, encoding='utf-8') as f:
-                data = json.load(f)
-                trade_list = data.get("data", [])
-        else:
-            logging.info(f"Fetching real estate trade data from MLIT API for prefecture={pref_code}, quarter={year_quarter}...")
-            params = {
-                "from": year_quarter,
-                "to": year_quarter,
-                "area": pref_code
-            }
-            response = requests.get(MLIT_API_URL, params=params, timeout=45)
-            if response.status_code != 200:
-                logging.error(f"MLIT API returned HTTP status {response.status_code}")
-                return False
-            data = response.json()
-            trade_list = data.get("data", [])
-            
+        price = float(trade.get("TradePrice", "0"))
+        area_match = re.search(r"([\d.]+)", str(trade.get("Area", "0")))
+        if not area_match:
+            return None
+        area = float(area_match.group(1))
+        if area <= 0:
+            return None
+        unit_price = price / area
+        if not (10000 <= unit_price <= 10000000):
+            return None
+        return city, land_use, unit_price
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _load_mlit_trade_list(pref_code: str, year_quarter: str, json_path: str | None) -> list[dict]:
+    if json_path:
+        clean_path = safe_path(json_path)
+        logger.info("Loading real estate trade data from local JSON file: %s...", clean_path)
+        with open(clean_path, encoding="utf-8") as f:
+            return json.load(f).get("data", [])
+    api_key = os.environ.get("REINFOLIB_API_KEY", "").strip()
+    yq = str(year_quarter)
+    yr = int(yq[:4]) if len(yq) >= 4 else 2024
+    qtr = int(yq[4:5]) if len(yq) >= 5 else None
+    logger.info(
+        "Fetching real estate trade data from MLIT Reinfolib XIT001 for prefecture=%s, year=%s, quarter=%s...",
+        pref_code, yr, qtr,
+    )
+    return fetch_reinfolib_xit001_trades(api_key, str(pref_code), yr, quarter=qtr, timeout=45.0)
+
+
+def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=None):
+    """Aggregate MLIT trade data and upsert average land prices by municipality."""
+    try:
+        trade_list = _load_mlit_trade_list(str(pref_code), str(year_quarter), json_path)
         if not trade_list:
-            logging.warning("No trade data returned.")
+            logger.warning("No trade data returned.")
             return False
-            
-        logging.info(f"Successfully loaded {len(trade_list)} trade records. Commencing aggregation...")
-        
-        # 市区町村×用途区分ごとの (平米単価の合計, レコード数) を集計
-        # key: (prefecture, city, land_use)
+
+        logger.info("Successfully loaded %d trade records. Commencing aggregation...", len(trade_list))
         stats = defaultdict(lambda: [0.0, 0])
-        
-        pref_name_map = {
-            "11": "埼玉県", "12": "千葉県", "13": "東京都", "14": "神奈川県", "23": "愛知県"
-        }
-        pref_name = pref_name_map.get(pref_code, "東京都")
-        
+        pref_name = PREF_CODE_TO_NAME.get(str(pref_code).zfill(2), "東京都")
+
         for trade in trade_list:
-            # 市区町村
-            city = trade.get("City", "").strip()
-            if not city:
+            parsed = _extract_city_use_unit_price(trade)
+            if parsed is None:
                 continue
-                
-            # 用途区分 (住宅地 / 商業地)
-            raw_use = trade.get("Use", "")
-            if "住宅" in raw_use:
-                land_use = "residential"
-            elif "商業" in raw_use or "店舗" in raw_use or "事務所" in raw_use:
-                land_use = "commercial"
-            else:
-                continue
-                
-            # 取引価格
-            price_str = trade.get("TradePrice", "0")
-            # 面積
-            area_str = trade.get("Area", "0")
-            
-            try:
-                price = float(price_str)
-                # 面積に「㎡」等の文字が含まれる場合があるため、数値部分のみ抽出
-                area_match = re.search(r'([\d.]+)', str(area_str))
-                if not area_match:
-                    continue
-                area = float(area_match.group(1))
-                if area <= 0:
-                    continue
-                    
-                # 平米単価 (円/㎡)
-                unit_price = price / area
-                
-                # 異常値の除外（極端な単価は集計バグや特殊取引のため除外）
-                if unit_price < 10000 or unit_price > 10000000:
-                    continue
-                    
-                key = (pref_name, city, land_use)
-                stats[key][0] += unit_price
-                stats[key][1] += 1
-            except Exception:
-                # パースエラーは無視して続行
-                continue
+            city, land_use, unit_price = parsed
+            key = (pref_name, city, land_use)
+            stats[key][0] += unit_price
+            stats[key][1] += 1
                 
         # データベースにマスタとして保存・洗い替え
         saved_count = 0
@@ -152,8 +133,8 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
         print(f"MLIT API Sync: Successfully updated {saved_count} municipality land price records in database.")
         return True
         
-    except Exception as e:
-        logging.exception(f"Failed to sync land prices from MLIT API: {e}")
+    except Exception:
+        logger.exception("Failed to sync land prices from MLIT API")
         return False
 
 if __name__ == "__main__":

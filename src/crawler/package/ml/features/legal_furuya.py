@@ -17,8 +17,9 @@ _COMBINED_TEXT_ATTRS: tuple[str, ...] = (
     'raw_html', 'rawHtml', 'detail_html', 'page_html',
     'tochikenri', 'biko', 'kuiki', 'cityPlanning', 'toshiKeikaku',
     'youtoChiiki', 'propertyName', 'setsudou', 'roadStructure', 'douro',
-    'notes', 'bikou', 'genkyo', 'currentStatus', 'kenchikuJoken',
+    'notes', 'bikou', 'remarks', 'note', 'genkyo', 'currentStatus', 'kenchikuJoken',
     'chisei', 'chimokuChisei', 'boukaChiiki', 'chiikiChiku', 'saikenchiku',
+    'setsubi', 'equipment', 'facilities', 'gas', 'suidou', 'gesui', 'sokuryo',
 )
 
 
