@@ -635,6 +635,60 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 4. **お宝物件Slack通知・AI定性鑑定コンテキスト（`send_recommendations.py`, `report_generator.py`）**:
    - Slack通知メッセージの「💰 価格・割安度（3面アプローチ）」セクションに DCF理論価格および期待表面/実質利回り（想定年間賃料）を併記し、比較法（ML予測）・原価法（積算価格）・収益還元法（10年DCF価格）の鑑定3面アプローチを表示する（数値計算自体はAI不使用、上位選抜後のレポート生成プロンプトには客観参照値として供給）。
 
+---
+
+## 14. 公的地点地価空間KNN・階層型OOF・Anchor-Residual学習による全物件＆土地価格推定高度化仕様 (Issue #1360)
+
+土地（`tochi`）における「市区町村平均地価への圧縮によるミクロ立地解像度の欠落」「間口誤抽出・欠損デフォルト汚染・セットバックによる目的変数分母の歪み」「面積非依存の固定控除コスト（インフラ引込・擁壁造成・解体費）の未反映」「単一木モデルによる300倍レンジのゼロベース単価回帰の限界」を抜本解消し、**AI（LLM / VLM）従量課金を一切発生させない100%決定論的手法**で全物件種別（`mansion`, `kodate`, `apartment`, `tochi`）の推定精度を底上げする。
+
+### 14.1 AI画像課金の完全抑止と土地二次モデル特徴量の適正化
+- 土地（`tochi`）には建物の内装（`interior_score`）および間取り（`layout_score`）が存在しないため、`FEATURE_SETS["tochi"]["second"]` から `interior_score`, `layout_score` を撤廃する。
+- インライン評価パイプライン（`ParseDetailPageAsyncBase._perform_inline_ml_evaluation` / `_run_stage2_and_notify`）において、`property_type == "tochi"` の場合は有料の Gemini Vision 写真解析を実行せず、決定論的二次モデル推論のみで完結させる。
+
+### 14.2 公的地点地価マスタ（`LandPricePointPotential`：L01地価公示＋L02都道府県地価調査）＆ 空間KNN補間
+1. **地点別地価マスタの新設（Migration `0071_add_land_price_point_potential.py`）**:
+   - 国土数値情報の地価公示（L01）および都道府県地価調査（L02）の全調査地点について、座標を破棄せず `land_price_point_potential` テーブルへ保持する。
+   - 保持属性: `point_code`（一意識別子）、`survey_type`（`L01`/`L02`）、`prefecture`、`city`、`chome_key`（正規化町丁目キー）、`latitude`、`longitude`、`land_price`（円/㎡）、`growth_rate`（%）、`land_use`（`residential`/`commercial`）、`zone_name`、`road_width`（m）、`station_name`、`station_distance_m`（m）、`has_gas`、`has_water`、`has_sewer`。
+2. **国土地理院（GSI）無料ジオコーダ＆インメモリ空間KNN/IDW補間（`query_micro_land_price_features`）**:
+   - 物件の緯度経度（または正規化町丁目 `chome_key` 一致地点の重心・駅座標）を用い、同一用途区分の近傍標準地（最大 $k=5$ 地点）から Haversine 距離減衰重み $w_k = 1 / (d_k + 0.15\text{km})^2$ による逆距離加重（IDW）補間単価を算出する（地点マスタ未ロード時は市区町村基準地価へ安全にフォールバック）。
+   - 全物件種別へ以下のミクロ空間特徴量を供給する：
+     - `micro_land_price`: 町丁目一致＋空間KNN逆距離加重によるミクロ基準地価（円/㎡）
+     - `micro_to_muni_land_ratio`: 市区町村平均地価に対するミクロ立地倍率（$\text{micro\_land\_price} / \max(1, \text{average\_land\_price})$）
+     - `chome_infra_score`: 該当町丁目・周辺標準地における都市ガス・上下水道整備スコア（0.0〜1.0）
+
+### 14.3 階層型 Empirical-Bayes OOF Target Encoding の学習・永続化・推論統合 (`MicroLocationTargetEncoder`)
+- `package/ml/training/target_encoding.py` にて、`GroupKFold` 分割および時間減衰サンプル重み（`sample_weight`）を厳守したリークゼロの階層型 Empirical-Bayes 縮小推定エンコーダを実装する：
+  1. `chome_oof_unit_price`: `chome_group` ➔ `(prefecture, city)` ➔ `prefecture` ➔ 全体平均へ段階的に縮小平滑化した対数平米単価アンカー。
+  2. `station_walk_oof_unit_price`: `(station, walk_band)`（徒歩5分以内 / 6〜10分 / 11〜15分 / 16分超・バス便）単位の平滑化対数平米単価アンカー。
+- 学習完了時に全学習データでフィットしたエンコーダ辞書を `location_encoders.joblib` として保存し、`ModelRegistry` および `predictor.py` が推論時に自動適用する。
+
+### 14.4 パーサー間口抽出修正・目的変数分母保護・非課金テキスト固定費構造化
+1. **間口（`maguchi`）と前面道路幅員（`road_width`）の混同根絶 ＆ 欠損フラグ導入**:
+   - `TochiParserBase._extract_maguchi_decimal` および `appraisal._fallback_road_dimensions` において、「北側 幅員4.0m 公道 接面8.5m」のような接道文字列から先頭の幅員数値を間口として誤抽出する不具合を修正し、`間口`・`接面`・`接道長` 明示キーワードを優先抽出する。
+   - 実測値が存在せず標準値（間口6.0m・幅員4.0m）で補完したことを示す明示フラグ `is_maguchi_missing`, `is_road_width_missing` を `tochi`, `kodate`, `apartment` に追加する。
+2. **公簿/契約面積（`area`）と有効敷地面積（`effective_tochi_menseki`）の分離**:
+   - 土地（`tochi`）の目的変数 $y = \log(1 + \text{price} / \text{area})$ の分母 `area` にはセットバック控除前の公簿・実測土地面積（`tochiMenseki`）を一貫保持し、セットバック控除後の建築有効面積は `effective_tochi_menseki` として独立供給することで、学習・推論間の分母変動ノイズを排除する。
+3. **非課金テキスト構造化による固定控除コスト（$\Delta C$）と敷地リスク特徴量**:
+   - 備考・設備・地勢・接道テキストから決定論的ルールにより以下を算出する：
+     - `infra_connection_score`, `estimated_infra_cost_man`: 本下水/浄化槽・都市ガス/プロパン・上下水道引込要否と推定引込工事費（万円）
+     - `elevation_diff_m`, `retaining_wall_cost_man`: 道路高低差（m）および擁壁・造成・がけ条例リスクに伴う推定造成工事費（万円）
+     - `estimated_fixed_cost_man`, `fixed_cost_per_sqm`: 解体費＋インフラ引込費＋擁壁造成費の合計固定控除額（万円）および面積あたり控除単価（$\Delta C / A$、万円/㎡）
+     - `is_measured_boundary`: 確定測量済・境界明示フラグ
+     - `is_cul_de_sac_road`: 行き止まり私道・位置指定道路奥（袋小路）フラグ
+     - `is_special_sale_share`: 共有持分売買・底地のみ・資材置場等の特殊取引フラグ
+
+### 14.5 クロス種別残余法アンカー・Anchor-Residual 学習・基準単価比クレンジング
+1. **クロス種別経済アンカー特徴量**:
+   - `dcf_theoretical_value`: 第13章の決定論的10年DCFエンジンによる理論価格（万円）を全種別のML特徴量へ統合。
+   - `kodate_residual_land_value`: 取引事例マスタに集計した同一エリアの新築/築浅戸建て相場価格から標準建築原価・分譲粗利を控除した「戸建て残余法理論土地価格（万円）」。
+   - `subdivision_potential_score`: 敷地面積と間口から2区画・3区画の建売分割が可能か、あるいは実需グロス上限超過かを判定する区割りポテンシャル指標。
+2. **`AnchorResidualEstimator` による基準単価残差学習（全種別対応）**:
+   - ミクロ基準地価・取引事例単価・固定費控除単価（`fixed_cost_per_sqm`）・権利/調整区域補正を統合したネット基準対数単価 `anchor_log_unit_price` を算出。
+   - 各ベースモデル（LightGBM / XGBoost / CatBoost / RandomForest）を `AnchorResidualEstimator` でラップし、学習時は個別格差残差 $r_i = y_i - a_i$ をフィット、推論時は $\hat{y}_i = \max(0, a_i + \hat{r}_i)$ を返すことで、既存のアンサンブル重み最適化・Duan's Smearing・$P_{10}$ お宝スコア算出と100%互換を保ったまま地域水準暗記負荷を解消する。
+3. **基準単価比（Anchor-Ratio）クレンジング (`clean_training_data`)**:
+   - 全国一律の `price`/`area` IQR除外で都心高額物件が誤除外されたり地方の異常売出値・持分売買が残存する問題に対し、`is_special_sale_share` の除外およびエリア基準単価比（$\text{unit\_price} / u_{\text{anchor}}$）の極端な外れ値フィルタを導入する。
+
+
 
 
 

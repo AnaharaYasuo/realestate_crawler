@@ -16,6 +16,7 @@ from package.ml.features.constants import (
 from package.ml.features.reference_records import (
     CapRateBenchmarkRecord,
     HazardMapRecord,
+    LandPricePointRecord,
     LandPriceRecord,
     MacroEconomicRecord,
     MunicipalRecord,
@@ -238,7 +239,9 @@ def _clear_all_caches() -> None:
                   _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache,
                   _future_pop_cache, _future_pref_cache, _muni_yearly_cache, _muni_yearly_pref_cache,
                   _station_yearly_cache, _urban_zone_cache, _urban_zone_pref_cache,
-                  _rent_market_cache, _cap_rate_cache):
+                  _rent_market_cache, _cap_rate_cache,
+                  _lp_points_by_chome, _lp_points_by_town, _lp_points_by_city,
+                  _lp_points_by_pref, _lp_points_by_station):
         cache.clear()
 
 
@@ -257,6 +260,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
     from package.models.evaluation import (
         CapRateBenchmarkPotential,
         HazardMapPotential,
+        LandPricePointPotential,
         LandPricePotential,
         MacroEconomicIndex,
         MunicipalPotential,
@@ -282,6 +286,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
                 UrbanInductionZoneMaster,
             )
             loaded |= _init_rent_and_cap_rate_caches(RentMarketPotential, CapRateBenchmarkPotential)
+            loaded |= _init_lp_point_cache(LandPricePointPotential)
             _caches_initialized = True
         except Exception as e:
             logger.warning("ML: _init_global_caches failed to load potential caches (falling back): %s", e)
@@ -1013,3 +1018,193 @@ def query_cap_rate_benchmark(
             return picked
     return None
 
+
+
+# =========================================================================
+# Issue #1360: 地価公示(L01)・地価調査(L02) 地点座標KNN & 町丁目ミクロ地価エンジン
+# =========================================================================
+_lp_points_by_chome: dict[str, list[LandPricePointRecord]] = {}
+_lp_points_by_town: dict[str, list[LandPricePointRecord]] = {}
+_lp_points_by_city: dict[tuple[str, str], list[LandPricePointRecord]] = {}
+_lp_points_by_pref: dict[str, list[LandPricePointRecord]] = {}
+_lp_points_by_station: dict[tuple[str, str], list[LandPricePointRecord]] = {}
+_TRAILING_CHOME_DIGITS_RE = re.compile(r"\d+$")
+
+
+def _strip_chome_digits(chome_key: str) -> str:
+    return _TRAILING_CHOME_DIGITS_RE.sub("", chome_key or "").strip()
+
+
+def _index_land_price_point(rec: LandPricePointRecord) -> None:
+    if rec.chome_key:
+        _lp_points_by_chome.setdefault(rec.chome_key, []).append(rec)
+        town_key = _strip_chome_digits(rec.chome_key)
+        if town_key:
+            _lp_points_by_town.setdefault(town_key, []).append(rec)
+    _lp_points_by_city.setdefault((rec.prefecture, rec.city), []).append(rec)
+    _lp_points_by_pref.setdefault(rec.prefecture, []).append(rec)
+    st_clean = _clean_station_query(rec.station_name)
+    if st_clean:
+        _lp_points_by_station.setdefault((rec.prefecture, st_clean), []).append(rec)
+
+
+def _init_lp_point_cache(lp_point_cls: Any) -> bool:
+    if _lp_points_by_pref:
+        return False
+    try:
+        rows = lp_point_cls.objects.values(
+            "prefecture", "city", "chome_key", "latitude", "longitude",
+            "land_price", "growth_rate", "land_use", "road_width",
+            "station_name", "station_distance_m", "has_gas", "has_water", "has_sewer",
+        )
+        for r in rows:
+            rec = LandPricePointRecord(
+                prefecture=r["prefecture"],
+                city=r["city"],
+                chome_key=r["chome_key"] or "",
+                latitude=float(r["latitude"]),
+                longitude=float(r["longitude"]),
+                land_price=int(r["land_price"]),
+                growth_rate=_opt_float(r["growth_rate"]),
+                land_use=r["land_use"] or "residential",
+                road_width=_opt_float(r["road_width"]),
+                station_name=r["station_name"] or "",
+                station_distance_m=_opt_int(r["station_distance_m"]),
+                has_gas=bool(r["has_gas"]),
+                has_water=bool(r["has_water"]),
+                has_sewer=bool(r["has_sewer"]),
+            )
+            _index_land_price_point(rec)
+    except Exception as exc:
+        logger.debug("ML: _init_lp_point_cache skipped: %s", exc)
+    return bool(_lp_points_by_pref)
+
+
+def set_land_price_point_cache_for_test(records: Sequence[LandPricePointRecord]) -> None:
+    """単体テスト用: インメモリ地点地価キャッシュを直接差し替える。"""
+    with _cache_lock:
+        for cache in (
+            _lp_points_by_chome, _lp_points_by_town,
+            _lp_points_by_city, _lp_points_by_pref, _lp_points_by_station,
+        ):
+            cache.clear()
+        for rec in records:
+            _index_land_price_point(rec)
+
+
+def _point_infra_score(rec: LandPricePointRecord) -> float:
+    return (0.35 if rec.has_gas else 0.0) + (0.30 if rec.has_water else 0.0) + (0.35 if rec.has_sewer else 0.0)
+
+
+def _point_use_weight(rec: LandPricePointRecord, comm_weight: float) -> float:
+    if rec.land_use == "commercial":
+        return 0.25 + 0.75 * comm_weight
+    return 0.25 + 0.75 * (1.0 - comm_weight)
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r_km = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2.0) ** 2
+    )
+    return 2.0 * r_km * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _aggregate_weighted_points(
+    weighted_pts: Sequence[tuple[LandPricePointRecord, float]],
+    fallback_price: int,
+) -> tuple[int, float]:
+    total_w = sum(w for _, w in weighted_pts)
+    if total_w <= 0.0:
+        return fallback_price, 1.0 if fallback_price >= 250000 else 0.85
+    price_val = round(sum(rec.land_price * w for rec, w in weighted_pts) / total_w)
+    infra_val = round(sum(_point_infra_score(rec) * w for rec, w in weighted_pts) / total_w, 4)
+    return max(1000, int(price_val)), infra_val
+
+
+def _knn_interpolate_points(
+    candidates: Sequence[LandPricePointRecord],
+    lat: float,
+    lon: float,
+    comm_weight: float,
+    k: int = 5,
+    max_dist_km: float = 15.0,
+) -> list[tuple[LandPricePointRecord, float]]:
+    scored: list[tuple[float, LandPricePointRecord]] = []
+    for rec in candidates:
+        dist_km = _haversine_km(lat, lon, rec.latitude, rec.longitude)
+        if dist_km <= max_dist_km:
+            scored.append((dist_km, rec))
+    if not scored:
+        return []
+    scored.sort(key=lambda pair: pair[0])
+    top_k = scored[:k]
+    return [
+        (rec, _point_use_weight(rec, comm_weight) / ((dist_km + 0.15) ** 2))
+        for dist_km, rec in top_k
+    ]
+
+
+def query_micro_land_price_features(
+    prefecture: str,
+    city: str,
+    chome_group: str,
+    max_youseki: float,
+    fallback_muni_price: int,
+    station_name: str = "",
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> tuple[int, float]:
+    """
+    座標KNN(IDW) ➔ 町丁目完全一致 ➔ 大字・町名一致 ➔ 最寄駅一致 ➔ 市区町村基準地価の順で
+    ミクロ地価単価 `micro_land_price` (円/㎡) とインフラ整備度 `chome_infra_score` (0.0〜1.0) を算出する。
+    """
+    _init_global_caches()
+    comm_w = _calculate_commercial_weight(max_youseki)
+    pref = (prefecture or "").strip()
+    cty = (city or "").strip()
+
+    # 1. 緯度経度がある場合は空間KNN（逆距離二乗加重 IDW）を最優先
+    if latitude is not None and longitude is not None:
+        pool = _lp_points_by_pref.get(pref) or [
+            rec for pts in _lp_points_by_pref.values() for rec in pts
+        ]
+        knn_weighted = _knn_interpolate_points(pool, float(latitude), float(longitude), comm_w)
+        if knn_weighted:
+            return _aggregate_weighted_points(knn_weighted, fallback_muni_price)
+
+    # 2. 町丁目キー完全一致
+    chome_pts = _lp_points_by_chome.get(chome_group or "")
+    if chome_pts:
+        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in chome_pts]
+        return _aggregate_weighted_points(weighted, fallback_muni_price)
+
+    # 3. 丁目番号を除いた町名一致（例: 成城99 ➔ 成城）
+    town_key = _strip_chome_digits(chome_group or "")
+    town_pts = _lp_points_by_town.get(town_key) if town_key else None
+    if town_pts:
+        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in town_pts]
+        return _aggregate_weighted_points(weighted, fallback_muni_price)
+
+    # 4. 同一都道府県・最寄駅一致
+    st_clean = _clean_station_query(station_name)
+    st_pts = _lp_points_by_station.get((pref, st_clean)) if st_clean else None
+    if st_pts:
+        city_filtered = [r for r in st_pts if not cty or r.city == cty] or st_pts
+        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in city_filtered]
+        return _aggregate_weighted_points(weighted, fallback_muni_price)
+
+    # 5. 市区町村内の地点平均 ➔ 市区町村フォールバック
+    city_pts = _lp_points_by_city.get((pref, cty))
+    if city_pts:
+        weighted = [(rec, _point_use_weight(rec, comm_w)) for rec in city_pts]
+        return _aggregate_weighted_points(weighted, fallback_muni_price)
+
+    default_infra = 1.0 if fallback_muni_price >= 250000 else 0.85
+    return int(max(1000, fallback_muni_price)), default_infra
+
+
+_query_micro_land_price_features = query_micro_land_price_features

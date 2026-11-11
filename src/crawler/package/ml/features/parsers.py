@@ -570,6 +570,23 @@ def extract_clean_address(property_obj: Any) -> tuple[str, str, str, str]:
 _GROUP_SUFFIX_RE = re.compile(r'\d{1,4}(?:号室|号|階)?$')
 _CHOME_RE = re.compile(r'(\D+?)(\d+)?(?:丁目|-)')
 _FROM_FIRST_DIGIT_RE = re.compile(r'\d.*$', re.DOTALL)
+_KANJI_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_KANJI_CHOME_NUM_RE = re.compile(r'([一二三四五六七八九十]{1,4})丁目')
+
+
+def _kanji_chome_to_arabic(text: str) -> str:
+    def _conv(m: re.Match[str]) -> str:
+        total, cur = 0, 0
+        for ch in m.group(1):
+            if ch == "十":
+                total += (cur or 1) * 10
+                cur = 0
+            else:
+                cur = _KANJI_DIGITS.get(ch, 0)
+        val = total + cur
+        return f"{val}丁目" if val > 0 else m.group(0)
+
+    return _KANJI_CHOME_NUM_RE.sub(_conv, text)
 
 
 def _normalize_group_text(text: Any) -> str:
@@ -581,13 +598,15 @@ def _normalize_group_text(text: Any) -> str:
 
 def _extract_chome(full_address: str, address1: str, address2: str) -> str:
     """住所から（都道府県・市区町村を除いた）町丁目部分を抽出する。抽出できなければ空文字。"""
-    addr = unicodedata.normalize('NFKC', full_address or '')
+    addr = _kanji_chome_to_arabic(unicodedata.normalize('NFKC', full_address or ''))
     rest = addr
     for prefix in (address1, address2):
         p = unicodedata.normalize('NFKC', prefix or '')
         if p and p in rest:
             rest = rest.split(p, 1)[1]
     rest = rest.strip()
+    if rest.startswith('大字'):
+        rest = rest[2:].strip()
     if not rest:
         return ''
     m = _CHOME_RE.match(rest)

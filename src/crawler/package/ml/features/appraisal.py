@@ -208,18 +208,54 @@ def calculate_appraisal_values(
     )
 
 
-def _fallback_road_dimensions(raw_setsudou: str, road_width: Any, maguchi: Any) -> tuple[float, float]:
+_EXPLICIT_ROAD_WIDTH_RE = re.compile(
+    r'(?:幅員|道路幅|道路|公道|私道)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'
+)
+_EXPLICIT_MAGUCHI_RE = re.compile(
+    r'(?:間口|接面|接道長)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'
+)
+_FIRST_METER_RE = re.compile(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]')
+
+
+def _extract_road_width_from_setsudou(raw_setsudou: str) -> float | None:
     if not raw_setsudou:
-        return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
-    if not road_width:
-        m_width = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
-        if m_width:
-            road_width = safe_float(m_width.group(1), None)
-    if not maguchi:
-        m_maguchi = re.search(r'(?:間口|接面|接道)\s{0,3}(?:約\s{0,3})?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', raw_setsudou)
-        if m_maguchi:
-            maguchi = safe_float(m_maguchi.group(1), None)
-    return safe_float(road_width, 4.0), safe_float(maguchi, 6.0)
+        return None
+    m_exp = _EXPLICIT_ROAD_WIDTH_RE.search(raw_setsudou)
+    if m_exp:
+        return safe_float(m_exp.group(1), None)
+    cleaned = _EXPLICIT_MAGUCHI_RE.sub('', raw_setsudou)
+    m_any = _FIRST_METER_RE.search(cleaned)
+    return safe_float(m_any.group(1), None) if m_any else None
+
+
+def _extract_maguchi_from_setsudou(raw_setsudou: str) -> float | None:
+    if not raw_setsudou:
+        return None
+    m_mag = _EXPLICIT_MAGUCHI_RE.search(raw_setsudou)
+    return safe_float(m_mag.group(1), None) if m_mag else None
+
+
+def detect_road_missingness(property_obj: Any) -> tuple[float, float]:
+    """間口 (`maguchi`) および前面道路幅員 (`road_width`) の実データ欠損フラグ (1.0=欠損補完, 0.0=実測・記載あり) を返す。"""
+    maguchi = _find_first_attr(property_obj, ('maguchi', 'setsumen', 'maguchiStr', 'setsumenStr'))
+    road_width = _find_first_attr(property_obj, ('roadWidth', 'douroHaba', 'roadWidthStr', 'douroHabaStr'))
+    raw_setsudou = f"{_get_attr(property_obj, 'setsudou', '') or ''} {_get_attr(property_obj, 'douro', '') or ''}".strip()
+
+    mag_val = safe_float(maguchi, None) or _extract_maguchi_from_setsudou(raw_setsudou)
+    rw_val = safe_float(road_width, None) or _extract_road_width_from_setsudou(raw_setsudou)
+    is_mag_missing = 0.0 if (mag_val is not None and mag_val > 0) else 1.0
+    is_rw_missing = 0.0 if (rw_val is not None and rw_val > 0) else 1.0
+    return is_mag_missing, is_rw_missing
+
+
+def _fallback_road_dimensions(raw_setsudou: str, road_width: Any, maguchi: Any) -> tuple[float, float]:
+    rw_val = safe_float(road_width, None)
+    mag_val = safe_float(maguchi, None)
+    if rw_val is None:
+        rw_val = _extract_road_width_from_setsudou(raw_setsudou)
+    if mag_val is None:
+        mag_val = _extract_maguchi_from_setsudou(raw_setsudou)
+    return safe_float(rw_val, 4.0), safe_float(mag_val, 6.0)
 
 
 def _fallback_road_classification(raw_setsudou: str, direction_str: str, type_str: str) -> tuple[str, str]:

@@ -960,7 +960,7 @@ class ParserBase(metaclass=ABCMeta):
         self._ingest_dl_specs(response, specs)
         self._ingest_table_row_specs(response, specs)
         try:
-            response._cached_specs = specs
+            setattr(response, "_cached_specs", specs)
         except (AttributeError, TypeError):
             pass
         return specs
@@ -980,7 +980,7 @@ class ParserBase(metaclass=ABCMeta):
                 f"Header row detected and skipped: priceStr={price_str!r}, address={address!r}"
             )
 
-    def _parsePropertyDetailPage(self, item, _response: BeautifulSoup):
+    def _parsePropertyDetailPage(self, item, _response: BeautifulSoup):  # type: ignore[no-redef]
         """Default base detail page parse returning the item entity."""
         self._assert_not_header_row(item)
         return item
@@ -1238,7 +1238,8 @@ class ParserBase(metaclass=ABCMeta):
         xpath_pattern = xpath_fn() if callable(xpath_fn) else ""
         price_cache: dict[int, int | None] = {}
         for link in response.find_all("a"):
-            href = link.get("href")
+            raw_href = link.get("href")
+            href = raw_href[0] if isinstance(raw_href, list) and raw_href else (raw_href if isinstance(raw_href, str) else "")
             if self._is_non_property_href(href):
                 continue
             is_class_match = "sr-card__name" in (
@@ -2159,7 +2160,7 @@ class ParserBase(metaclass=ABCMeta):
     )
 
     @classmethod
-    def _clean_notice_soup(cls, soup: BeautifulSoup) -> BeautifulSoup:
+    def _clean_notice_soup(cls, soup: Any) -> BeautifulSoup:
         clean_soup = BeautifulSoup(str(soup), "html.parser")
         noise_selectors = (
             "footer, nav, .recommend, .related, .recommend-area, .recommendations, "
@@ -2322,7 +2323,7 @@ class ParserBase(metaclass=ABCMeta):
             item.pageUrl = url
             content = await self._getContent(session, url)
             soup = self._soup_from_content(content, self.getCharset())
-            title = soup.title.string if soup.title else ""
+            title = (soup.title.string or "") if soup.title else ""
             self._raise_if_listing_ended(soup, url)
             specs = self._get_specs(soup)
             parser_to_use, item = self._maybe_switch_parser(
@@ -2809,32 +2810,54 @@ class TochiParserBase(ParserBase):
         specs = self._get_specs(response)
         return specs.get("用途地域", "")
 
-    @staticmethod
-    def _extract_maguchi_decimal(val: str) -> Decimal | None:
+    _EXPLICIT_MAGUCHI_RE = re.compile(
+        r"(?:間口|接面|接道長)\s*[:：]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]"
+    )
+    _BARE_METER_RE = re.compile(r"(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]")
+    _ROAD_WIDTH_PREFIX_RE = re.compile(r"(?:幅員|道路幅|道路)\s*[:：]?\s*(?:約\s*)?\d")
+
+    @classmethod
+    def _extract_maguchi_decimal(
+        cls, val: str, *, allow_bare_meter: bool = True
+    ) -> Decimal | None:
         if not val:
             return None
-        match = re.search(
-            "(?:(?:間口|約|幅員|道路)\\s*)?(\\d{1,5}(?:\\.\\d{1,3})?)\\s*[mｍ]", val
-        )
-        if match:
+        explicit = cls._EXPLICIT_MAGUCHI_RE.search(val)
+        if explicit:
             try:
-                return Decimal(match.group(1))
+                return Decimal(explicit.group(1))
             except Exception:
-                pass
+                return None
+        if not allow_bare_meter or cls._ROAD_WIDTH_PREFIX_RE.search(val):
+            return None
+        bare = cls._BARE_METER_RE.search(val)
+        if bare:
+            try:
+                return Decimal(bare.group(1))
+            except Exception:
+                return None
         return None
 
-    def get_maguchi(self, response: BeautifulSoup) -> Decimal | None:
+    def _resolve_maguchi_candidate(self, response: BeautifulSoup) -> tuple[str, bool]:
         specs = self._get_specs(response)
-        val = (
-            specs.get("間口", "") or specs.get("接道状況", "") or specs.get("接道", "")
-        )
-        if not val and response:
-            tag = self._getValueByLabel(response, "間口") or self._getValueByLabel(
-                response, "接道"
-            )
+        direct_val = specs.get("間口", "") or specs.get("接面", "")
+        if direct_val:
+            return direct_val, True
+        setsudou_val = specs.get("接道状況", "") or specs.get("接道", "")
+        if setsudou_val:
+            return setsudou_val, False
+        if not response:
+            return "", False
+        for label, allow_bare in (("間口", True), ("接面", True), ("接道状況", False), ("接道", False)):
+            tag = self._getValueByLabel(response, label)
             if tag:
-                val = tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
-        return self._extract_maguchi_decimal(val)
+                txt = tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
+                return txt, allow_bare
+        return "", False
+
+    def get_maguchi(self, response: BeautifulSoup) -> Decimal | None:
+        val, allow_bare = self._resolve_maguchi_candidate(response)
+        return self._extract_maguchi_decimal(val, allow_bare_meter=allow_bare)
 
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
