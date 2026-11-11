@@ -5,6 +5,7 @@
 import logging
 import time
 from typing import Any
+
 from django.db import OperationalError, close_old_connections
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ BASE_UPDATE_FIELDS = (
     "company", "property_type", "property_id", "first_stage_predicted_price",
     "is_first_stage_passed", "analysis_status", "analyzed_at", "duplicate_of", "is_slack_notified",
     "estimated_sekisan_price", "monthly_land_rent", "land_rent_liability",
+    "expected_gross_yield", "expected_net_yield", "estimated_annual_rent", "dcf_theoretical_price",
     "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
     "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
     "is_sublease", "bath_type", "gas_type", "sewage_type",
@@ -137,8 +139,8 @@ def save_chunk(
     candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type) if not skip_duplicate_check else None
 
     for item, price_stage1 in zip(chunk, predicted_prices):
-        page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-        existing = existing_eval_map.get(page_url)
+        page_url = str(getattr(item, "pageUrl", None) or getattr(item, "url", None) or "")
+        existing = existing_eval_map.get(page_url) if page_url else None
         rec, is_new = build_or_update_eval_record(
             item=item,
             price_stage1=price_stage1,

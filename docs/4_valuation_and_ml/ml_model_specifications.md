@@ -571,5 +571,70 @@ src/crawler/package/ml/evaluation/
   - `appraisal.py` の `_resolve_cap_rate` から物件自身の `gross_yield` 参照を完全撤廃し、地域の平均所得（`income`）および基準地価（`average_land_price`）のみに基づく客観的な市場期待還元利回り（都心プライム 4.0%〜地方 6.5%）によって `income_approach_value` を算出する。
   - `collect_model_classes_by_type()` において、サフィックスに `"investment"` または `"building"` を含むモデルも `apartment`（または区分主体の `MizuhoInvestment` は `mansion`）へ統合し、全投資物件データを漏れなく学習・評価パイプラインへ組み込む。
 
+---
+
+## 13. 地域・物件状態連動の期待表面/実質利回り算定 ＆ 周辺賃料ベース10年DCF理論価格逆算仕様 (Issue #1349)
+
+機械学習による取引事例アンサンブル予測価格および原価法（積算価格）に加え、投資家・不動産鑑定士の実務基準に準拠した**「期待表面利回り」「期待実質利回り（キャップレート）」「周辺賃料ベース想定年間賃料」「10年保有DCF理論価格」**を全物件種別（`mansion`, `kodate`, `apartment`, `tochi` および各投資系種別）で客観算出する（実装モジュール: `src/crawler/package/ml/dcf_valuation.py`）。
+
+> **【重要制約: AI（LLM）完全不使用・100%決定論的数理処理】**
+> 本モジュールの賃料推計・期待表面/実質利回り算定・DCF理論価格逆算は、Gemini等の生成AI・外部API呼び出しを一切行わず、事前収集された構造化マスタ（`RentMarketPotential` / `CapRateBenchmarkPotential` / 基準地価・所得・人口・駅乗降客数・ハザードマスタ）のインメモリ $O(1)$ 検索と決定論的数理計算のみで完結する。
+
+### 13.1 周辺賃料相場ベース ＋ 物件個別スペック味付けによる適正賃料推計 (`estimate_market_rent`)
+売出価格（`price`）や売主主張の想定表面利回り（`grossYield`）からの逆算リークを完全に遮断し、周辺相場と物件の物理・環境スペックから独立して適正年間満室想定賃料（`estimated_annual_rent`、円/年）を推計する。
+
+1. **ベースライン平米単価（周辺賃料アンカー）**:
+   - **第1優先（全国地域・駅別家賃相場マスタ `RentMarketPotential`）**: `query_rent_market_potential(prefecture, city, station_name, building_type, layout_type)` により、駅 ➔ 市区町村 ➔ 都道府県の階層カスケードおよび建物種別・間取り区分に応じた周辺月額賃料単価（円/㎡・月）を $O(1)$ で抽出。
+   - **第2優先（地域マクロ統計ブレンド）**: マスタ未登録時は平均公示地価（`average_land_price`）、自治体平均所得（`income`）、最寄り駅乗降客数（`passenger_volume`）、人口密度（`population_density`）の非線形合成により、都心プライム（4,500〜7,500円/㎡）から地方郊外（1,100〜1,800円/㎡）までの地域基準賃料単価を連続的に算出。
+2. **物件スペックによる味付け（補正係数群）**:
+   - **面積逓減弾力性**: 単身・コンパクト帯（25㎡前後）の平米単価プレミアムおよびファミリー・大型帯の逓減カーブ（$(50 / \text{unit\_area})^{0.12}$、上限1.25・下限0.78）。一棟アパート等で総戸数 `soukosu` が取得できる場合は1戸あたり平均専有面積を用いて単価弾力性を評価する。
+   - **築年数減価（構造別底打ちカーブ）**: RC/SRCは年率約0.75%（下限0.65）、S/LSは年率約0.90%（下限0.60）、木造は年率約1.10%（下限0.55）で減価させ、築古でもリフォーム・立地需要による底打ちを表現。
+   - **駅徒歩アクセス弾力性**: 等価徒歩分数（バス利用ペナルティ反映済 `effective_walk_min`）に応じ、駅徒歩5分以内のプレミアム（+5%）から徒歩15分超のディスカウント（最大-22%）を適用。
+   - **建物構造・遮音耐久グレード**: SRC/RC（+6%）、重量鉄骨S（+2%）、軽量鉄骨LS（0%）、木造W（-4%）。
+   - **階層・採光・内装クオリティ補正**: マンションの階数プレミアム・1階減価、南向き・角部屋プレミアム、および内装・間取り・外観メンテナンス評価スコア（`interior_score`, `layout_score`, `maintenance_score`）に応じた ±10% の賃料味付け。
+   - **土地（`tochi`）の最有効開発想定賃料**: 指定容積率・前面道路制限容積率・建ぺい率から算出した有効レンタブル延床面積（潜在延床面積 × レンタブル比 0.82）に対し、新築スペック（築0年）として開発後の想定年間満室賃料を算出。
+
+### 13.2 地域・物件状態に基づく期待実質利回り（Net Cap Rate）＆ 期待表面利回り算定 (`calculate_expected_yields`)
+1. **期待実質利回り（`expected_net_yield`, %）のボトムアップ構築**:
+   $$\text{Cap}_{\text{net}} = \text{Cap}_{\text{anchor}} + \Delta_{\text{macro}} + \text{Spread}_{\text{region}} + \text{Spread}_{\text{age\_struct}} + \text{Spread}_{\text{access}} + \text{Spread}_{\text{risk}}$$
+   - **地域キャップレート・アンカー ($\text{Cap}_{\text{anchor}}$)**: `query_cap_rate_benchmark(prefecture, city, station_name, asset_type)` により `CapRateBenchmarkPotential`（日本不動産研究所 JREI 調査・HOME'S 不動産投資・J-REIT・社内実績集計）から該当地域・アセットの基準実質利回り（NCF Cap Rate）、標準OPEX率、賃貸空室率を取得。マスタ未ヒット時はマクロ10年国債利回り連動の地域ティア基準値へフォールバック。
+   - **地域需給微調整 ($\text{Spread}_{\text{region}}$)**: 平均地価水準、自治体平均所得、2035年将来推計人口増減率、駅乗降客数、立地適正化計画区域、および国交省ハザードリスク（浸水・土砂災害警戒レベル）に応じてスプレッドを連続調整。
+   - **物件構造・経年状態スプレッド ($\text{Spread}_{\text{age\_struct}}$)**: 法定耐用年数に対する築年消化率（融資期間短縮リスク）、木造・軽量鉄骨の流動性スプレッド、旧耐震基準（+0.6%）、外観・内装状態スコア（高スコア時はリスクスプレッド圧縮、劣化時は加算）に応じて調整。
+   - **アクセス・権利・特殊瑕疵スプレッド ($\text{Spread}_{\text{access}} + \text{Spread}_{\text{risk}}$)**: 駅徒歩15分超・バス便（+0.3%〜+1.0%）、借地権（+1.2%）、再建築不可（+2.5% / 融資不可リスク）、市街化調整区域（+1.5%）、私道負担・心理的瑕疵等を加算。
+2. **空室損失率・運営経費率（OPEX率）と期待表面利回り（`expected_gross_yield`, %）への整合変換**:
+   - `CapRateBenchmarkPotential` の賃貸空室率（`rental_vacancy_rate`）をベースに築年・徒歩・立地で補正した**想定空室・未回収損失率 $v_0$**（都心築浅 3.5% 〜 地方築古 18%）、および**運営経費率 $e_0$**（PM/BM管理費、固都税、火災保険、日常修繕費。区分マンションで実額 `kanrihi` + `syuzenTsumitate` がある場合は実額比率＋固都税率を採用）を算出。
+   - ネット有効収益率（NCFマージン） $\eta = \max(0.35, (1 - v_0) - e_0 - \text{地代負担率})$ を用い、期待実質利回りから期待表面利回りを一意に導出する：
+     $$\text{Yield}_{\text{gross}} = \frac{\text{Cap}_{\text{net}}}{\eta}$$
+
+### 13.3 10年保有DCF法（割引キャッシュフロー法）による理論価格逆算 (`calculate_dcf_theoretical_price`)
+保有期間 $T = 10$ 年のキャッシュフロー予測と10年後出口価値（ターミナルバリュー）の割引現在価値合計から、適正理論価格（`dcf_theoretical_price`、万円）を算出する：
+
+$$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10}}{(1 + r)^{10}} - C_{\text{initial\_capex}}$$
+
+1. **各期ネットキャッシュフロー ($\text{NCF}_t$, $t=1,\dots,10$)**:
+   - **経年賃料下落**: 年率 $d_{\text{rent}}$（通常 $0.7\%/\text{年}$、人口増加プライムエリアは緩和、人口減少エリアは加速）で賃料が逓減：$G_t = G_0 (1 - d_{\text{rent}})^{t-1}$。
+   - **経年空室率上昇**: 初期空室率 $v_0$ から年 $+0.25\%$ ずつ緩やかに上昇（上限 25%）：$v_t = \min(0.25, v_0 + 0.0025(t-1))$。
+   - **運営経費・支払地代・資本的支出 (CapEx)**: 運営経費 $\text{OPEX}_t$、借地物件の年間地代 $L_{\text{rent}}$、および築年数に応じた期中修繕・設備交換引当（年間満室賃料の $3\%\sim 7\%$ 相当の資本的支出 CapEx）を控除し、$\text{NCF}_t = G_t(1 - v_t) - \text{OPEX}_t - L_{\text{rent}} - \text{CapEx}_t$ を算出。
+   - **初期改修・開発コスト控除 ($C_{\text{initial\_capex}}$)**: 築古・要改修状態（`renovation_budget_tier` 等）の場合は稼働開始に必要な初期リフォーム費用を控除。土地（`tochi`）の場合は最有効開発建築コスト（建築延床面積 × 構造別標準建築単価 ＋ 設計・開発諸経費、古家あり時は解体費加算）を控除する開発型DCF（残余法DCF）を適用し、下限 0 万円でクリップする。
+2. **割引率 ($r$)**:
+   - 期待実質利回り $\text{Cap}_{\text{net}}$ に10年保有期間中の流動性・キャッシュフロー不確実性スプレッド（$+0.4\%$）を加えた割引率を採用。
+3. **10年後ターミナルバリュー ($TV_{10}$)**:
+   - **収益復帰価格**: 11年目想定純収益 $\text{NCF}_{11}$ を、10年経過による老朽化・融資残存期間短縮スプレッド（$+0.5\%\sim +1.0\%$）を上乗せした**出口キャップレート ($\text{Cap}_{\text{exit}}$)** で資本還元し、売却仲介手数料・譲渡諸経費（3.5%）を控除した正味手取り復帰価格。
+   - **土地・建物残存価値アンカーとの統合**: 10年後の想定土地評価額（借地権補正・画地補正済）＋10年後建物残存価値（耐用年数超過かつ再建築可の場合は解体更地化オプション価値＝土地値−解体費）を算出し、建物老朽化後でも土地残存価値（解体費控除後）を下回らない実務的な出口価値 $TV_{10}$ を決定する。
+
+### 13.4 DB・API・お宝物件通知への統合配線
+1. **`PropertyEvaluation` スキーマ拡張（Migration `0070_add_dcf_and_expected_yield_fields.py`）**:
+   - `expected_gross_yield`: 期待表面利回り（`DecimalField(5, 2)`, %）
+   - `expected_net_yield`: 期待実質利回り（`DecimalField(5, 2)`, %）
+   - `estimated_annual_rent`: 推計適正年間賃料（`BigIntegerField`, 円/年）
+   - `dcf_theoretical_price`: 10年DCF逆算理論価格（`BigIntegerField`, 万円）
+2. **バルク評価・投資評価連携**:
+   - `record_builder.py` / `persistence.py` にて全物件種別の評価時に一括算出し、DBへ永続化。
+3. **価格推定API（`evaluation_routes.py`）**:
+   - `/api/evaluation/predict/<type>` および `/api/evaluation/predict-by-url` のレスポンスに `expected_gross_yield`, `expected_net_yield`, `estimated_annual_rent`, `dcf_theoretical_price` を含めて返却し、`_save_property_evaluation` でもDB保存する。
+4. **お宝物件Slack通知・AI定性鑑定コンテキスト（`send_recommendations.py`, `report_generator.py`）**:
+   - Slack通知メッセージの「💰 価格・割安度（3面アプローチ）」セクションに DCF理論価格および期待表面/実質利回り（想定年間賃料）を併記し、比較法（ML予測）・原価法（積算価格）・収益還元法（10年DCF価格）の鑑定3面アプローチを表示する（数値計算自体はAI不使用、上位選抜後のレポート生成プロンプトには客観参照値として供給）。
+
+
 
 

@@ -1,30 +1,35 @@
-# -*- coding: utf-8 -*-
 import os
-os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
-import logging
-import asyncio
-import aiohttp
-import urllib.parse
-import importlib
-from typing import Optional, Any, Tuple
-from flask import Blueprint, request, jsonify
-from django.db import connections, reset_queries
 
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+import asyncio
+import importlib
+import logging
+import urllib.parse
+from typing import Any
+
+import aiohttp
+from django.db import connections, reset_queries
+from flask import Blueprint, jsonify, request
+from package.ml.dcf_valuation import DCFValuationResult, evaluate_dcf_and_yields
 from package.ml.predict import (
     _serialize_property,
     predict_both_stages,
     predict_first_stage_local,
     predict_second_stage_local,
 )
-from package.utils.url_security import UrlSecurityValidator
-from package.utils.url_router import UrlRouter
-from package.utils.property_type_detector import PropertyTypeDetector
-from package.utils.url_matcher import UrlMatcher
-from package.utils.singleflight import SingleflightGroup
-from package.utils.rate_limiter import SlidingWindowRateLimiter, LockoutManager
-from package.models.evaluation import PropertyEvaluation
 from package.models.candidate import CandidatePropertyUrl
-from package.parser.baseParser import ListingEndedException, LoadPropertyPageException, RateLimitedException
+from package.models.evaluation import PropertyEvaluation
+from package.parser.baseParser import (
+    ListingEndedException,
+    LoadPropertyPageException,
+    RateLimitedException,
+)
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.rate_limiter import LockoutManager, SlidingWindowRateLimiter
+from package.utils.singleflight import SingleflightGroup
+from package.utils.url_matcher import UrlMatcher
+from package.utils.url_router import UrlRouter
+from package.utils.url_security import UrlSecurityValidator
 
 evaluation_bp = Blueprint('evaluation', __name__)
 INTERNAL_SERVER_ERROR_MSG = "An internal server error occurred."
@@ -136,12 +141,20 @@ def _predict_price_internal(property_type, data):
             # 価格推定の実行 (一次・二次を特徴量1回生成で同時算出)
             both_preds = predict_both_stages([property_data], [interior_score], [layout_score])
             first_stage_pred, second_stage_pred = both_preds[0] if both_preds else (0, 0)
-        
+
+        dcf_res = evaluate_dcf_and_yields(
+            property_data, property_type, interior_score=interior_score, layout_score=layout_score
+        )
+
         return jsonify({
             "success": True,
             "property_type": property_type,
             "first_stage_predicted_price": first_stage_pred,
             "second_stage_predicted_price": second_stage_pred,
+            "expected_gross_yield": dcf_res.expected_gross_yield,
+            "expected_net_yield": dcf_res.expected_net_yield,
+            "estimated_annual_rent": dcf_res.estimated_annual_rent,
+            "dcf_theoretical_price": dcf_res.dcf_theoretical_price,
             "message": "Estimation completed successfully"
         }), 200
     finally:
@@ -724,17 +737,7 @@ def _calculate_prediction_metrics(predicted_val, asking_price):
     return price_gap, ratio, is_bargain
 
 
-async def _execute_predict_by_url(
-    url: str,
-    force_refresh: bool,
-    interior_score: float,
-    layout_score: float,
-    property_type_hint: Optional[str] = None
-):
-    """
-    URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
-    """
-def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
+def _fetch_cached_property_info(url: str, route: dict | None) -> dict:
     if not route:
         return {}
     try:
@@ -750,7 +753,7 @@ def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
     return {}
 
 
-def _resolve_cached_meta(eval_record, route: Optional[dict]) -> Tuple[str, str]:
+def _resolve_cached_meta(eval_record, route: dict | None) -> tuple[str, str]:
     site_name = getattr(eval_record, "company", "unknown")
     if hasattr(site_name, "_mock_name") or type(site_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
         site_name = route["site"] if route else "unknown"
@@ -761,7 +764,28 @@ def _resolve_cached_meta(eval_record, route: Optional[dict]) -> Tuple[str, str]:
     return str(site_name), str(ptype_name)
 
 
-def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: Optional[str]):
+def _extract_cached_dcf_fields(eval_record: Any, prop_info: dict, ptype_name: str) -> dict[str, Any]:
+    gross = _clean_float(getattr(eval_record, "expected_gross_yield", None))
+    net = _clean_float(getattr(eval_record, "expected_net_yield", None))
+    rent = _clean_int(getattr(eval_record, "estimated_annual_rent", None))
+    dcf_p = _clean_int(getattr(eval_record, "dcf_theoretical_price", None))
+    if gross is not None and net is not None and rent is not None and dcf_p is not None:
+        return {
+            "expected_gross_yield": gross,
+            "expected_net_yield": net,
+            "estimated_annual_rent": rent,
+            "dcf_theoretical_price": dcf_p,
+        }
+    dcf_res = evaluate_dcf_and_yields(prop_info, ptype_name)
+    return {
+        "expected_gross_yield": dcf_res.expected_gross_yield,
+        "expected_net_yield": dcf_res.expected_net_yield,
+        "estimated_annual_rent": dcf_res.estimated_annual_rent,
+        "dcf_theoretical_price": dcf_res.dcf_theoretical_price,
+    }
+
+
+def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: str | None):
     if force_refresh:
         return None
     try:
@@ -784,6 +808,7 @@ def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint:
     price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_pred, asking_price)
 
     site_name, ptype_name = _resolve_cached_meta(eval_record, route)
+    dcf_fields = _extract_cached_dcf_fields(eval_record, prop_info, ptype_name)
 
     return {
         "success": True,
@@ -797,7 +822,8 @@ def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint:
             "second_stage_predicted_price": second_pred,
             "price_gap": price_gap,
             "divergence_ratio": ratio,
-            "is_bargain": is_bargain
+            "is_bargain": is_bargain,
+            **dcf_fields,
         },
         "investment": None,
         "message": "Estimation completed successfully (Cached)"
@@ -868,7 +894,7 @@ def _save_live_scraped_item(target_item: Any, clean_url: str) -> None:
         logging.warning(f"Failed to upsert property item to DB for {clean_url}: {e}")
 
 
-async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optional[Tuple[dict, int]]]:
+async def _fetch_live_property_item(route: dict, url: str) -> tuple[Any, tuple[dict, int] | None]:
     clean_url = UrlMatcher.normalize(url)
     try:
         parser_mod = importlib.import_module(route["parser_module"])
@@ -884,7 +910,7 @@ async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optiona
             "url": url,
             "data_source": None,
             "error_code": "PARSER_NOT_FOUND",
-            "message": f"パーサーの実装が見つかりません: {str(e)}"
+            "message": f"パーサーの実装が見つかりません: {e!s}"
         }, 500)
 
     try:
@@ -896,12 +922,12 @@ async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optiona
         return None, ({"success": False, "url": url, "data_source": None, "error_code": "LISTING_ENDED", "message": "物件の掲載が終了しているか、削除されています。"}, 410)
     except RateLimitedException as e:
         logging.warning(f"Target site rate limited for {clean_url}: {e}")
-        return None, ({"success": False, "url": url, "data_source": None, "error_code": "TARGET_SITE_RATE_LIMITED", "message": f"対象サイトのアクセス制限(429)に到達しました: {str(e)}"}, 429)
-    except (LoadPropertyPageException, asyncio.TimeoutError):
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "TARGET_SITE_RATE_LIMITED", "message": f"対象サイトのアクセス制限(429)に到達しました: {e!s}"}, 429)
+    except (TimeoutError, LoadPropertyPageException):
         return None, ({"success": False, "url": url, "data_source": None, "error_code": "TARGET_SITE_TIMEOUT", "message": "対象サイトへの接続に失敗したか、タイムアウトしました。"}, 504)
     except Exception as e:
         logging.exception(f"Live crawling error for {url}: {e}")
-        return None, ({"success": False, "url": url, "data_source": None, "error_code": "PARSE_FAILED", "message": f"物件ページのパースに失敗しました: {str(e)}"}, 422)
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "PARSE_FAILED", "message": f"物件ページのパースに失敗しました: {e!s}"}, 422)
 
     if target_item is None:
         return None, ({"success": False, "url": url, "data_source": None, "error_code": "PARSE_FAILED", "message": "物件情報の抽出結果が空です。"}, 422)
@@ -910,7 +936,17 @@ async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optiona
     return target_item, None
 
 
-def _save_property_evaluation(target_item, url, site, property_type, first_val, second_val, interior_score, layout_score):
+def _save_property_evaluation(
+    target_item,
+    url,
+    site,
+    property_type,
+    first_val,
+    second_val,
+    interior_score,
+    layout_score,
+    dcf_res: DCFValuationResult | None = None,
+):
     prop_id = getattr(target_item, 'id', 0)
     if hasattr(prop_id, '_mock_name') or type(prop_id).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
         prop_id = 0
@@ -920,18 +956,25 @@ def _save_property_evaluation(target_item, url, site, property_type, first_val, 
         except Exception:
             prop_id = 0
 
+    defaults = {
+        "company": site,
+        "property_type": property_type,
+        "property_id": prop_id,
+        "first_stage_predicted_price": first_val,
+        "second_stage_predicted_price": second_val,
+        "interior_score": interior_score,
+        "layout_score": layout_score,
+    }
+    if dcf_res is not None:
+        defaults["expected_gross_yield"] = dcf_res.expected_gross_yield
+        defaults["expected_net_yield"] = dcf_res.expected_net_yield
+        defaults["estimated_annual_rent"] = dcf_res.estimated_annual_rent
+        defaults["dcf_theoretical_price"] = dcf_res.dcf_theoretical_price
+
     try:
         PropertyEvaluation.objects.update_or_create(
             property_url=UrlMatcher.normalize(url),
-            defaults={
-                "company": site,
-                "property_type": property_type,
-                "property_id": prop_id,
-                "first_stage_predicted_price": first_val,
-                "second_stage_predicted_price": second_val,
-                "interior_score": interior_score,
-                "layout_score": layout_score
-            }
+            defaults=defaults,
         )
     except Exception as e:
         logging.warning(f"Failed to update PropertyEvaluation for {url}: {e}")
@@ -959,7 +1002,7 @@ async def _execute_predict_by_url(
     force_refresh: bool,
     interior_score: float,
     layout_score: float,
-    property_type_hint: Optional[str] = None
+    property_type_hint: str | None = None
 ):
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
@@ -990,8 +1033,13 @@ async def _execute_predict_by_url(
 
     serialized = _serialize_property(target_item, property_type)
     first_val, second_val = _compute_item_prediction(serialized, interior_score, layout_score)
+    dcf_res = evaluate_dcf_and_yields(
+        target_item, property_type, interior_score=interior_score, layout_score=layout_score
+    )
 
-    _save_property_evaluation(target_item, url, site, property_type, first_val, second_val, interior_score, layout_score)
+    _save_property_evaluation(
+        target_item, url, site, property_type, first_val, second_val, interior_score, layout_score, dcf_res=dcf_res
+    )
 
     prop_info = _extract_property_info(target_item)
     asking_price = prop_info.get("price")
@@ -1009,7 +1057,11 @@ async def _execute_predict_by_url(
             "second_stage_predicted_price": second_val,
             "price_gap": price_gap,
             "divergence_ratio": ratio,
-            "is_bargain": is_bargain
+            "is_bargain": is_bargain,
+            "expected_gross_yield": dcf_res.expected_gross_yield,
+            "expected_net_yield": dcf_res.expected_net_yield,
+            "estimated_annual_rent": dcf_res.estimated_annual_rent,
+            "dcf_theoretical_price": dcf_res.dcf_theoretical_price,
         },
         "investment": None,
         "message": "Estimation completed successfully"
