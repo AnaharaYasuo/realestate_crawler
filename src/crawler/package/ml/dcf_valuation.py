@@ -350,18 +350,51 @@ def _resolve_benchmark_asset_type(ctx: _PropertyContext) -> str:
     return "apartment_rc" if ctx.kouzou_cat in (STRUCT_RC, STRUCT_SRC) else "apartment_wood"
 
 
-def _resolve_anchor_net_cap_and_vacancy(ctx: _PropertyContext) -> tuple[float, float, float]:
-    """(基準NCFキャップレート%, 標準OPEX比率0-1, 基準空室率0-1) を返す"""
+def _calibrate_base_operating_vacancy(raw_vacancy_pct: float | None, avg_land_price: float) -> float:
+    """
+    統計上の総住宅空室率（12〜22%: 非流通空き家を含む）を、賃貸経営実務の経済的稼働空室損失率（3.5%〜9.0%）へ変換する。
+    すでに経済的空室率スケール（<= 9.5%）の値が渡された場合はそのまま活かす。
+    """
+    if raw_vacancy_pct is None:
+        if avg_land_price >= 500_000:
+            return 0.040
+        if avg_land_price >= 180_000:
+            return 0.050
+        return 0.062
+    raw = max(0.0, float(raw_vacancy_pct))
+    if raw <= 9.5:
+        return min(0.090, max(0.032, raw / 100.0))
+    calibrated = 0.040 + (raw - 10.0) * 0.0022
+    return min(0.090, max(0.038, calibrated))
+
+
+def _resolve_default_opex_ratio(norm_type: str) -> float:
+    if norm_type == PTYPE_TOCHI:
+        return 0.13
+    if norm_type == PTYPE_MANSION:
+        return 0.15
+    return 0.17
+
+
+def _resolve_anchor_net_cap_and_vacancy(ctx: _PropertyContext) -> tuple[float, float, float, str, str]:
+    """(基準NCFキャップレート%, 標準OPEX比率0-1, 基準稼働空室率0-1, bench_source, matched_asset_type) を返す"""
     asset_key = _resolve_benchmark_asset_type(ctx)
     bench = query_cap_rate_benchmark(ctx.address1, ctx.address2, ctx.station1, asset_key)
-    std_opex = (float(bench.standard_opex_ratio) / 100.0) if bench and bench.standard_opex_ratio else 0.18
-    vac_base = (float(bench.rental_vacancy_rate) / 100.0) if bench and bench.rental_vacancy_rate is not None else 0.065
+    default_opex = _resolve_default_opex_ratio(ctx.norm_type)
+    if bench and bench.standard_opex_ratio:
+        std_opex = min(0.22, max(0.12, float(bench.standard_opex_ratio) / 100.0))
+    else:
+        std_opex = default_opex
+    raw_vac = float(bench.rental_vacancy_rate) if (bench and bench.rental_vacancy_rate is not None) else None
+    vac_base = _calibrate_base_operating_vacancy(raw_vac, ctx.avg_land_price)
+    b_source = bench.source if bench else "land_fallback"
+    b_asset = bench.asset_type if bench else asset_key
 
     if bench and bench.expected_net_cap_rate is not None:
-        return float(bench.expected_net_cap_rate), std_opex, vac_base
+        return float(bench.expected_net_cap_rate), std_opex, vac_base, b_source, b_asset
     if bench and bench.expected_gross_yield is not None:
-        implied_net = float(bench.expected_gross_yield) * max(0.55, 1.0 - std_opex - vac_base)
-        return max(3.0, implied_net), std_opex, vac_base
+        implied_net = float(bench.expected_gross_yield) * max(0.65, 1.0 - std_opex - vac_base)
+        return max(3.0, implied_net), std_opex, vac_base, b_source, b_asset
 
     rf = max(0.3, min(2.5, ctx.jgb_10y))
     if ctx.avg_land_price >= 800_000:
@@ -371,31 +404,71 @@ def _resolve_anchor_net_cap_and_vacancy(ctx: _PropertyContext) -> tuple[float, f
     elif ctx.avg_land_price >= 120_000:
         fallback_net = 4.7 + rf * 0.45
     else:
-        fallback_net = 5.6 + rf * 0.50
-    return fallback_net, std_opex, vac_base
+        fallback_net = 5.5 + rf * 0.45
+    return fallback_net, std_opex, vac_base, "land_fallback", "all"
+
+
+def _resolve_incremental_struct_spread(kouzou_cat: str, matched_asset_type: str) -> float:
+    """ベンチマークのアセット種別に構造スプレッドが織り込み済みの場合は二重計上を回避する。"""
+    if matched_asset_type in (PTYPE_KODATE, "apartment_wood"):
+        if kouzou_cat in (STRUCT_RC, STRUCT_SRC):
+            return -0.35
+        if kouzou_cat == "S":
+            return -0.20
+        if kouzou_cat == "LS":
+            return -0.10
+        return 0.0
+    if matched_asset_type in (PTYPE_MANSION, "apartment_rc"):
+        if kouzou_cat == STRUCT_SRC:
+            return -0.08
+        if kouzou_cat == STRUCT_RC:
+            return 0.0
+        return _STRUCT_CAP_SPREAD.get(kouzou_cat, 0.30) * 0.75
+    return _STRUCT_CAP_SPREAD.get(kouzou_cat, 0.35)
+
+
+def _calc_relative_age_and_walk_spread(
+    ctx: _PropertyContext,
+    bench_source: str,
+) -> float:
+    is_institutional = bench_source == "jrei_survey"
+    base_age = 10.0 if is_institutional else 20.0
+    base_walk = 7.0 if is_institutional else 10.0
+
+    if ctx.norm_type == PTYPE_TOCHI:
+        age_spread = -0.10
+    else:
+        lifespan = max(22.0, float(LIFESPAN.get(ctx.kouzou_cat, 30)))
+        rel_age = (ctx.chikunen - base_age) / lifespan
+        age_spread = min(0.85, max(-0.45, rel_age * 0.55))
+
+    walk_diff = ctx.effective_walk_min - base_walk
+    if walk_diff >= 0.0:
+        walk_spread = min(0.65, walk_diff * 0.045)
+    else:
+        walk_spread = max(-0.15, walk_diff * 0.020)
+    return age_spread + walk_spread
 
 
 def _calc_regional_and_condition_spread(
     property_obj: Any,
     ctx: _PropertyContext,
     interior_score: float,
+    bench_source: str = "jrei_survey",
+    matched_asset_type: str = "all",
 ) -> float:
-    spread = _STRUCT_CAP_SPREAD.get(ctx.kouzou_cat, 0.35)
-    lifespan = float(LIFESPAN.get(ctx.kouzou_cat, 30))
-    age_ratio = min(1.8, ctx.chikunen / max(1.0, lifespan)) if ctx.norm_type != PTYPE_TOCHI else 0.15
-    spread += age_ratio * 0.85
+    spread = _resolve_incremental_struct_spread(ctx.kouzou_cat, matched_asset_type)
+    spread += _calc_relative_age_and_walk_spread(ctx, bench_source)
 
     if ctx.norm_type != PTYPE_TOCHI and calculate_shin_taishin(property_obj, ctx.chikunen) == 0:
-        spread += 0.55
-    if ctx.effective_walk_min > 10.0:
-        spread += min(1.10, (ctx.effective_walk_min - 10.0) * 0.065)
-    if ctx.future_pop_change < -5.0:
-        spread += min(0.80, abs(ctx.future_pop_change + 5.0) * 0.04)
-    elif ctx.future_pop_change > 2.0:
-        spread -= min(0.25, (ctx.future_pop_change - 2.0) * 0.03)
+        spread += 0.30
+    if ctx.future_pop_change < -8.0:
+        spread += min(0.45, abs(ctx.future_pop_change + 8.0) * 0.025)
+    elif ctx.future_pop_change > 3.0:
+        spread -= min(0.20, (ctx.future_pop_change - 3.0) * 0.025)
 
-    spread += (ctx.flood_risk * 0.08) + (ctx.landslide_risk * 0.10)
-    spread -= (min(5.0, max(1.0, float(interior_score))) - 3.0) * 0.12
+    spread += (ctx.flood_risk * 0.05) + (ctx.landslide_risk * 0.07)
+    spread -= (min(5.0, max(1.0, float(interior_score))) - 3.0) * 0.10
     return spread
 
 
@@ -426,33 +499,39 @@ def _extract_annual_land_rent_yen(property_obj: Any) -> int:
     return int(val * 12.0) if val > 0.0 else 0
 
 
+def _extract_mansion_annual_hoa_yen(property_obj: Any) -> float:
+    kanri = safe_float(_get_val(property_obj, "kanrihi", 0), 0.0) or 0.0
+    syuzen = safe_float(_get_val(property_obj, "syuzenTsumitate", 0), 0.0) or 0.0
+    if kanri > 200_000.0:
+        kanri /= 10000.0
+    if syuzen > 200_000.0:
+        syuzen /= 10000.0
+    return (kanri + syuzen) * 12.0
+
+
 def _resolve_opex_and_vacancy(
     property_obj: Any,
     ctx: _PropertyContext,
     estimated_annual_rent: int,
     std_opex: float,
     vac_base: float,
-) -> tuple[float, float]:
-    age_vac_add = 0.0 if ctx.norm_type == PTYPE_TOCHI else min(0.08, ctx.chikunen * 0.0016)
-    walk_vac_add = max(0.0, min(0.05, (ctx.effective_walk_min - 10.0) * 0.003))
-    vacancy_rate = min(0.24, max(0.03, vac_base + age_vac_add + walk_vac_add))
+) -> tuple[float, float, float]:
+    """(稼働空室損失率, DCF計算用実額反映OPEX率, 期待表面利回り換算用実効OPEX率) を返す"""
+    age_vac_add = 0.0 if ctx.norm_type == PTYPE_TOCHI else min(0.032, ctx.chikunen * 0.0007)
+    walk_vac_add = max(0.0, min(0.025, (ctx.effective_walk_min - 10.0) * 0.0018))
+    vacancy_rate = min(0.125, max(0.030, vac_base + age_vac_add + walk_vac_add))
 
     if ctx.norm_type == PTYPE_MANSION and estimated_annual_rent > 0:
-        kanri = safe_float(_get_val(property_obj, "kanrihi", 0), 0.0) or 0.0
-        syuzen = safe_float(_get_val(property_obj, "syuzenTsumitate", 0), 0.0) or 0.0
-        if kanri > 200_000.0:
-            kanri /= 10000.0
-        if syuzen > 200_000.0:
-            syuzen /= 10000.0
-        hoa_annual = (kanri + syuzen) * 12.0
+        hoa_annual = _extract_mansion_annual_hoa_yen(property_obj)
         if hoa_annual > 0.0:
             hoa_ratio = hoa_annual / float(estimated_annual_rent)
-            opex_ratio = min(0.55, max(0.12, hoa_ratio + 0.07))
-            return vacancy_rate, opex_ratio
+            dcf_opex_ratio = min(0.50, max(0.12, hoa_ratio + 0.05))
+            yield_opex_ratio = min(0.28, max(0.13, 0.08 + hoa_ratio * 0.62))
+            return vacancy_rate, dcf_opex_ratio, yield_opex_ratio
 
-    age_opex_add = 0.0 if ctx.norm_type == PTYPE_TOCHI else min(0.07, ctx.chikunen * 0.0015)
-    opex_ratio = min(0.45, max(0.12, std_opex + age_opex_add))
-    return vacancy_rate, opex_ratio
+    age_opex_add = 0.0 if ctx.norm_type == PTYPE_TOCHI else min(0.035, ctx.chikunen * 0.0008)
+    opex_ratio = min(0.26, max(0.12, std_opex + age_opex_add))
+    return vacancy_rate, opex_ratio, opex_ratio
 
 
 def calculate_expected_yields(
@@ -463,23 +542,29 @@ def calculate_expected_yields(
     _ctx: _PropertyContext | None = None,
 ) -> tuple[float, float, float, float]:
     """
-    地域・物件状態に基づき (expected_gross_yield%, expected_net_yield%, vacancy_rate, opex_ratio) を算出する。
+    地域・物件状態に基づき (expected_gross_yield%, expected_net_yield%, vacancy_rate, dcf_opex_ratio) を算出する。
     """
     ctx = _ctx or _build_property_context(property_obj, property_type)
-    anchor_net, std_opex, vac_base = _resolve_anchor_net_cap_and_vacancy(ctx)
-    cond_spread = _calc_regional_and_condition_spread(property_obj, ctx, interior_score)
+    anchor_net, std_opex, vac_base, bench_source, matched_asset = _resolve_anchor_net_cap_and_vacancy(ctx)
+    cond_spread = _calc_regional_and_condition_spread(
+        property_obj,
+        ctx,
+        interior_score,
+        bench_source=bench_source,
+        matched_asset_type=matched_asset,
+    )
     legal_spread = _calc_legal_and_defect_spread(property_obj, ctx.combined_text)
 
-    net_yield = min(15.0, max(2.8, anchor_net + cond_spread + legal_spread))
-    vacancy_rate, opex_ratio = _resolve_opex_and_vacancy(
+    net_yield = min(14.5, max(2.8, anchor_net + cond_spread + legal_spread))
+    vacancy_rate, dcf_opex_ratio, yield_opex_ratio = _resolve_opex_and_vacancy(
         property_obj, ctx, estimated_annual_rent, std_opex, vac_base
     )
     land_rent_yen = _extract_annual_land_rent_yen(property_obj)
     land_rent_ratio = (land_rent_yen / float(estimated_annual_rent)) if estimated_annual_rent > 0 else 0.0
 
-    ncf_margin = max(0.32, (1.0 - vacancy_rate) - opex_ratio - min(0.25, land_rent_ratio))
-    gross_yield = min(28.0, max(net_yield + 0.5, net_yield / ncf_margin))
-    return round(gross_yield, 2), round(net_yield, 2), vacancy_rate, opex_ratio
+    ncf_margin = max(0.56, (1.0 - vacancy_rate) - yield_opex_ratio - min(0.18, land_rent_ratio * 0.75))
+    gross_yield = min(22.0, max(net_yield + 0.5, net_yield / ncf_margin))
+    return round(gross_yield, 2), round(net_yield, 2), vacancy_rate, dcf_opex_ratio
 
 
 def _resolve_rights_ratio(combined_text: str, chikunen: float) -> float:

@@ -583,3 +583,206 @@ def test_send_recommendations_message_includes_dcf_and_yields():
     assert "4,950万円" in msg or "4950万円" in msg
     assert "5.40%" in msg
     assert "4.10%" in msg
+
+
+# ==============================================================================
+# 6. Market Calibration & Anti-Double-Counting Regression Tests (Issue #1361)
+# ==============================================================================
+def test_cap_rate_benchmark_prefers_exact_asset_type_and_filters_tiny_sample_outliers():
+    """
+    Issue #1361:
+    1) 同一地域に homes_toushi(asset_type='all', 高利回り混合) と jrei_survey(asset_type='mansion') がある場合、
+       mansion 検索時は asset_type 完全一致の jrei_survey を優先し、空室率は同地域のドナーから補完できること。
+    2) internal_db の極端な少数サンプル外れ値 (sample_count < 3 かつ net > 7.5%) は除外され、
+       健全なベンチマークへフォールバックすること。
+    """
+    from package.ml.features import reference_data
+
+    mixed_homes_high_prio = CapRateBenchmarkRecord(
+        prefecture="東京都",
+        city="港区",
+        station_name="",
+        asset_type="all",
+        expected_gross_yield=7.90,
+        expected_net_cap_rate=6.30,
+        standard_opex_ratio=20.0,
+        rental_vacancy_rate=19.3,
+        total_vacancy_rate=19.3,
+        jgb_spread_bps=515,
+        demand_supply_score=1.1,
+        sample_count=50,
+        survey_period="2026-11",
+        source="homes_toushi",
+    )
+    mansion_reit_exact = CapRateBenchmarkRecord(
+        prefecture="東京都",
+        city="港区",
+        station_name="",
+        asset_type="mansion",
+        expected_gross_yield=4.20,
+        expected_net_cap_rate=3.45,
+        standard_opex_ratio=18.0,
+        rental_vacancy_rate=None,
+        total_vacancy_rate=None,
+        jgb_spread_bps=230,
+        demand_supply_score=None,
+        sample_count=None,
+        survey_period="2026-H2",
+        source="japan_reit",
+    )
+    outlier_internal = CapRateBenchmarkRecord(
+        prefecture="神奈川県",
+        city="川崎市麻生区",
+        station_name="百合ヶ丘",
+        asset_type="kodate",
+        expected_gross_yield=12.40,
+        expected_net_cap_rate=9.92,
+        standard_opex_ratio=20.0,
+        rental_vacancy_rate=None,
+        total_vacancy_rate=None,
+        jgb_spread_bps=877,
+        demand_supply_score=None,
+        sample_count=1,
+        survey_period="",
+        source="internal_db",
+    )
+    pref_kodate_jrei = CapRateBenchmarkRecord(
+        prefecture="神奈川県",
+        city="",
+        station_name="",
+        asset_type="kodate",
+        expected_gross_yield=6.31,
+        expected_net_cap_rate=5.05,
+        standard_opex_ratio=20.0,
+        rental_vacancy_rate=None,
+        total_vacancy_rate=None,
+        jgb_spread_bps=390,
+        demand_supply_score=None,
+        sample_count=None,
+        survey_period="2026-H2",
+        source="jrei_survey",
+    )
+
+    fake_cache = {
+        ("東京都", "港区", "", "mansion"): [mansion_reit_exact],
+        ("東京都", "港区", "", "all"): [mixed_homes_high_prio],
+        ("神奈川県", "川崎市麻生区", "百合ヶ丘", "kodate"): [outlier_internal],
+        ("神奈川県", "", "", "kodate"): [pref_kodate_jrei],
+    }
+    with (
+        patch.object(reference_data, "_init_global_caches"),
+        patch.object(reference_data, "_cap_rate_cache", fake_cache),
+    ):
+        picked_mansion = reference_data.query_cap_rate_benchmark("東京都", "港区", "麻布十番", "mansion")
+        assert picked_mansion is not None
+        assert picked_mansion.asset_type == "mansion"
+        assert picked_mansion.source == "japan_reit"
+        assert picked_mansion.expected_net_cap_rate == pytest.approx(3.45)
+        assert picked_mansion.rental_vacancy_rate == pytest.approx(19.3)
+
+        picked_kodate = reference_data.query_cap_rate_benchmark("神奈川県", "川崎市麻生区", "百合ヶ丘", "kodate")
+        assert picked_kodate is not None
+        assert picked_kodate.source == "jrei_survey"
+        assert picked_kodate.expected_net_cap_rate == pytest.approx(5.05)
+
+
+def test_calibrated_expected_gross_yields_match_market_reality():
+    """
+    Issue #1361:
+    - 都心標準的な築12年RC区分マンションで統計上の総空室率(19.3%)が高くても、期待表面利回りが4.2%〜6.2%の実勢帯に収まること。
+    - 超コンパクトまたは管理費高めのヴィンテージ区分マンションでも、期待表面利回りが15%超に暴発せず11.5%以下に収まること。
+    - 首都圏郊外の一般的な木造戸建（再建築可・所有権）で構造スプレッド二重計上が起きず、期待表面利回りが6.5%〜10.5%の実勢帯に収まること。
+    """
+    minato_bench = CapRateBenchmarkRecord(
+        prefecture="東京都",
+        city="港区",
+        station_name="",
+        asset_type="mansion",
+        expected_gross_yield=4.20,
+        expected_net_cap_rate=3.45,
+        standard_opex_ratio=18.0,
+        rental_vacancy_rate=19.3,  # 総務省総住宅空室率相当の高い生値
+        total_vacancy_rate=19.3,
+        jgb_spread_bps=230,
+        demand_supply_score=1.1,
+        sample_count=50,
+        survey_period="2026-H2",
+        source="jrei_survey",
+    )
+    with patch("package.ml.dcf_valuation.query_cap_rate_benchmark", return_value=minato_bench):
+        std_mansion = {
+            "address": "東京都港区芝浦3-1",
+            "address1": "東京都",
+            "address2": "港区",
+            "station1": "田町",
+            "railwayWalkMinute1": 7,
+            "senyuMenseki": 58.0,
+            "madori": "2LDK",
+            "kouzou": "RC",
+            "chikunen": 12.0,
+            "kanrihi": 13500,
+            "syuzenTsumitate": 11500,
+            "tochikenri": "所有権",
+        }
+        gy_std, ny_std, vac_std, _ = calculate_expected_yields(
+            std_mansion, "mansion", estimated_annual_rent=3_000_000, interior_score=3.2
+        )
+        assert 3.2 <= ny_std <= 4.3
+        assert 4.2 <= gy_std <= 6.2
+        assert 0.03 <= vac_std <= 0.08
+
+        vintage_high_hoa_mansion = {
+            "address": "東京都港区元麻布2-1",
+            "address1": "東京都",
+            "address2": "港区",
+            "station1": "麻布十番",
+            "railwayWalkMinute1": 9,
+            "senyuMenseki": 18.0,
+            "madori": "1R",
+            "kouzou": "RC",
+            "chikunen": 46.0,
+            "kanrihi": 14000,
+            "syuzenTsumitate": 13000,
+            "tochikenri": "所有権",
+        }
+        gy_vint, ny_vint, _, _ = calculate_expected_yields(
+            vintage_high_hoa_mansion, "mansion", estimated_annual_rent=960_000, interior_score=3.0
+        )
+        assert ny_vint > ny_std
+        assert gy_vint < 11.5
+
+    kanagawa_kodate_bench = CapRateBenchmarkRecord(
+        prefecture="神奈川県",
+        city="横浜市青葉区",
+        station_name="",
+        asset_type="kodate",
+        expected_gross_yield=6.40,
+        expected_net_cap_rate=5.10,
+        standard_opex_ratio=20.0,
+        rental_vacancy_rate=13.5,
+        total_vacancy_rate=13.5,
+        jgb_spread_bps=395,
+        demand_supply_score=1.0,
+        sample_count=20,
+        survey_period="2026-H2",
+        source="jrei_survey",
+    )
+    with patch("package.ml.dcf_valuation.query_cap_rate_benchmark", return_value=kanagawa_kodate_bench):
+        suburban_kodate = {
+            "address": "神奈川県横浜市青葉区美しが丘2-1",
+            "address1": "神奈川県",
+            "address2": "横浜市青葉区",
+            "station1": "たまプラーザ",
+            "railwayWalkMinute1": 12,
+            "tatemonoMenseki": 98.0,
+            "tochiMenseki": 120.0,
+            "kouzou": "木造",
+            "chikunen": 18.0,
+            "tochikenri": "所有権",
+        }
+        gy_kod, ny_kod, _, _ = calculate_expected_yields(
+            suburban_kodate, "kodate", estimated_annual_rent=1_920_000, interior_score=3.0
+        )
+        assert 4.8 <= ny_kod <= 6.8
+        assert 6.5 <= gy_kod <= 9.8
+
