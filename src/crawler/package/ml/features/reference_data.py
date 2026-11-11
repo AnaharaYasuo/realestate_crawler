@@ -955,14 +955,34 @@ def query_rent_market_potential(
     return None
 
 
-def _pick_best_cap_record(candidates: list[CapRateBenchmarkRecord]) -> CapRateBenchmarkRecord | None:
-    with_yield = [
-        r for r in candidates
-        if r.expected_net_cap_rate is not None or r.expected_gross_yield is not None
-    ]
+def _is_reliable_cap_yield_record(r: CapRateBenchmarkRecord) -> bool:
+    if r.expected_net_cap_rate is None and r.expected_gross_yield is None:
+        return False
+    if r.source != "internal_db":
+        return True
+    samples = r.sample_count or 0
+    if r.expected_net_cap_rate is not None:
+        net_val = r.expected_net_cap_rate
+    else:
+        net_val = (r.expected_gross_yield or 0.0) * 0.8
+    if samples < 3 and (net_val > 7.5 or net_val < 2.8):
+        return False
+    return 2.2 <= net_val <= 9.5
+
+
+def _score_cap_candidate(r: CapRateBenchmarkRecord, target_asset_type: str) -> tuple[int, int]:
+    is_exact = 1 if (target_asset_type != "all" and r.asset_type == target_asset_type) else 0
+    return (is_exact, _CAP_SOURCE_PRIORITY.get(r.source, 0))
+
+
+def _pick_best_cap_record(
+    candidates: list[CapRateBenchmarkRecord],
+    target_asset_type: str = "all",
+) -> CapRateBenchmarkRecord | None:
+    with_yield = [r for r in candidates if _is_reliable_cap_yield_record(r)]
     if not with_yield:
         return None
-    best = max(with_yield, key=lambda r: _CAP_SOURCE_PRIORITY.get(r.source, 0))
+    best = max(with_yield, key=lambda r: _score_cap_candidate(r, target_asset_type))
     if best.rental_vacancy_rate is not None:
         return best
     vac_donor = next((r for r in candidates if r.rental_vacancy_rate is not None), None)
@@ -986,6 +1006,37 @@ def _pick_best_cap_record(candidates: list[CapRateBenchmarkRecord]) -> CapRateBe
     )
 
 
+def _build_cap_geo_levels(prefecture: str, city: str, station_name: str) -> list[tuple[str, str, str]]:
+    pref = (prefecture or "").strip()
+    cty = (city or "").strip()
+    st = _clean_station_query(station_name)
+    levels: list[tuple[str, str, str]] = []
+    if st and cty:
+        levels.append((pref, cty, st))
+    if st:
+        levels.append((pref, "", st))
+    if cty:
+        levels.append((pref, cty, ""))
+    levels.append((pref, "", ""))
+    levels.append(("全国", "", ""))
+    return levels
+
+
+def _search_exact_asset_cap_benchmark(
+    geo_levels: list[tuple[str, str, str]],
+    asset_type: str,
+) -> CapRateBenchmarkRecord | None:
+    for g_pref, g_city, g_st in geo_levels:
+        exact_candidates = _cap_rate_cache.get((g_pref, g_city, g_st, asset_type), [])
+        if not exact_candidates:
+            continue
+        donor_candidates = _cap_rate_cache.get((g_pref, g_city, g_st, "all"), [])
+        picked = _pick_best_cap_record(exact_candidates + donor_candidates, target_asset_type=asset_type)
+        if picked is not None and picked.asset_type == asset_type:
+            return picked
+    return None
+
+
 def query_cap_rate_benchmark(
     prefecture: str,
     city: str = "",
@@ -994,28 +1045,17 @@ def query_cap_rate_benchmark(
 ) -> CapRateBenchmarkRecord | None:
     """駅 ➔ 市区町村 ➔ 都道府県 ➔ 全国の階層カスケードで期待利回り・空室率レコードを検索する。"""
     _init_global_caches()
-    pref = (prefecture or "").strip()
-    cty = (city or "").strip()
-    st = _clean_station_query(station_name)
+    geo_levels = _build_cap_geo_levels(prefecture, city, station_name)
+    if asset_type != "all":
+        exact = _search_exact_asset_cap_benchmark(geo_levels, asset_type)
+        if exact is not None:
+            return exact
 
-    geo_levels: list[tuple[str, str, str]] = []
-    if st and cty:
-        geo_levels.append((pref, cty, st))
-    if st:
-        geo_levels.append((pref, "", st))
-    if cty:
-        geo_levels.append((pref, cty, ""))
-    geo_levels.append((pref, "", ""))
-    geo_levels.append(("全国", "", ""))
-
-    asset_levels = [asset_type, "all"] if asset_type != "all" else ["all"]
     for g_pref, g_city, g_st in geo_levels:
-        combined: list[CapRateBenchmarkRecord] = []
-        for a_type in asset_levels:
-            combined.extend(_cap_rate_cache.get((g_pref, g_city, g_st, a_type), []))
-        picked = _pick_best_cap_record(combined)
-        if picked is not None:
-            return picked
+        all_candidates = _cap_rate_cache.get((g_pref, g_city, g_st, "all"), [])
+        picked_all = _pick_best_cap_record(all_candidates, target_asset_type="all")
+        if picked_all is not None:
+            return picked_all
     return None
 
 
