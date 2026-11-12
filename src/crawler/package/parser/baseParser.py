@@ -726,6 +726,46 @@ class ParserBase(metaclass=ABCMeta):
                 return txt, allow_bare
         return "", False
 
+    _COMBINED_KENPEI_YOUSEKI_KEYS = (
+        "建ぺい率/容積率",
+        "建ぺい率／容積率",
+        "建蔽率/容積率",
+        "建蔽率／容積率",
+        "建ぺい率・容積率",
+        "建蔽率・容積率",
+        "建ぺい/容積率",
+        "建蔽/容積率",
+    )
+
+    @classmethod
+    def _extract_kenpei_from_specs(cls, specs: dict) -> str:
+        direct = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if direct and not re.search(r"[／/]", direct):
+            return direct
+        for key in cls._COMBINED_KENPEI_YOUSEKI_KEYS:
+            combined = specs.get(key, "")
+            if combined:
+                return re.split(r"[／/・]", combined)[0].strip()
+        if direct:
+            return re.split(r"[／/・]", direct)[0].strip()
+        return ""
+
+    @classmethod
+    def _extract_youseki_from_specs(cls, specs: dict) -> str:
+        direct = specs.get("容積率", "")
+        if direct and not re.search(r"[／/]", direct):
+            return direct
+        for key in cls._COMBINED_KENPEI_YOUSEKI_KEYS:
+            combined = specs.get(key, "")
+            if combined:
+                parts = re.split(r"[／/・]", combined)
+                if len(parts) >= 2:
+                    return parts[1].strip()
+        if direct:
+            parts = re.split(r"[／/・]", direct)
+            return parts[1].strip() if len(parts) >= 2 else direct.strip()
+        return ""
+
     def get_maguchi(self, response: BeautifulSoup) -> Decimal | None:
         val, allow_bare = self._resolve_maguchi_candidate(response)
         return self._extract_maguchi_decimal(val, allow_bare_meter=allow_bare)
@@ -2719,7 +2759,7 @@ class KodateParserBase(ParserBase):
 
     def get_kenpei_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        return self._extract_kenpei_from_specs(specs)
 
     def get_kenpei(self, response: BeautifulSoup) -> int | None:
         val = self.get_kenpei_str(response)
@@ -2730,7 +2770,7 @@ class KodateParserBase(ParserBase):
 
     def get_youseki_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        return self._extract_youseki_from_specs(specs)
 
     def get_youseki(self, response: BeautifulSoup) -> int | None:
         val = self.get_youseki_str(response)
@@ -2850,7 +2890,7 @@ class TochiParserBase(ParserBase):
 
     def get_kenpei_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        return self._extract_kenpei_from_specs(specs)
 
     def get_kenpei(self, response: BeautifulSoup) -> int | None:
         val = self.get_kenpei_str(response)
@@ -2861,7 +2901,7 @@ class TochiParserBase(ParserBase):
 
     def get_youseki_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        return self._extract_youseki_from_specs(specs)
 
     def get_youseki(self, response: BeautifulSoup) -> int | None:
         val = self.get_youseki_str(response)

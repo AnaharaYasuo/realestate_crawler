@@ -25,20 +25,32 @@ CSS_FLOOR_AREA_RATIO = "td.prg-floorAreaRatioTableItem"
 CSS_BUILDING_COVERAGE = "td.prg-buildingCoverageTableItem"
 LABEL_KENPEI_YOUSEKI_FULL = "建ぺい率／容積率"
 LABEL_KENPEI_YOUSEKI_HALF = "建ぺい率/容積率"
+LABEL_KENPEI_KANJI_FULL = "建蔽率／容積率"
+LABEL_KENPEI_KANJI_HALF = "建蔽率/容積率"
 
 _HOMES_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _HOMES_MAGUCHI_RE = (
-    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
+    r'(?:間口|接面|接す)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?'
 )
-_HOMES_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
+_HOMES_MAGUCHI_SUFFIX_RE = r'(\d+(?:\.\d+)?)\s*[mｍ米]\s*接(?:す|面)'
+_HOMES_WIDTH_RE = r'(?:幅員|幅|前面道路|前面|道路幅員)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?'
 _HOMES_DIR_WIDTH_RE = (
-    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]'
+    r'(?:北東|北西|南東|南西|北|南|東|西)(?:側)?\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]'
 )
+_HOMES_SETSUDOU_WIDTH_RE = r'接道\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]'
 _HOMES_ROAD_TYPE_RE = r'(公道|私道)'
 _HOMES_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
 
 
 class HomesParser(ParserBase):
+
+    def _parseHikiwatashi(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡", "") or specs.get("引渡時期", "") or specs.get("引き渡し", "")
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
@@ -216,7 +228,8 @@ class HomesParser(ParserBase):
         canonical = response.find("link", rel="canonical")
         if not canonical:
             return ""
-        current_url = canonical.get("href", "")
+        raw_url = canonical.get("href", "")
+        current_url = raw_url[0] if isinstance(raw_url, list) else str(raw_url or "")
         if not current_url:
             return ""
 
@@ -332,20 +345,21 @@ class HomesParser(ParserBase):
             item.roadStructure = getattr(item, "roadStructure", None) or "中間地"
             return
 
-        mag_match = re.search(_HOMES_MAGUCHI_RE, setsudou_info)
+        mag_match = re.search(_HOMES_MAGUCHI_RE, setsudou_info) or re.search(
+            _HOMES_MAGUCHI_SUFFIX_RE, setsudou_info
+        )
         if mag_match:
             item.maguchiStr = mag_match.group(0)
             item.maguchi = Decimal(mag_match.group(1))
 
-        width_match = re.search(_HOMES_WIDTH_RE, setsudou_info)
+        width_match = (
+            re.search(_HOMES_WIDTH_RE, setsudou_info)
+            or re.search(_HOMES_DIR_WIDTH_RE, setsudou_info)
+            or re.search(_HOMES_SETSUDOU_WIDTH_RE, setsudou_info)
+        )
         if width_match:
             item.roadWidthStr = width_match.group(0)
             item.roadWidth = Decimal(width_match.group(1))
-        else:
-            dir_width_match = re.search(_HOMES_DIR_WIDTH_RE, setsudou_info)
-            if dir_width_match:
-                item.roadWidthStr = dir_width_match.group(0)
-                item.roadWidth = Decimal(dir_width_match.group(1))
 
         direction_match = re.search(_HOMES_DIRECTION_RE, setsudou_info)
         item.roadDirection = direction_match.group(1) if direction_match else ""
@@ -356,14 +370,25 @@ class HomesParser(ParserBase):
         struct_match = re.search(_HOMES_ROAD_STRUCT_RE, setsudou_info)
         item.roadStructure = struct_match.group(1) if struct_match else "中間地"
 
+    @staticmethod
+    def _split_combined_kenpei_youseki(kenpei_text: str, youseki_text: str) -> tuple[str, str]:
+        if youseki_text and re.search(r"[／/・]", youseki_text):
+            parts = re.split(r"[／/・]", youseki_text)
+            if len(parts) >= 2:
+                if not kenpei_text or kenpei_text == youseki_text or re.search(r"[／/・]", kenpei_text):
+                    kenpei_text = parts[0].strip()
+                youseki_text = parts[1].strip()
+        elif kenpei_text and re.search(r"[／/・]", kenpei_text):
+            parts = re.split(r"[／/・]", kenpei_text)
+            kenpei_text = parts[0].strip()
+            if not youseki_text and len(parts) >= 2:
+                youseki_text = parts[1].strip()
+        return kenpei_text, youseki_text
+
     def _homes_apply_kenpei_youseki(
         self, item, kenpei_text: str, youseki_text: str
     ) -> None:
-        if youseki_text and ("／" in youseki_text or "/" in youseki_text) and not kenpei_text:
-            parts = re.split(r'[／/]', youseki_text)
-            if len(parts) >= 2:
-                kenpei_text = parts[0].strip()
-                youseki_text = parts[1].strip()
+        kenpei_text, youseki_text = self._split_combined_kenpei_youseki(kenpei_text, youseki_text)
         item.kenpeiStr = kenpei_text
         item.kenpei = converter.parse_ratio(kenpei_text)
         item.yousekiStr = youseki_text
@@ -628,12 +653,31 @@ class HomesKodateParser(HomesParser, KodateParserBase):
         item.setsudou = setsudou_info
         self._homes_apply_setsudou_details(item, setsudou_info)
 
-        ratio_tag = response.select_one(CSS_FLOOR_AREA_RATIO) or self._find_by_table_header(response, [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF])
-        kenpei_tag = response.select_one(CSS_BUILDING_COVERAGE) or self._find_by_table_header(response, ["建ぺい率"])
+        ratio_tag = response.select_one(CSS_FLOOR_AREA_RATIO) or self._find_by_table_header(
+            response,
+            [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF, LABEL_KENPEI_KANJI_FULL, LABEL_KENPEI_KANJI_HALF, "容積率"],
+        )
+        kenpei_tag = response.select_one(CSS_BUILDING_COVERAGE) or self._find_by_table_header(response, ["建ぺい率", "建蔽率"])
         kenpei_text = kenpei_tag.get_text().strip() if kenpei_tag else ""
         youseki_text = ratio_tag.get_text().strip() if ratio_tag else ""
         self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
         self._homes_apply_okuyuki(item)
+
+        item.chimoku = getattr(item, "chimoku", "") or self._homes_text_from_selectors(
+            response,
+            ("td.prg-chimokuTableItem", "td.prg-landCategoryTableItem"),
+            ["地目"],
+        )
+        item.tochikenri = getattr(item, "tochikenri", "") or self._homes_text_from_selectors(
+            response,
+            ("td.prg-rightTableItem",),
+            ["土地権利", "敷地権利形態", "権利"],
+        )
+        item.youtoChiiki = getattr(item, "youtoChiiki", "") or self._homes_text_from_selectors(
+            response,
+            ("td.prg-areaTableItem", "td.prg-useDistrictTableItem"),
+            ["用途地域"],
+        )
 
         return item
 
@@ -803,19 +847,15 @@ class HomesTochiParser(HomesParser, TochiParserBase):
 
     def _homes_apply_tochi_kenpei_youseki(self, item, response: BeautifulSoup) -> None:
         ratio_tag = response.select_one(CSS_FLOOR_AREA_RATIO) or self._find_by_table_header(
-            response, [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF]
+            response,
+            [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF, LABEL_KENPEI_KANJI_FULL, LABEL_KENPEI_KANJI_HALF, "容積率"],
         )
-        if ratio_tag:
-            ratio_text = ratio_tag.get_text().strip()
-            parts = ratio_text.split("／")
-            if len(parts) >= 2:
-                item.kenpeiStr = parts[0].strip()
-                item.yousekiStr = parts[1].strip()
-                item.kenpei = converter.parse_ratio(item.kenpeiStr)
-                item.youseki = converter.parse_ratio(item.yousekiStr)
-            else:
-                item.yousekiStr = ratio_text
-                item.youseki = converter.parse_ratio(ratio_text)
+        kenpei_tag = response.select_one(CSS_BUILDING_COVERAGE) or self._find_by_table_header(
+            response, ["建ぺい率", "建蔽率"]
+        )
+        kenpei_text = kenpei_tag.get_text().strip() if kenpei_tag else ""
+        youseki_text = ratio_tag.get_text().strip() if ratio_tag else ""
+        self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

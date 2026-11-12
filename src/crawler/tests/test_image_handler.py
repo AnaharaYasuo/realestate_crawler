@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import io
+import pytest
 from PIL import Image, ImageDraw
 from django.utils import timezone
 from package.utils.image_handler import clean_images, verify_image_bytes, check_api_budget_cap, MAX_DAILY_IMAGE_ANALYSIS
@@ -71,6 +72,7 @@ def test_verify_image_bytes():
     assert verify_image_bytes(buf_mono.getvalue()) is False
 
 
+@pytest.mark.django_db
 def test_check_api_budget_cap():
     # 初期状態 (当日の解析数は 0 なので True)
     assert check_api_budget_cap() is True

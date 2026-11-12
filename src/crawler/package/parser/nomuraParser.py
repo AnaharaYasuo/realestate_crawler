@@ -310,29 +310,36 @@ class NomuraParser(InvestmentParser):
     def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
     def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
 
-    async def parsePropertyListPage(self, response: BeautifulSoup):
+    def _select_list_link_elements(self, response: BeautifulSoup):
         links_selector = self.selectors.get('property_links', "a[href*='/pro/bukken_local_id/']")
         if hasattr(response, 'select'):
             elements = response.select(links_selector)
-            # Fallback if specific item_title selector returned nothing on non-standard page
             if not elements and ".item_title" in links_selector:
-                fallback_selector = links_selector.replace(".item_title ", "")
-                elements = response.select(fallback_selector)
-        else:
-            xpath = self.selectors.get('property_links_xpath', "//a[contains(@href, '/pro/bukken_local_id/')] | //a[contains(@href, '/mansion/') and contains(@href, '/id/')]")
-            elements = response.xpath(xpath)
+                elements = response.select(links_selector.replace(".item_title ", ""))
+            return elements
+        xpath = self.selectors.get(
+            'property_links_xpath',
+            "//a[contains(@href, '/pro/bukken_local_id/')] | //a[contains(@href, '/mansion/') and contains(@href, '/id/')]",
+        )
+        xpath_fn = getattr(response, "xpath", None)
+        return xpath_fn(xpath) if callable(xpath_fn) else []
 
+    @staticmethod
+    def _normalize_property_list_href(href: str | None) -> str:
+        if not href or href.startswith(("#", JAVASCRIPT_PREFIX)) or "/library/" in href:
+            return ""
+        cleaned = href.split("?")[0]
+        return (NOMU_BASE_URL + cleaned) if cleaned.startswith("/") else cleaned
+
+    async def parsePropertyListPage(self, response: BeautifulSoup):
+        elements = self._select_list_link_elements(response)
         seen_urls: set[str] = set()
         for link in elements:
-            href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX) and "/library/" not in href:
-                href = href.split("?")[0]
-                if href.startswith("/"): href = NOMU_BASE_URL + href
-                if href in seen_urls:
-                    continue
-                seen_urls.add(href)
-                price = self._extract_card_price(link)
-                yield ListItem(url=href, price=price)
+            href = self._normalize_property_list_href(link.get("href"))
+            if not href or href in seen_urls:
+                continue
+            seen_urls.add(href)
+            yield ListItem(url=href, price=self._extract_card_price(link))
 
     @staticmethod
     def _is_valid_next_link(txt: str, href: str, has_next_class: bool = False, current_page: int = 1) -> bool:
@@ -394,7 +401,9 @@ class NomuraParser(InvestmentParser):
             next_link = self._find_next_from_elements(response.select(selector), current_page=current_page)
         else:
             xpath = self.selectors.get('next_page_xpath', "//li[contains(@class, 'skin_next')]//a | //a[contains(@class, 'next')]")
-            next_link = self._find_next_from_elements(response.xpath(xpath), current_page=current_page)
+            xpath_fn = getattr(response, "xpath", None)
+            elems = xpath_fn(xpath) if callable(xpath_fn) else []
+            next_link = self._find_next_from_elements(elems, current_page=current_page)
         return next_link or self._find_fallback_next_link(response, current_page=current_page)
 
     async def parseNextPage(self, response: BeautifulSoup, current_url: str = NOMU_BASE_URL):
@@ -418,7 +427,7 @@ class NomuraParser(InvestmentParser):
         seen: set[str] = set()
         for link in elements:
             href = link.get("href")
-            if not href or href.startswith("#") or href.startswith(JAVASCRIPT_PREFIX):
+            if not href or href.startswith(("#", JAVASCRIPT_PREFIX)):
                 continue
             href = href.split("?")[0]
             if any(
@@ -447,7 +456,8 @@ class NomuraParser(InvestmentParser):
             elements = response.select(selector)
         else:
             xpath = self.selectors.get('area_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
-            elements = response.xpath(xpath)
+            xpath_fn = getattr(response, "xpath", None)
+            elements = xpath_fn(xpath) if callable(xpath_fn) else []
 
         target_pref = ""
         if current_url:
@@ -464,7 +474,8 @@ class NomuraParser(InvestmentParser):
             elements = response.select(selector)
         else:
             xpath = self.selectors.get('region_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
-            elements = response.xpath(xpath)
+            xpath_fn = getattr(response, "xpath", None)
+            elements = xpath_fn(xpath) if callable(xpath_fn) else []
 
         target_pref = ""
         if current_url:
@@ -611,7 +622,7 @@ class NomuraParser(InvestmentParser):
             return
         NomuraParser._apply_maguchi_from_setsudou(item, setsudou)
         width_match = re.search(
-            r"(?:幅員|幅|道路)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
+            r"(?:幅員|幅|道路)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?", setsudou
         )
         if width_match:
             item.roadWidthStr = width_match.group(0)
@@ -971,7 +982,7 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
 
     def _parseKenpeiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("建ぺい率", "")
+        return self._extract_kenpei_from_specs(target_specs)
 
     def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
@@ -979,7 +990,7 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
 
     def _parseYousekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("容積率", "")
+        return self._extract_youseki_from_specs(target_specs)
 
     def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)
@@ -1069,7 +1080,7 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
 
     def _parseKenpeiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("建ぺい率", "")
+        return self._extract_kenpei_from_specs(target_specs)
 
     def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
@@ -1077,7 +1088,7 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
 
     def _parseYousekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("容積率", "")
+        return self._extract_youseki_from_specs(target_specs)
 
     def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)
@@ -1259,7 +1270,7 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
     def _parseKenpeiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("建ぺい率", "")
+        return self._extract_kenpei_from_specs(target_specs)
 
     def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
@@ -1267,7 +1278,7 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
     def _parseYousekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("容積率", "")
+        return self._extract_youseki_from_specs(target_specs)
 
     def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)

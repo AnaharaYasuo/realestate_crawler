@@ -44,45 +44,112 @@ DEFAULT_URBAN_ZONES = [
 ]
 
 
-def import_hazard_map(csv_path: str = None) -> int:
-    logger.info("Importing nationwide hazard map potentials...")
-    
+_COASTAL_KEYWORDS = (
+    "江東", "墨田", "江戸川", "葛飾", "足立", "大田", "荒川", "川崎", "鶴見", "港北", "中原",
+    "幸", "浦安", "市川", "船橋", "大阪市此花", "大阪市港", "大阪市大正", "大阪市西淀川",
+    "名古屋市港", "名古屋市南", "名古屋市中川",
+)
+_MOUNTAIN_KEYWORDS = (
+    "鎌倉", "逗子", "葉山", "横須賀", "青梅", "八王子", "奥多摩", "箱根", "小田原",
+    "神戸市灘", "神戸市東灘", "神戸市北", "京都市左京", "京都市北", "広島市安佐南", "長崎",
+)
+_TSUNAMI_HIGH_KEYWORDS = (
+    "鎌倉", "逗子", "葉山", "藤沢", "茅ヶ崎", "平塚", "大磯", "二宮", "小田原", "熱海", "伊東",
+    "下田", "焼津", "静岡市駿河", "静岡市清水", "浜松市南", "尾鷲", "熊野", "串本", "白浜",
+    "田辺", "海南", "和歌山市", "徳島", "阿南", "室戸", "安芸", "南国", "高知", "土佐", "須崎",
+    "四万十", "宿毛", "土佐清水", "宇和島", "佐伯", "日向", "宮崎", "日南", "串間", "指宿",
+    "いわき", "相馬", "南相馬", "名取", "岩沼", "石巻", "気仙沼", "大船渡", "陸前高田", "釜石",
+    "宮古", "久慈", "八戸", "釧路", "根室", "室蘭", "苫小牧",
+)
+_TSUNAMI_MOD_KEYWORDS = (
+    "港", "中央", "品川", "大田", "江東", "江戸川", "浦安", "市川", "船橋", "習志野", "千葉市美浜",
+    "千葉市中央", "木更津", "館山", "銚子", "横浜市西", "横浜市中", "横浜市磯子", "横浜市金沢",
+    "川崎市川崎", "横須賀", "三浦", "大阪市此花", "大阪市港", "大阪市住之江", "堺市堺", "岸和田",
+    "泉佐野", "神戸市中央", "神戸市兵庫", "神戸市長田", "尼崎", "西宮", "芦屋", "明石", "姫路",
+    "名古屋市港", "名古屋市南", "半田", "常滑", "豊橋", "四日市", "津", "伊勢", "松阪",
+    "福岡市博多", "福岡市東", "福岡市中央", "北九州市門司",
+)
+_LIQUEFACTION_HIGH_KEYWORDS = (
+    "江東", "江戸川", "墨田", "葛飾", "荒川", "中央", "港", "品川", "大田", "浦安", "市川", "船橋",
+    "習志野", "千葉市美浜", "木更津", "川崎市川崎", "鶴見", "横浜市中", "横浜市西", "横浜市金沢",
+    "大阪市此花", "大阪市港", "大阪市大正", "大阪市西淀川", "大阪市住之江", "尼崎", "西宮",
+    "名古屋市港", "名古屋市南", "名古屋市中川", "海津", "弥富", "飛島", "新潟市中央", "新潟市西",
+)
+
+
+def _compute_municipality_hazards(pref: str, city: str) -> tuple[int, int, int, int, int]:
+    """自治体名・地形特性（沿岸/河川低地/急傾斜地/埋立地）から5種ハザード水準を算出する。"""
+    full_name = f"{pref}{city}"
+    flood = (
+        3
+        if any(k in full_name for k in _COASTAL_KEYWORDS)
+        else 2
+        if any(k in city for k in ("川", "江", "沼", "谷", "島", "羽生", "熊谷", "越谷"))
+        else 1
+    )
+    landslide = (
+        2
+        if any(k in full_name for k in _MOUNTAIN_KEYWORDS)
+        else 1
+        if any(k in city for k in ("山", "丘", "台", "峰", "森", "林"))
+        else 0
+    )
+    tsunami = (
+        3
+        if any(k in full_name for k in _TSUNAMI_HIGH_KEYWORDS)
+        else 2
+        if any(k in full_name for k in _TSUNAMI_MOD_KEYWORDS)
+        else 1
+        if any(k in city for k in ("浜", "浦", "湊", "港", "海岸", "岬", "島"))
+        else 0
+    )
+    red_zone = 1 if landslide >= 2 else 0
+    liquefaction = (
+        3
+        if any(k in full_name for k in _LIQUEFACTION_HIGH_KEYWORDS)
+        else 2
+        if (flood >= 3 or tsunami >= 2 or any(k in city for k in ("浜", "浦", "島", "潟", "沼", "洲")))
+        else 1
+        if flood >= 2
+        else 0
+    )
+    return flood, landslide, tsunami, red_zone, liquefaction
+
+
+def _load_target_municipalities() -> list[dict[str, str]]:
+    """同期対象の自治体一覧を取得し、主要都心自治体の存在を保証する。"""
     munis = list(MunicipalPotential.objects.values("prefecture", "city"))
     if not munis:
-        logger.warning("MunicipalPotential is empty. Using default sample hazard list.")
+        logger.warning("MunicipalPotential is empty. Trying sync_municipalities fallback.")
         try:
             from scripts.data_import.sync_estat_municipalities import sync_municipalities
+
             sync_municipalities()
             munis = list(MunicipalPotential.objects.values("prefecture", "city"))
         except Exception as e:
             logger.warning("Could not sync municipalities for hazard map: %s. Using default key list.", e)
-        if not munis:
-            munis = [
-                {"prefecture": "東京都", "city": "港区"},
-                {"prefecture": "東京都", "city": "千代田区"},
-                {"prefecture": "東京都", "city": "中央区"},
-                {"prefecture": "東京都", "city": "新宿区"},
-                {"prefecture": "東京都", "city": "渋谷区"},
-                {"prefecture": "東京都", "city": "江東区"},
-                {"prefecture": "神奈川県", "city": "横浜市中区"},
-                {"prefecture": "大阪府", "city": "大阪市北区"},
-            ]
-    # Ensure standard Tokyo municipalities are always present for risk modeling & tests
-    muni_keys = {(m["prefecture"], m["city"]) for m in munis}
-    for default_item in [
+
+    default_items = [
         {"prefecture": "東京都", "city": "港区"},
         {"prefecture": "東京都", "city": "千代田区"},
         {"prefecture": "東京都", "city": "中央区"},
         {"prefecture": "東京都", "city": "新宿区"},
         {"prefecture": "東京都", "city": "渋谷区"},
         {"prefecture": "東京都", "city": "江東区"},
-    ]:
-        if (default_item["prefecture"], default_item["city"]) not in muni_keys:
-            munis.append(default_item)
+        {"prefecture": "神奈川県", "city": "横浜市中区"},
+        {"prefecture": "神奈川県", "city": "鎌倉市"},
+        {"prefecture": "大阪府", "city": "大阪市北区"},
+    ]
+    muni_keys = {(m["prefecture"], m["city"]) for m in munis}
+    for item in default_items:
+        if (item["prefecture"], item["city"]) not in muni_keys:
+            munis.append(item)
+    return munis
 
-    coastal_keywords = ["江東", "墨田", "江戸川", "葛飾", "足立", "大田", "荒川", "川崎", "鶴見", "港北", "中原", "幸", "浦安", "市川", "船橋", "大阪市此花", "大阪市港", "大阪市大正", "大阪市西淀川", "名古屋市港", "名古屋市南", "名古屋市中川"]
-    mountain_keywords = ["鎌倉", "逗子", "葉山", "横須賀", "青梅", "八王子", "奥多摩", "箱根", "小田原", "神戸市灘", "神戸市東灘", "神戸市北", "京都市左京", "京都市北", "広島市安佐南", "長崎"]
 
+def import_hazard_map(csv_path: str | None = None) -> int:
+    logger.info("Importing nationwide hazard map potentials (flood/landslide/tsunami/red_zone/liquefaction)...")
+    munis = _load_target_municipalities()
     params = []
     seen = set()
 
@@ -93,22 +160,8 @@ def import_hazard_map(csv_path: str = None) -> int:
         if key in seen:
             continue
         seen.add(key)
-
-        if any(k in city for k in coastal_keywords):
-            flood = 3
-        elif any(k in city for k in ["川", "江", "沼", "谷", "島", "羽生", "熊谷", "越谷"]):
-            flood = 2
-        else:
-            flood = 1
-
-        if any(k in city for k in mountain_keywords):
-            landslide = 2
-        elif any(k in city for k in ["山", "丘", "台", "峰", "森", "林"]):
-            landslide = 1
-        else:
-            landslide = 0
-
-        params.append((pref, city, flood, landslide))
+        flood, landslide, tsunami, red_zone, liquefaction = _compute_municipality_hazards(pref, city)
+        params.append((pref, city, flood, landslide, tsunami, red_zone, liquefaction))
 
     if connection.vendor == "sqlite":
         objs = [
@@ -117,6 +170,9 @@ def import_hazard_map(csv_path: str = None) -> int:
                 city=p[1],
                 flood_risk_level=p[2],
                 landslide_risk_level=p[3],
+                tsunami_risk_level=p[4],
+                red_zone_landslide_flag=p[5],
+                liquefaction_risk_level=p[6],
             )
             for p in params
         ]
@@ -124,17 +180,29 @@ def import_hazard_map(csv_path: str = None) -> int:
         HazardMapPotential.objects.bulk_create(
             objs,
             update_conflicts=True,
-            update_fields=["flood_risk_level", "landslide_risk_level"],
+            update_fields=[
+                "flood_risk_level",
+                "landslide_risk_level",
+                "tsunami_risk_level",
+                "red_zone_landslide_flag",
+                "liquefaction_risk_level",
+            ],
             unique_fields=unique_fields,
             batch_size=2000,
         )
     else:
         sql = """
-        INSERT INTO hazard_map_potential (prefecture, city, flood_risk_level, landslide_risk_level)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO hazard_map_potential (
+            prefecture, city, flood_risk_level, landslide_risk_level,
+            tsunami_risk_level, red_zone_landslide_flag, liquefaction_risk_level
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             flood_risk_level = VALUES(flood_risk_level),
-            landslide_risk_level = VALUES(landslide_risk_level)
+            landslide_risk_level = VALUES(landslide_risk_level),
+            tsunami_risk_level = VALUES(tsunami_risk_level),
+            red_zone_landslide_flag = VALUES(red_zone_landslide_flag),
+            liquefaction_risk_level = VALUES(liquefaction_risk_level)
         """
 
         logger.info("Executing bulk insert with ON DUPLICATE KEY UPDATE (%d rows)...", len(params))
@@ -147,7 +215,7 @@ def import_hazard_map(csv_path: str = None) -> int:
     return total
 
 
-def import_urban_planning_zones(csv_path: str = None) -> int:
+def import_urban_planning_zones(csv_path: str | None = None) -> int:
     logger.info("Importing Urban Planning Zone potentials...")
     count = 0
     for z in DEFAULT_URBAN_ZONES:

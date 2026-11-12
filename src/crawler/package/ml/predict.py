@@ -25,6 +25,7 @@ from package.ml.inference.model_registry import (
 )
 from package.ml.inference.predictor import (
     bulk_predict,
+    bulk_predict_with_p10,
     predict_both_stages,
 )
 from package.ml.inference.predictor import (
@@ -79,6 +80,17 @@ def ensure_models_available(model_dir: str | None = None) -> None:
 def bulk_predict_first_stage(properties_list: list[Any]) -> list[int]:
     """複数物件に対する一括ベクトル化推論 (一次理論価格)"""
     return bulk_predict(
+        properties_list,
+        stage="first",
+        models_provider=_get_models_and_master,
+        weights_provider=_load_ensemble_weights,
+        smearing_provider=_load_smearing_factors,
+    )
+
+
+def bulk_predict_first_stage_with_p10(properties_list: list[Any]) -> tuple[list[int], list[int]]:
+    """複数物件に対する一次理論価格および P10 コンフォーマル下限予測価格の一括推論"""
+    return bulk_predict_with_p10(
         properties_list,
         stage="first",
         models_provider=_get_models_and_master,
@@ -145,6 +157,7 @@ __all__ = [
     "_serialize_property",
     "bulk_predict",
     "bulk_predict_first_stage",
+    "bulk_predict_first_stage_with_p10",
     "bulk_predict_second_stage",
     "ensure_models_available",
     "get_api_base_url",
