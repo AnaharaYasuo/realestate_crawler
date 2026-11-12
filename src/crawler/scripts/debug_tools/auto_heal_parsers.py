@@ -245,23 +245,32 @@ def _save_cb_state(count: int, cooldown_until: datetime | None) -> None:
         logger.debug(f"Failed to save circuit-breaker state to {path}: {e}")
 
 
-def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
+def summarize_errors_with_gemini(
+    top_targets: list[dict], failed_pipeline_steps: list[str] | None = None
+) -> str:
     """
-    Google Cloud Gemini 2.5 Flash を用いて上位エラーを簡潔に要約（Caveman形式）する。
+    Google Cloud Gemini を用いてエラーを分析し、根本原因と具体的修正アクション（対象ファイル・メソッド）を提示する。
+    環境変数 GEMINI_RECOMMEND_MODEL (デフォルト: gemini-3.8-flash, フォールバック: gemini-3.1-flash-lite) に準拠 (Issue #1391)。
     連続タイムアウト時はサーキットブレイカー（クールダウン）を作動させ、ルールベースのデフォルトサマリーを即時返却。
-    プロセス間永続化ファイル（Temp/gemini_circuit_breaker.json）により状態を維持。
     """
-    if not top_targets:
+    if not top_targets and not failed_pipeline_steps:
         return ""
 
-    default_summary = "\n".join(
-        [
-            f"- {t.get('company')} ({t.get('property_type')}) [{t.get('frequency', 1)}件]: {t.get('reason')} (URL: {t.get('url')})"
-            for t in top_targets[:5]
-        ]
-    )
-    if len(top_targets) > 5:
-        default_summary += f"\n... 他 {len(top_targets) - 5} 件 (最大50件を優先修復対象に選定)"
+    summary_lines = []
+    if failed_pipeline_steps:
+        summary_lines.append("【パイプライン重大失敗ステップ】:")
+        for fs in failed_pipeline_steps:
+            summary_lines.append(f"- ❌ {fs}")
+    if top_targets:
+        summary_lines.append("【上位データ・パース異常】:")
+        for t in top_targets[:5]:
+            summary_lines.append(
+                f"- {t.get('company')} ({t.get('property_type')}) [{t.get('frequency', 1)}件]: {t.get('reason')} (URL: {t.get('url')})"
+            )
+        if len(top_targets) > 5:
+            summary_lines.append(f"... 他 {len(top_targets) - 5} 件 (最大50件を優先修復対象に選定)")
+
+    default_summary = "\n".join(summary_lines)
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or genai is None:
@@ -276,18 +285,30 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
         )
         return default_summary
 
-    model_name = "gemini-2.5-flash"
+    # 環境変数からモデルを取得。gemini-2.5-flash等の非推奨・廃止モデルが指定されていた場合は最新3.8-flashへフォールバック
+    candidate_model = os.getenv("GEMINI_RECOMMEND_MODEL", "gemini-3.8-flash")
+    if candidate_model in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+        candidate_model = "gemini-3.8-flash"
+
     try:
-        http_options = types.HttpOptions(timeout=10000) if types else None
+        http_options = types.HttpOptions(timeout=15000) if types else None
         with genai.Client(api_key=api_key, http_options=http_options) as client:
             items_text = json.dumps(top_targets[:50], ensure_ascii=False, indent=2)
+            steps_text = json.dumps(failed_pipeline_steps or [], ensure_ascii=False, indent=2)
             prompt = (
-                "以下の不動産クローラーのエラー上位リスト（Top 50）を読み、AI開発エージェント向けに"
-                "修復優先度・影響サイト・原因セレクターやパース不備をCaveman形式（簡潔・余計な修飾語なし・箇条書き）で要約してください。\n\n"
-                f"{items_text}"
+                "あなたは不動産クローラーおよびML価格推定システムの主任AIデバッグエージェントです。\n"
+                "今回パイプライン実行で発生したエラー（失敗ステップおよびデータ・パース異常）を分析し、"
+                "開発AIエージェントが直ちに修復に着手できるよう、実効性のある診断レポートを作成してください。\n\n"
+                f"### パイプライン失敗ステップ:\n{steps_text}\n\n"
+                f"### 上位異常リスト (Top 50):\n{items_text}\n\n"
+                "### 出力要件:\n"
+                "1. **【全体診断 & 根本原因】**: パイプライン停止やデータ異常の主要因（DOM変更、MySQL切断/Server has gone away、型破綻、モデル推論異常など）を箇条書きで特定する。\n"
+                "2. **【最優先修正対象】**: 影響度の大きい順に、修正すべき具体的なファイルパス（例: `src/crawler/package/parser/xxxParser.py`, `src/crawler/package/ml/xxx.py`）、クラス・メソッド名、修正すべきロジックの概要を提示する。\n"
+                "3. **【推奨実行コマンド】**: テストやオートヒール実行のためのコマンド（例: `/auto-heal`, `pytest ...`）を明示する。\n"
+                "※ 冗長な挨拶は省き、実務的・具体的・Markdown形式で記述してください。"
             )
             resp = client.models.generate_content(
-                model=model_name,
+                model=candidate_model,
                 contents=prompt,
             )
             summary_text = (getattr(resp, "text", "") or "").strip()
@@ -315,7 +336,7 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
                 )
             _save_cb_state(0 if new_cooldown else consecutive_timeouts, new_cooldown)
         else:
-            logger.warning(f"Failed to summarize errors with Gemini: {e}")
+            logger.warning(f"Failed to summarize errors with Gemini ({candidate_model}): {e}")
 
     return default_summary
 
@@ -525,11 +546,11 @@ async def fetch_slack_error_targets(limit: int = 100) -> list[dict]:
     return targets
 
 
-def scan_anomalies_and_generate_instructions():
+def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = None):
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
     直近でエラーが検出された物件のURLをDBからスキャンし、
-    発生頻度の高い上位エラー（Top 50）に絞り込んで自己修復指示書 (auto_heal_instruction.json) を出力します。
+    パイプライン各ステップの失敗情報（failed_steps）も含めて総合自己修復指示書 (auto_heal_instruction.json) を出力します。
     """
     logger.info(
         "Scanning for scraping anomalies and errors to build AI self-healing instructions..."
@@ -612,8 +633,8 @@ def scan_anomalies_and_generate_instructions():
     project_root = get_project_root()
     temp_dir = os.path.join(project_root, "Temp")
 
-    if not heal_targets:
-        logger.info("No scraping anomalies found for AI healing.")
+    if not heal_targets and not failed_steps:
+        logger.info("No scraping anomalies or pipeline failures found for AI healing.")
         inst_path = os.path.join(temp_dir, "auto_heal_instruction.json")
         if os.path.exists(inst_path):
             os.remove(inst_path)
@@ -623,8 +644,8 @@ def scan_anomalies_and_generate_instructions():
     # 発生頻度順（Top 50）に優先順位付け
     top_targets = aggregate_and_sort_targets(heal_targets, max_targets=50)
 
-    # Google Cloud Gemini (Flash) を直接呼び出し、インメモリでエラー要約（ローカル一時ファイル経由なし）
-    ai_summary = summarize_errors_with_gemini(top_targets)
+    # Google Cloud Gemini を直接呼び出し、インメモリで根本原因・具体的アクションを分析 (Issue #1391)
+    ai_summary = summarize_errors_with_gemini(top_targets, failed_pipeline_steps=failed_steps)
 
     parser_rel_dir = os.path.relpath(
         os.path.join(os.path.dirname(os.path.dirname(current_dir)), "package", "parser"),
@@ -634,9 +655,10 @@ def scan_anomalies_and_generate_instructions():
     instruction = {
         "generated_at": datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "total_anomalies_detected": len(heal_targets),
+        "failed_pipeline_steps": failed_steps or [],
         "ai_summary": ai_summary,
         "targets": top_targets,
-        "action_required": f"Please inspect the target URLs in prioritized order (Top-50 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, run verification tests, and commit/push/merge changes to master.",
+        "action_required": f"Please inspect the target URLs in prioritized order (Top-50 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, resolve any pipeline failures, run verification tests, and commit/push/merge changes to master.",
     }
 
     os.makedirs(temp_dir, exist_ok=True)
@@ -645,7 +667,7 @@ def scan_anomalies_and_generate_instructions():
         json.dump(instruction, f, ensure_ascii=False, indent=2)
 
     logger.info(
-        f"Successfully generated AI self-healing instruction at {inst_path} with {len(top_targets)} prioritized targets (total {len(heal_targets)} detected)."
+        f"Successfully generated AI self-healing instruction at {inst_path} with {len(top_targets)} prioritized targets (total {len(heal_targets)} detected, failed_steps: {len(failed_steps or [])})."
     )
     notify_auto_heal_request(
         top_targets,
@@ -655,4 +677,21 @@ def scan_anomalies_and_generate_instructions():
 
 
 if __name__ == "__main__":
-    scan_anomalies_and_generate_instructions()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Auto-Heal Instruction Generator")
+    parser.add_argument(
+        "--failed-steps",
+        dest="failed_steps",
+        type=str,
+        default=None,
+        help="JSON-encoded list of failed pipeline step descriptions",
+    )
+    args = parser.parse_args()
+    failed_steps_list = None
+    if args.failed_steps:
+        try:
+            failed_steps_list = json.loads(args.failed_steps)
+        except Exception:
+            failed_steps_list = [args.failed_steps]
+    scan_anomalies_and_generate_instructions(failed_steps=failed_steps_list)

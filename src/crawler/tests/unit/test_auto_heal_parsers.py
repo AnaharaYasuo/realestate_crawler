@@ -277,3 +277,18 @@ def test_parse_slack_message_to_targets_data_monitor_alert():
     assert t1["propertyName"] == "土地物件"
     assert t1["url"] == "https://www.stepon.co.jp/tochi/detail_12345/"
 
+
+def test_summarize_errors_with_gemini_includes_failed_pipeline_steps():
+    """パイプライン失敗ステップ (Step 3 ML, Step 4 Bulk Eval等) がサマリーに含まれることを検証 (Issue #1391)"""
+    from scripts.debug_tools.auto_heal_parsers import summarize_errors_with_gemini
+
+    failed_steps = ["Step 3/6: ML Model Re-Training", "Step 4/6: Batch Estimation & Investment Evaluation"]
+    targets = [{"company": "athome", "property_type": "mansion", "reason": "価格異常", "url": "https://example.com"}]
+
+    summary = summarize_errors_with_gemini(targets, failed_pipeline_steps=failed_steps)
+    assert "【パイプライン重大失敗ステップ】" in summary
+    assert "Step 3/6: ML Model Re-Training" in summary
+    assert "Step 4/6: Batch Estimation & Investment Evaluation" in summary
+    assert "athome (mansion)" in summary
+
+
