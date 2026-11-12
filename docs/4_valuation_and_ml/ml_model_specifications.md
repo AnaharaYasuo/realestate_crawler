@@ -831,5 +831,17 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 ### 16.5 主要サイトパーサーの接道・間口・道路幅員・建蔽容積率 充填率（Fill-Rate）強化
 `TochiParserBase` / `KodateParserBase` の複合ヘッダ（`建ぺい率/容積率`・`建蔽率/容積率`）対応、`HomesParser` の全角メートル（`ｍ`）対応および `接道` 誤マッチ防止・`HomesKodateParser` の用途地域/地目/権利抽出追加、`KenbiyaParser` 各サブクラスへの間口・道路幅員バインド追加、`NomuraParser` の建蔽率表記ゆれ対応により、上流データの欠損率を低減する。
 
+### 16.6 16並列バルク評価のサブバッチ個別コミット ＆ 自己参照外部キー `duplicate_of` 差分更新仕様 (Issue #1392)
+16並列バルク評価時の MySQL InnoDB ロック競合（`1205 Lock wait timeout exceeded`）および ProxySQL 経由切断時の未コミットトランザクション残留を根絶するため、[`persistence.py`](../../src/crawler/package/ml/evaluation/persistence.py)・[`record_builder.py`](../../src/crawler/package/ml/evaluation/record_builder.py)・[`targets.py`](../../src/crawler/package/ml/evaluation/targets.py) で以下3層のロックフリー永続化を適用する：
+1. **サブバッチ（100件）単位の1ステートメント個別コミット**:
+   - Django の `QuerySet.bulk_update(1000件, batch_size=100)` は内部で全10バッチを単一の `transaction.atomic()` で囲むため、1,000件分のロックが最終バッチ完了まで保持され、途中切断時にバックエンド接続へ未コミットロックが残留する。
+   - `bulk_update_evaluation_records` では PK 昇順ソート済みの `valid_updates` を Python 側で `batch_size`（デフォルト 100 件）単位のサブバッチへ分割し、各サブバッチを1回の SQL `UPDATE` ステートメントで即時コミットすることで、ロック保持時間をミリ秒単位へ短縮する。
+2. **自己参照外部キー `duplicate_of` および不変識別キーの差分更新**:
+   - `PropertyEvaluation.duplicate_of` は同一テーブル `property_evaluation(id)` を参照する自己参照外部キーであり、`UPDATE` 対象カラムに `duplicate_of` を含めると、値が未変更であっても InnoDB が名寄せ親レコード（`sumifu` 等の最小ID群）に共有ロック（`S` ロック）を取得し、親モデルの排他更新（`X` ロック）をブロックする。
+   - `build_or_update_eval_record` で更新前後の `duplicate_of_id` および `(company, property_type, property_id)` の変更有無（`_duplicate_of_changed`, `_identity_changed`）を記録し、未変更サブバッチでは通常 `bulk_update` から `duplicate_of`（および未変更の識別キー3列）を除外し、実際に `duplicate_of` が変化したレコードのみ `fields=["duplicate_of"]` で最小限の差分更新を実行する。
+3. **直販・仲介元モデルの先行スケジューリング**:
+   - `get_all_property_models` のソート順において、名寄せ親となる直販・仲介会社モデル群を大規模ポータル（`athome`, `homes`, `kenbiya`）より先行投入し、親レコード更新とポータル大量更新の時間帯重複自体を回避する。
+
+
 
 
