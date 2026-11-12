@@ -18,7 +18,7 @@ ERR_MISSING_MADORI = "必須項目欠損 (間取りが未抽出)"
 ERR_MISSING_AGE = "必須項目欠損 (築年月が未抽出)"
 _BLANKS = ("", "-", "None", "nan")
 _OFFICE_ADDRESS_CONTAMINATION_RE = re.compile(
-    r"(?:〒\s*\d{3}[-ー－]\d{4}.*(?:ビル|階))|(?:(?:大和ハウス|フコク生命|センター)ビル\d+階)"
+    r"〒\s*\d{3}[-ー－]\d{4}.*(?:ビル|階)|(?:大和ハウス|フコク生命|センター)ビル\d+階"
 )
 
 
@@ -257,35 +257,33 @@ class PropertyDataValidator:
                 return True
         return False
 
+    @staticmethod
+    def _resolve_area_attrs(ptype: str) -> tuple[str, ...]:
+        if ptype in ("mansion", "invest_mansion"):
+            return ("senyuMenseki",)
+        if ptype == "tochi":
+            return ("tochiMenseki",)
+        return ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+
+    @staticmethod
+    def _select_best_area(parsed: list[float]) -> float:
+        if not parsed:
+            return 0.0
+        valid_areas = [val for val in parsed if val > 5.0]
+        if valid_areas:
+            return max(valid_areas)
+        positive_areas = [val for val in parsed if val > 0.0]
+        return max(positive_areas) if positive_areas else parsed[0]
+
     @classmethod
     def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
-        area = 0.0
-        attrs: tuple[str, ...]
-        if ptype in ("mansion", "invest_mansion"):
-            attrs = ("senyuMenseki",)
-        elif ptype == "tochi":
-            attrs = ("tochiMenseki",)
-        else:
-            attrs = ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
-
-        candidates = [
-            cls._parse_candidate_float(getattr(item, attr, None))
-            for attr in attrs
-        ]
-        parsed = [c for c in candidates if c is not None]
-        if parsed:
-            # > 5.0 を優先、なければ > 0.0 の正の値を優先
-            valid_areas = [val for val in parsed if val > 5.0]
-            if valid_areas:
-                area = max(valid_areas)
-            else:
-                positive_areas = [val for val in parsed if val > 0.0]
-                area = max(positive_areas) if positive_areas else parsed[0]
+        attrs = cls._resolve_area_attrs(ptype)
+        candidates = [cls._parse_candidate_float(getattr(item, attr, None)) for attr in attrs]
+        area = cls._select_best_area([c for c in candidates if c is not None])
 
         min_area = 10.0 if ptype == "mansion" else 5.0
-        if area <= min_area:
-            if not cls._is_invest_area_exempt(item, ptype):
-                reasons.append(f"面積異常 ({area:.1f}㎡: {min_area:.0f}㎡以下)")
+        if area <= min_area and not cls._is_invest_area_exempt(item, ptype):
+            reasons.append(f"面積異常 ({area:.1f}㎡: {min_area:.0f}㎡以下)")
         elif area > 10000.0 and ptype in ["mansion", "kodate", "invest_kodate"]:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
         return area
