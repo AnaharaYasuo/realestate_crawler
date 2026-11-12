@@ -30,16 +30,19 @@ def get_all_property_models(skip_portals: bool = False, skip_uncrawled: bool = F
         model_name = model.__name__.lower()
         if any(model_name.startswith(c) for c in target_companies):
             property_models.append(model)
-    # 物件数が多く重要なマンションモデルを最優先で処理するようにソート
-    def _model_sort_priority(m: Any) -> int:
+    # 名寄せ親となる直販・仲介会社モデルを大規模ポータルより先行処理し、種別内ではマンション優先でソート (Issue #1392)
+    portal_prefixes = (*PORTAL_COMPANIES, "kenbiya")
+
+    def _model_sort_priority(m: Any) -> tuple[int, int]:
         name = m.__name__.lower()
+        portal_rank = 1 if any(name.startswith(p) for p in portal_prefixes) else 0
         if "mansion" in name:
-            return 0  # マンション最優先
-        elif "tochi" in name:
-            return 1
-        elif "kodate" in name:
-            return 2
-        return 3
+            return (portal_rank, 0)
+        if "tochi" in name:
+            return (portal_rank, 1)
+        if "kodate" in name:
+            return (portal_rank, 2)
+        return (portal_rank, 3)
 
     property_models.sort(key=_model_sort_priority)
     return property_models
@@ -71,9 +74,7 @@ def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = 
     # 正常な推計価格（>0）およびDCF理論価格が算出済みの場合はスキップ、未推計または0円なら再推計対象 (Issue #1370)
     if not existing_eval or existing_eval.first_stage_predicted_price is None or existing_eval.first_stage_predicted_price <= 0:
         return False
-    if hasattr(existing_eval, "dcf_theoretical_price") and existing_eval.dcf_theoretical_price is None:
-        return False
-    return True
+    return not (hasattr(existing_eval, "dcf_theoretical_price") and existing_eval.dcf_theoretical_price is None)
 
 
 def iter_active_items(
