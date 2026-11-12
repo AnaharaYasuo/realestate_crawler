@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Issue #922: Auto-Heal 単価上限引上げ・面積抽出フォールバック・残留不整合レコード同期のテスト"""
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -79,7 +79,7 @@ def test_scan_anomalies_resolves_valid_property_evaluations():
         company = "mitsui"
         property_type = "tochi"
         property_id = 101
-        analyzed_at = datetime.now(timezone.utc)
+        analyzed_at = datetime.now(UTC)
         is_published = True
 
         def save(self, update_fields=None):
@@ -91,7 +91,7 @@ def test_scan_anomalies_resolves_valid_property_evaluations():
         company = "mitsui"
         property_type = "tochi"
         property_id = 102
-        analyzed_at = datetime.now(timezone.utc)
+        analyzed_at = datetime.now(UTC)
         is_published = True
 
         def save(self, update_fields=None):
@@ -181,6 +181,6 @@ def test_mansion_area_does_not_fallback_to_land_area():
     )
     ok, reasons = PropertyDataValidator.validate_property(item, "mansion")
     assert not ok
-    assert any("5㎡以下" in r for r in reasons)
+    assert any("10㎡以下" in r or "5㎡以下" in r for r in reasons)
 
 

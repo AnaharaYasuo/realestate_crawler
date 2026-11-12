@@ -267,6 +267,30 @@ def _extract_single_eval_item(ev, prop_obj):
     }
 
 
+def _fetch_objects_by_ids(prop_model, id_set: set) -> dict:
+    try:
+        qs = prop_model.objects.filter(id__in=list(id_set))
+        rows = list(qs) if hasattr(qs, "__iter__") else []
+        if rows:
+            return {getattr(o, "id", None): o for o in rows}
+    except Exception:
+        pass
+    result = {}
+    for pid in id_set:
+        try:
+            obj = prop_model.objects.filter(id=pid).first()
+            if obj:
+                result[pid] = obj
+        except Exception as e:
+            logger.warning(f"Error fetching {prop_model.__name__} id={pid}: {e}")
+    return result
+
+
+def _is_clean_eval_record(ev) -> bool:
+    issue = getattr(ev, "data_quality_issue", "")
+    return not (isinstance(issue, str) and issue.strip())
+
+
 def _collect_diagnostics_data(eval_records: list) -> list:
     model_cache = {}
     app_config = apps.get_app_config("package")
@@ -283,14 +307,10 @@ def _collect_diagnostics_data(eval_records: list) -> list:
         by_model_ids.setdefault(prop_model, set()).add(ev.property_id)
         ev_with_model.append((ev, prop_model))
 
-    fetched_map: dict = {}
-    for prop_model, id_set in by_model_ids.items():
-        try:
-            objs = prop_model.objects.filter(id__in=list(id_set))
-            fetched_map[prop_model] = {o.id: o for o in objs}
-        except Exception as e:
-            logger.warning(f"Error batch fetching {prop_model.__name__}: {e}")
-            fetched_map[prop_model] = {}
+    fetched_map = {
+        prop_model: _fetch_objects_by_ids(prop_model, id_set)
+        for prop_model, id_set in by_model_ids.items()
+    }
 
     diagnostics_data = []
     for ev, prop_model in ev_with_model:
@@ -356,19 +376,9 @@ def run_diagnostics(limit: int = 5000, target_date: str | None = None, dry_run: 
         base_qs = base_qs.filter(analyzed_at__date=target_date)
 
     # 最新順に取得し、TEXT列 data_quality_issue が空の正常レコードを limit 件抽出
-    raw_eval_records = list(
-        base_qs.only(
-            "id",
-            "company",
-            "property_type",
-            "property_id",
-            "property_url",
-            "first_stage_predicted_price",
-            "analyzed_at",
-            "data_quality_issue",
-        ).order_by("-id")[: limit + 500]
-    )
-    eval_records = [ev for ev in raw_eval_records if not getattr(ev, "data_quality_issue", "")][:limit]
+    ordered_qs = base_qs.order_by("-id")
+    raw_eval_records = list(ordered_qs[: limit + 500])
+    eval_records = [ev for ev in raw_eval_records if _is_clean_eval_record(ev)][:limit]
     if not eval_records:
         logger.warning("No evaluated properties found for diagnostics.")
         return None
