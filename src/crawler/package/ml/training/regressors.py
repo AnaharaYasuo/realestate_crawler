@@ -54,3 +54,21 @@ def get_regressor(name: str, params: dict[str, Any] | None = None, *, use_anchor
         raise ValueError(f"Unknown algorithm: {name}")
 
     return AnchorResidualEstimator(base) if use_anchor_residual else base
+
+
+def get_quantile_p10_regressor(alpha: float = 0.10, *, use_anchor_residual: bool = True) -> Any:
+    """下限予測値 P10 用の LightGBM 分位点回帰器（Pinball Loss, alpha=0.10）を生成する。"""
+    ml_threads = int(os.getenv("ML_NUM_THREADS", "-1"))
+    base = lgb.LGBMRegressor(
+        objective="quantile",
+        alpha=float(alpha),
+        random_state=42,
+        verbose=-1,
+        n_jobs=ml_threads,
+        n_estimators=120,
+        learning_rate=0.05,
+        num_leaves=31,
+        max_depth=6,
+        min_child_samples=10,
+    )
+    return AnchorResidualEstimator(base) if use_anchor_residual else base

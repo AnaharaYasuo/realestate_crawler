@@ -1,9 +1,10 @@
 import asyncio
+from decimal import Decimal
 import logging
 import os
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urljoin
 import aiohttp
 from bs4 import BeautifulSoup
@@ -39,6 +40,16 @@ KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
+_KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
+_KENBIYA_MAGUCHI_RE = re.compile(
+    r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
+)
+_KENBIYA_WIDTH_LABEL_RE = re.compile(
+    r"(?:道路幅員|幅員|幅)[\s：:約]{0,8}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
+)
+_KENBIYA_WIDTH_DIR_RE = re.compile(
+    r"(?:北東|北西|南東|南西|[北南東西])側?[\s：:約公私道]{0,10}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]"
+)
 
 
 class KenbiyaParserBase(ParserBase):
@@ -224,9 +235,10 @@ class KenbiyaParserBase(ParserBase):
     async def parsePropertyListPage(self, response: BeautifulSoup):
         detail_links = set()
         for a in response.find_all("a", href=re.compile(r"/pp\d+/.*?/re_\w+/")):
-            href = a.get("href")
-            if not href:
+            raw_href = a.get("href")
+            if not raw_href:
                 continue
+            href = raw_href[0] if isinstance(raw_href, list) else str(raw_href)
             full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
             if full_url not in detail_links:
                 detail_links.add(full_url)
@@ -292,7 +304,7 @@ class KenbiyaParserBase(ParserBase):
                 return True
         return False
 
-    def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
+    def _parse_dl_specs(self, response: Any, specs: dict) -> None:
         for dl in response.find_all("dl"):
             if self._is_excluded_spec_container(dl):
                 continue
@@ -303,7 +315,7 @@ class KenbiyaParserBase(ParserBase):
                 if key and cleaned_val and key not in specs:
                     specs[key] = cleaned_val
 
-    def _parse_tr_specs(self, response: BeautifulSoup, specs: dict) -> None:
+    def _parse_tr_specs(self, response: Any, specs: dict) -> None:
         for tr in response.find_all("tr"):
             parent = tr.find_parent("table")
             if parent and self._is_excluded_spec_container(parent):
@@ -477,27 +489,48 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = (
-            specs.get(KENPEI_YOUSEKI_SLASH, "")
-            or specs.get(KENPEI_YOUSEKI_FULL, "")
-            or specs.get("建ぺい率", "")
-        )
-        if "/" in raw:
-            parts = raw.split("/")
-            return converter.parse_ratio(parts[0])
+        raw = self._extract_kenpei_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
         return converter.parse_ratio(raw)
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = (
-            specs.get(KENPEI_YOUSEKI_SLASH, "")
-            or specs.get(KENPEI_YOUSEKI_FULL, "")
-            or specs.get("容積率", "")
-        )
-        if "/" in raw:
-            parts = raw.split("/")
-            return converter.parse_ratio(parts[1])
+        raw = self._extract_youseki_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
+        if raw and _KENBIYA_RATIO_SPLIT_RE.search(raw):
+            parts = _KENBIYA_RATIO_SPLIT_RE.split(raw)
+            if len(parts) >= 2:
+                return converter.parse_ratio(parts[1])
         return converter.parse_ratio(raw)
+
+    def _parseMaguchi(self, response: BeautifulSoup, specs=None) -> Optional[Decimal]:
+        specs = specs or self._get_specs(response)
+        direct = specs.get("間口", "") or specs.get("接面", "")
+        if direct:
+            parsed = self._extract_maguchi_decimal(direct, allow_bare_meter=True)
+            if parsed is not None:
+                return parsed
+        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        if setsudou_val:
+            m = _KENBIYA_MAGUCHI_RE.search(setsudou_val)
+            if m:
+                return Decimal(m.group(1))
+        return None
+
+    def _parseRoadWidth(self, response: BeautifulSoup, specs=None) -> Optional[Decimal]:
+        specs = specs or self._get_specs(response)
+        for k in ("道路幅員", "幅員", "道路幅"):
+            direct = specs.get(k, "")
+            if direct:
+                m_dir = re.search(r"(\d{1,4}(?:\.\d{1,3})?)", direct)
+                if m_dir:
+                    return Decimal(m_dir.group(1))
+        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        if setsudou_val:
+            m = _KENBIYA_WIDTH_LABEL_RE.search(setsudou_val) or _KENBIYA_WIDTH_DIR_RE.search(
+                setsudou_val
+            )
+            if m:
+                return Decimal(m.group(1))
+        return None
 
     def _parse_traffic(self, item, traffic_text: str):
         """健美家の交通情報テキストから沿線・駅・徒歩分数を抽出"""
@@ -546,6 +579,15 @@ class KenbiyaParserBase(ParserBase):
         item.chimoku = self._parseChimoku(response, specs)
         item.grossYield = self._parseGrossYield(response, specs)
         item.annualRent = self._parseAnnualRent(response, specs)
+
+        maguchi_val = self._parseMaguchi(response, specs)
+        if maguchi_val is not None:
+            item.maguchi = maguchi_val
+            item.maguchiStr = f"{maguchi_val}m"
+        road_width_val = self._parseRoadWidth(response, specs)
+        if road_width_val is not None:
+            item.roadWidth = road_width_val
+            item.roadWidthStr = f"{road_width_val}m"
 
         traffic_text = specs.get("交通", "")
         if traffic_text:
@@ -810,12 +852,7 @@ class KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase):
         return KenbiyaTochi()
 
     def _parseMaguchi(self, response: BeautifulSoup, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("間口", "") or specs.get("接道状況", "")
-        if "間口" in val:
-            part = val.split("間口")[1].split("m")[0]
-            return converter.parse_menseki(part)
-        return None
+        return super()._parseMaguchi(response, specs)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._populate_common_fields(item, response)

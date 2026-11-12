@@ -50,10 +50,10 @@ from .plot_shape import _calculate_plot_shape_features
 from .reference_data import (
     _blend_land_prices,
     _calculate_effective_walk_min,
-    _calculate_hazard_features,
     _calculate_regional_sensitivity_features,
     _extract_macro_features,
     _init_global_caches,
+    _query_extended_hazard_features,
     _query_hierarchy_centroid,
     _query_micro_land_price_features,
     _query_municipal_potential,
@@ -135,9 +135,16 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     is_urban_induction, is_residential_induction = _query_urban_induction_zone_features(address1, address2)
     st_vol_cagr, muni_inc_cagr, muni_pop_mom = _query_historical_momentum_features(address1, address2, station1, ref_prop_date.year if ref_prop_date else 2024)
     effective_walk_min = _calculate_effective_walk_min(walk_min, bus_use, bus_min, bus_walk, pop_density)
-    max_youseki, max_kenpei, zone_max_kenpei, zone_max_youseki, zone_name_prop = _resolve_zone_limits(property_obj)
-    average_land_price, estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate = _blend_land_prices(address1, address2, max_youseki)
     lat_val, lon_val = _resolve_property_coordinates(property_obj, chome_group, address1, address2, station1)
+    max_youseki, max_kenpei, zone_max_kenpei, zone_max_youseki, zone_name_prop = _resolve_zone_limits(
+        property_obj,
+        prefecture=address1,
+        city=address2,
+        chome_group=chome_group,
+        latitude=lat_val,
+        longitude=lon_val,
+    )
+    average_land_price, estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate = _blend_land_prices(address1, address2, max_youseki)
     micro_land_price, chome_infra_score = _query_micro_land_price_features(
         address1, address2, chome_group, max_youseki, average_land_price,
         station_name=station1, latitude=lat_val, longitude=lon_val,
@@ -157,7 +164,13 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     )
 
     is_shin_taishin = _calculate_shin_taishin(property_obj, chikunen)
-    flood_risk_level, landslide_risk_level = _calculate_hazard_features(address1, address2)
+    (
+        flood_risk_level,
+        landslide_risk_level,
+        tsunami_risk_level,
+        red_zone_landslide_flag,
+        liquefaction_risk_level,
+    ) = _query_extended_hazard_features(address1, address2)
 
     (
         maguchi_val, road_width_val, setback_ratio, actual_volume_limit,
@@ -234,6 +247,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "is_shin_taishin": is_shin_taishin,
         "flood_risk_level": flood_risk_level,
         "landslide_risk_level": landslide_risk_level,
+        "tsunami_risk_level": tsunami_risk_level,
+        "red_zone_landslide_flag": red_zone_landslide_flag,
+        "liquefaction_risk_level": liquefaction_risk_level,
+        "latitude": float(lat_val) if lat_val is not None else 0.0,
+        "longitude": float(lon_val) if lon_val is not None else 0.0,
+        "building_oof_unit_price": 0.0,
+        "knn_500m_oof_unit_price": 0.0,
+        "knn_500m_comp_count": 0.0,
         "max_youseki": max_youseki,
         "max_kenpei": max_kenpei,
         "maguchi": maguchi_val,

@@ -79,9 +79,15 @@ class PropertyEvaluation(models.Model):
     property_id = models.IntegerField(db_index=True, verbose_name="元テーブルレコードID")
     property_url = models.CharField(max_length=500, unique=True, db_index=True, verbose_name="物件URL")
 
-    # 一次スクリーニング（画像なし機械学習予測）
+    # 一次スクリーニング（画像なし機械学習予測 ＆ P10下限予測・不確実性指標）
     first_stage_predicted_price = models.DecimalField(
         max_digits=12, decimal_places=0, null=True, blank=True, verbose_name="一次予測理論価格"
+    )
+    first_stage_p10_price = models.DecimalField(
+        max_digits=12, decimal_places=0, null=True, blank=True, verbose_name="一次予測下限P10価格"
+    )
+    prediction_uncertainty_ratio = models.FloatField(
+        null=True, blank=True, verbose_name="予測不確実性比率"
     )
     is_first_stage_passed = models.BooleanField(default=False, verbose_name="一次スクリーニング合格フラグ")
 
@@ -260,7 +266,7 @@ class PropertyEvaluation(models.Model):
         ],
         verbose_name="画像解析ステータス"
     )
-    analyzed_at = models.DateTimeField(null=True, blank=True, verbose_name="解析実行日時")
+    analyzed_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="解析実行日時")
     is_slack_notified = models.BooleanField(default=False, verbose_name="Slack通知済みフラグ")
     duplicate_of = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='duplicates', verbose_name="名寄せ先親評価レコード")
 
@@ -307,6 +313,7 @@ class PropertyEvaluation(models.Model):
         self.retaining_wall_risk = analysis_res.get('retaining_wall_risk', 'none')
         self.ground_elevation_diff_m = analysis_res.get('ground_elevation_diff_m')
         self.demolition_difficulty = analysis_res.get('demolition_difficulty', 'medium')
+        self.utility_pole_risk = analysis_res.get('utility_pole_risk', 'none')
         self.foundation_crack_risk = analysis_res.get('foundation_crack_risk')
         self.water_leak_risk = analysis_res.get('water_leak_risk')
         self.stair_steepness = analysis_res.get('stair_steepness', 'unknown')
@@ -425,12 +432,17 @@ class LandPricePointPotential(models.Model):
 
 class HazardMapPotential(models.Model):
     """
-    市区町村ごとのハザードマップ（浸水・土砂災害リスク）統計マスタ
+    市区町村ごとのハザードマップ（浸水・土砂災害・津波・レッドゾーン・液状化リスク）統計マスタ
     """
     prefecture = models.CharField(max_length=100, verbose_name="都道府県")
     city = models.CharField(max_length=100, verbose_name="市区町村")
     flood_risk_level = models.IntegerField(default=0, verbose_name="浸水リスクレベル (0:低 - 4:極めて高)")
     landslide_risk_level = models.IntegerField(default=0, verbose_name="土砂災害リスクレベル (0:無 - 2:高)")
+    tsunami_risk_level = models.IntegerField(default=0, verbose_name="津波浸水リスクレベル (0:無 - 3:高)")
+    red_zone_landslide_flag = models.IntegerField(
+        default=0, verbose_name="土砂災害特別警戒区域(レッドゾーン)リスク (0/1)"
+    )
+    liquefaction_risk_level = models.IntegerField(default=0, verbose_name="液状化リスクレベル (0:低 - 3:高)")
 
     class Meta:
         db_table = 'hazard_map_potential'
@@ -439,7 +451,11 @@ class HazardMapPotential(models.Model):
         verbose_name_plural = "ハザードマップ統計マスタ"
 
     def __str__(self):
-        return f"{self.prefecture}{self.city} (浸水: {self.flood_risk_level}, 土砂: {self.landslide_risk_level})"
+        return (
+            f"{self.prefecture}{self.city} (浸水: {self.flood_risk_level}, "
+            f"土砂: {self.landslide_risk_level}, 津波: {self.tsunami_risk_level}, "
+            f"液状化: {self.liquefaction_risk_level})"
+        )
 
 
 class UrbanPlanningZonePotential(models.Model):

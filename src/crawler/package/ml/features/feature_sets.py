@@ -19,6 +19,12 @@ _COMMON_SPATIAL_AND_ANCHOR_FEATURES = [
     "land_value_share",
     "chome_oof_unit_price",
     "station_walk_oof_unit_price",
+    "building_oof_unit_price",
+    "knn_500m_oof_unit_price",
+    "knn_500m_comp_count",
+    "tsunami_risk_level",
+    "red_zone_landslide_flag",
+    "liquefaction_risk_level",
     "dcf_theoretical_value",
     "anchor_log_unit_price",
 ]

@@ -5,11 +5,13 @@ import os
 import re
 from urllib.parse import urljoin
 
-from google import genai
-from google.genai import types
 import requests
 from django.utils import timezone
+from google import genai
+from google.genai import types
 from package.models.evaluation import PropertyEvaluation
+from package.utils.gemini_rate_limiter import get_gemini_flash_limiter
+from package.utils.opencv_image_analyzer import analyze_pil_images_with_opencv
 from package.utils.plot_shape_analyzer import calculate_nta_irregular_discount
 from PIL import Image
 
@@ -279,7 +281,8 @@ def analyze_property_images_with_gemini(cleaned_images):
 ```
 """
 
-            response = client.models.generate_content(
+            response = get_gemini_flash_limiter().execute(
+                client.models.generate_content,
                 model='gemini-2.5-flash',
                 contents=[prompt] + images_to_send,
             )
@@ -287,3 +290,182 @@ def analyze_property_images_with_gemini(cleaned_images):
     except Exception:
         logger.exception("Error during Gemini image analysis")
         return default_result
+
+
+def _default_image_analysis_result() -> dict:
+    return {
+        'interior_score': 3.5,
+        'layout_score': 3.5,
+        'plot_shape_type': 'unknown',
+        'plot_shape_description': '',
+        'maintenance_score': 3.5,
+        'maintenance_comment': '',
+        'shadow_area_ratio': None,
+        'frontage_length_est': None,
+        'road_width_est': None,
+        'passage_width': None,
+        'shape_score_100': None,
+        'nta_irregular_discount': None,
+        'retaining_wall_risk': 'none',
+        'ground_elevation_diff_m': None,
+        'demolition_difficulty': 'medium',
+        'utility_pole_risk': 'none',
+        'foundation_crack_risk': None,
+        'water_leak_risk': None,
+        'stair_steepness': 'unknown',
+        'indoor_washing_machine_space': 'unknown',
+        'exposed_pipes_risk': None,
+        'renovation_budget_tier': 'tier_medium',
+    }
+
+
+def _open_valid_pil_image(image_bytes: bytes, category: str) -> Image.Image | None:
+    if not image_bytes:
+        return None
+    if verify_image_bytes(image_bytes):
+        return Image.open(io.BytesIO(image_bytes))
+    if category in ('plot_plan', 'layout'):
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as probe:
+                w, h = probe.size
+                if w < 150 or h < 150:
+                    return None
+                small = list(probe.resize((12, 12)).convert('RGB').getdata())
+                if all(px == small[0] for px in small):
+                    return None
+            return Image.open(io.BytesIO(image_bytes))
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _fetch_single_pil_image(url: str, cat: str) -> Image.Image | None:
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            return _open_valid_pil_image(resp.content, cat)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to download image for hybrid analysis: %s", exc)
+    return None
+
+
+def _download_categorized_images(cleaned_images: list[dict], max_images: int = 5) -> list[tuple[str, Image.Image]]:
+    seen_urls: set[str] = set()
+    unique_items: list[dict] = []
+    for item in cleaned_images:
+        url = item.get('url')
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_items.append(item)
+
+    category_priority = {'plot_plan': 0, 'layout': 1, 'exterior': 2, 'interior': 3}
+    sorted_items = sorted(unique_items, key=lambda x: category_priority.get(x.get('category', ''), 99))
+
+    loaded: list[tuple[str, Image.Image]] = []
+    for item in sorted_items[:max_images]:
+        url = str(item.get('url') or '')
+        cat = str(item.get('category') or 'interior')
+        pil_img = _fetch_single_pil_image(url, cat) if url else None
+        if pil_img is not None:
+            loaded.append((cat, pil_img))
+    return loaded
+
+
+_GEMINI_SEMANTIC_KEYS: tuple[str, ...] = (
+    'retaining_wall_risk',
+    'ground_elevation_diff_m',
+    'demolition_difficulty',
+    'utility_pole_risk',
+    'foundation_crack_risk',
+    'water_leak_risk',
+    'stair_steepness',
+    'indoor_washing_machine_space',
+    'exposed_pipes_risk',
+    'renovation_budget_tier',
+    'frontage_length_est',
+    'road_width_est',
+    'maintenance_comment',
+    'layout_score',
+)
+
+
+def _apply_gemini_semantic_and_blended_scores(fused: dict, cv_res: dict, gemini_res: dict) -> None:
+    for k in _GEMINI_SEMANTIC_KEYS:
+        val = gemini_res.get(k)
+        if val is not None and val != '':
+            fused[k] = val
+
+    for score_key in ('interior_score', 'maintenance_score'):
+        g_val = gemini_res.get(score_key)
+        c_val = cv_res.get(score_key)
+        if isinstance(g_val, (int, float)) and isinstance(c_val, (int, float)):
+            fused[score_key] = round(0.4 * float(c_val) + 0.6 * float(g_val), 2)
+
+
+def _apply_geometry_fallback_fields(fused: dict, cv_res: dict, gemini_res: dict) -> None:
+    g_shape = gemini_res.get('plot_shape_type')
+    if cv_res.get('shadow_area_ratio') is not None:
+        if fused.get('plot_shape_type') == 'unknown' and g_shape:
+            fused['plot_shape_type'] = g_shape
+        return
+    for geom_key in ('shadow_area_ratio', 'shape_score_100', 'nta_irregular_discount', 'passage_width'):
+        if gemini_res.get(geom_key) is not None:
+            fused[geom_key] = gemini_res[geom_key]
+    if g_shape and g_shape != 'unknown':
+        fused['plot_shape_type'] = g_shape
+
+
+def _fuse_opencv_and_gemini_results(base_res: dict, cv_res: dict, gemini_res: dict | None) -> dict:
+    fused = base_res.copy()
+    for k, v in cv_res.items():
+        if v is not None and v != '':
+            fused[k] = v
+    if not gemini_res:
+        return fused
+    _apply_gemini_semantic_and_blended_scores(fused, cv_res, gemini_res)
+    _apply_geometry_fallback_fields(fused, cv_res, gemini_res)
+    return fused
+
+
+def analyze_property_images_hybrid(cleaned_images: list[dict]) -> dict:
+    """OpenCV の精密幾何・測光解析と、2秒間隔レート制限付き `gemini-2.5-flash` の意味査定を融合する。"""
+    base_res = _default_image_analysis_result()
+    if not cleaned_images:
+        return base_res
+
+    categorized_pil = _download_categorized_images(cleaned_images, max_images=5)
+    if not categorized_pil:
+        return base_res
+
+    cv_res = analyze_pil_images_with_opencv(categorized_pil)
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return _fuse_opencv_and_gemini_results(base_res, cv_res, None)
+
+    gemini_res = None
+    prompt = (
+        "あなたは不動産買い付けのプロ査定士です。提供画像から擁壁リスク・電柱支線・基礎クラック・"
+        "漏水サイン・階段勾配・洗濯機置場・間取り動線・想定リフォーム規模を厳密査定しJSONのみで回答してください。\n"
+        '{"interior_score": 3.5, "layout_score": 3.5, "maintenance_score": 3.5, '
+        '"maintenance_comment": "", "plot_shape_type": "unknown", "shadow_area_ratio": null, '
+        '"frontage_length_est": null, "road_width_est": null, "passage_width": null, '
+        '"retaining_wall_risk": "none", "ground_elevation_diff_m": null, '
+        '"demolition_difficulty": "medium", "utility_pole_risk": "none", '
+        '"foundation_crack_risk": false, "water_leak_risk": false, '
+        '"stair_steepness": "unknown", "indoor_washing_machine_space": "unknown", '
+        '"exposed_pipes_risk": false, "renovation_budget_tier": "tier_medium"}'
+    )
+    try:
+        pil_only = [img for _, img in categorized_pil]
+        model_name = os.getenv('GEMINI_VISION_MODEL', 'gemini-2.5-flash')
+        with genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=30000)) as client:
+            resp = get_gemini_flash_limiter().execute(
+                client.models.generate_content,
+                model=model_name,
+                contents=[prompt, *pil_only],
+            )
+            gemini_res = _parse_gemini_analysis_response(resp.text or "", base_res)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Gemini 2.5 Flash skipped/failed in hybrid vision; using OpenCV result: %s", exc)
+
+    return _fuse_opencv_and_gemini_results(base_res, cv_res, gemini_res)

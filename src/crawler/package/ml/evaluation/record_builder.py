@@ -71,6 +71,16 @@ def populate_text_risks(evaluation_record: Any, item: Any) -> None:
         setattr(evaluation_record, k, v)
 
 
+def _resolve_p10_and_uncertainty(
+    price_stage1: float, p10_stage1: float | None
+) -> tuple[Decimal | None, float | None]:
+    if p10_stage1 is None or p10_stage1 <= 0.0 or price_stage1 <= 0.0:
+        return None, None
+    bounded = min(float(price_stage1), float(p10_stage1))
+    unc = round(max(0.0, min(0.9999, (float(price_stage1) - bounded) / float(price_stage1))), 4)
+    return Decimal(round(bounded)), unc
+
+
 def build_or_update_eval_record(
     item: Any,
     price_stage1: float,
@@ -79,6 +89,7 @@ def build_or_update_eval_record(
     property_type: str,
     candidate_pool: list[Any] | None = None,
     skip_duplicate_check: bool = False,
+    p10_stage1: float | None = None,
 ) -> tuple[Any, bool]:
     """単一物件の評価レコードを生成または更新する"""
     page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
@@ -86,6 +97,7 @@ def build_or_update_eval_record(
     is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
 
     monthly_rent, liability = extract_land_rent_and_liability(item)
+    p10_dec, unc_ratio = _resolve_p10_and_uncertainty(price_stage1, p10_stage1)
 
     if existing and existing.pk:
         rec = existing
@@ -93,6 +105,8 @@ def build_or_update_eval_record(
         rec.property_type = property_type
         rec.property_id = item.id
         rec.first_stage_predicted_price = price_stage1
+        rec.first_stage_p10_price = p10_dec
+        rec.prediction_uncertainty_ratio = unc_ratio
         rec.is_first_stage_passed = is_passed
         rec.analysis_status = "pending"
         rec.analyzed_at = timezone.now()
@@ -107,6 +121,8 @@ def build_or_update_eval_record(
             property_type=property_type,
             property_id=item.id,
             first_stage_predicted_price=price_stage1,
+            first_stage_p10_price=p10_dec,
+            prediction_uncertainty_ratio=unc_ratio,
             is_first_stage_passed=is_passed,
             analysis_status="pending",
             analyzed_at=timezone.now(),
