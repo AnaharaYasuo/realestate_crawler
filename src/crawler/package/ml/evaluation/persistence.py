@@ -35,6 +35,7 @@ EVAL_MAP_FIELDS = (
     "id", "property_url", "second_stage_predicted_price", "is_published", "needs_recrawl",
 ) + BASE_UPDATE_FIELDS + INVESTMENT_UPDATE_FIELDS
 
+IMMUTABLE_IDENTITY_FIELDS = ("company", "property_type", "property_id")
 CANDIDATE_POOL_TTL_SEC = 60.0
 _CANDIDATE_CACHE_LOCK = threading.Lock()
 _CANDIDATE_POOL_CACHE: dict[str, tuple[float, int, list[PropertyEvaluation]]] = {}
@@ -53,36 +54,43 @@ def _pk_sort_key(rec: Any) -> tuple[int, Any]:
     return (1, str(pk_val))
 
 
-def bulk_update_evaluation_records(
-    records_to_update: list[Any],
-    property_type: str = "",
-    batch_size: int = EVAL_DB_WRITE_BATCH_SIZE,
-) -> None:
-    """更新対象レコードの重複を除去し、PK昇順ソートでデッドロックを防止して bulk_update を実行する"""
+def _dedup_and_sort_updates(records_to_update: list[Any]) -> list[Any]:
     valid_updates = []
     seen_pks = set()
     for r in records_to_update:
         if r.pk and r.pk not in seen_pks:
             seen_pks.add(r.pk)
             valid_updates.append(r)
-
-    if not valid_updates:
-        return
-
     valid_updates.sort(key=_pk_sort_key)
+    return valid_updates
 
-    update_fields = list(BASE_UPDATE_FIELDS)
-    if "investment" in property_type or "invest" in property_type:
-        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
+
+def _resolve_subbatch_fields(
+    sub_batch: list[Any], update_fields: list[str]
+) -> tuple[list[str], list[Any]]:
+    """未変更の自己参照FK duplicate_of および不変識別キーを除外し、差分更新対象を分離する"""
+    if not any(getattr(r, "_duplicate_of_changed", None) is False for r in sub_batch):
+        return update_fields, []
+    omitted = {"duplicate_of"}
+    if all(getattr(r, "_identity_changed", None) is False for r in sub_batch):
+        omitted.update(IMMUTABLE_IDENTITY_FIELDS)
+    main_fields = [f for f in update_fields if f not in omitted]
+    dup_changed = [r for r in sub_batch if getattr(r, "_duplicate_of_changed", None) is True]
+    return main_fields, dup_changed
+
+
+def _execute_bulk_update_with_retry(
+    sub_batch: list[Any], fields: list[str], batch_size: int
+) -> None:
     max_retries = 5
     for attempt in range(1, max_retries + 1):
         try:
             PropertyEvaluation.objects.bulk_update(
-                valid_updates,
-                fields=update_fields,
+                sub_batch,
+                fields=fields,
                 batch_size=batch_size,
             )
-            break
+            return
         except OperationalError as e:
             logger.warning("bulk_update failed on attempt %d/%d: %s", attempt, max_retries, e)
             close_old_connections()
@@ -92,8 +100,49 @@ def bulk_update_evaluation_records(
             time.sleep(wait_s)
 
 
+def bulk_update_evaluation_records(
+    records_to_update: list[Any],
+    property_type: str = "",
+    batch_size: int = EVAL_DB_WRITE_BATCH_SIZE,
+) -> None:
+    """更新対象レコードの重複を除去し、PK昇順ソート＋サブバッチ個別コミット＋自己参照FK差分更新を実行する"""
+    valid_updates = _dedup_and_sort_updates(records_to_update)
+    if not valid_updates:
+        return
+
+    step = max(1, int(batch_size or EVAL_DB_WRITE_BATCH_SIZE))
+    update_fields = list(BASE_UPDATE_FIELDS)
+    if "investment" in property_type or "invest" in property_type:
+        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
+
+    for idx in range(0, len(valid_updates), step):
+        sub_batch = valid_updates[idx : idx + step]
+        main_fields, dup_changed = _resolve_subbatch_fields(sub_batch, update_fields)
+        _execute_bulk_update_with_retry(sub_batch, main_fields, step)
+        if dup_changed:
+            _execute_bulk_update_with_retry(dup_changed, ["duplicate_of"], step)
+
+
+def _execute_bulk_create_with_retry(sub_batch: list[Any], batch_size: int) -> None:
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            PropertyEvaluation.objects.bulk_create(
+                sub_batch,
+                batch_size=batch_size,
+                ignore_conflicts=True,
+            )
+            return
+        except OperationalError as e:
+            logger.warning("bulk_create failed on attempt %d/%d: %s", attempt, max_retries, e)
+            close_old_connections()
+            if attempt == max_retries:
+                raise
+            time.sleep(1.0 * attempt)
+
+
 def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
-    """重複URLを除去して bulk_create を実行する"""
+    """重複URLを除去し、サブバッチ単位で個別コミットして bulk_create を実行する"""
     if not records_to_create:
         return
     unique_creates = []
@@ -102,22 +151,9 @@ def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
         if r.property_url and r.property_url not in seen_create_urls:
             seen_create_urls.add(r.property_url)
             unique_creates.append(r)
-    if unique_creates:
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
-            try:
-                PropertyEvaluation.objects.bulk_create(
-                    unique_creates,
-                    batch_size=batch_size,
-                    ignore_conflicts=True,
-                )
-                break
-            except OperationalError as e:
-                logger.warning("bulk_create failed on attempt %d/%d: %s", attempt, max_retries, e)
-                close_old_connections()
-                if attempt == max_retries:
-                    raise
-                time.sleep(1.0 * attempt)
+    step = max(1, int(batch_size or EVAL_DB_WRITE_BATCH_SIZE))
+    for idx in range(0, len(unique_creates), step):
+        _execute_bulk_create_with_retry(unique_creates[idx : idx + step], step)
 
 
 def _prefetch_candidate_pool(
@@ -149,7 +185,7 @@ def _prefetch_candidate_pool(
         with _CANDIDATE_CACHE_LOCK:
             _CANDIDATE_POOL_CACHE[property_type] = (now_mono, min_id, candidate_pool)
         return candidate_pool
-    except Exception as e:
+    except (OperationalError, RuntimeError, AttributeError, TypeError, ValueError) as e:
         logger.debug("Candidate pool prefetch failed: %s", e)
         return None
 
