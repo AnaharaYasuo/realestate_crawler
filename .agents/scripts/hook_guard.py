@@ -21,6 +21,30 @@ def _is_protected_main_tree_path(path: str) -> bool:
     )
 
 
+def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
+    if re.search(r"\bgh\s+pr\s+create\b", cmd):
+        is_release_pr = bool(re.search(r"(?:--base|-B)\s+['\"]?production\b", cmd))
+        has_closing_issue = bool(re.search(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#\d+\b", cmd, re.IGNORECASE))
+        if not is_release_pr and not has_closing_issue:
+            return {
+                "decision": "deny",
+                "reason": "Principle 4 violation: Issue-less PR creation is forbidden. Create an open GitHub Issue first and include 'Closes #<IssueNumber>' in the PR body.",
+            }
+
+    push_match = re.search(
+        r"\bgit\s+(?:-C\s+\S+\s+)?push\s+(?:-[a-zA-Z-]+\s+)*origin\s+(?!--delete\b|-d\b|:)([A-Za-z0-9._/-]+)",
+        cmd,
+    )
+    if push_match:
+        branch = push_match.group(1)
+        if branch not in ("master", "production", "HEAD") and not re.search(r"\d+", branch):
+            return {
+                "decision": "deny",
+                "reason": f"Principle 4 violation: Pushing branch '{branch}' without a GitHub Issue number in the branch name is forbidden.",
+            }
+    return None
+
+
 def _evaluate_run_command(cmd: str) -> dict | None:
     is_search_cmd = bool(re.search(r"^\s*(rg|grep|select-string|git\s+grep)\b", cmd, re.IGNORECASE))
     if re.search(r"Docker\s*Desktop\.exe", cmd, re.IGNORECASE) and not is_search_cmd:
@@ -38,6 +62,9 @@ def _evaluate_run_command(cmd: str) -> dict | None:
             "decision": "deny",
             "reason": "Infinite '--watch' on gh pr checks is forbidden. Use check_pr_ci_status.py with finite polling.",
         }
+    issue_verdict = _check_issue_pr_and_push_guard(cmd)
+    if issue_verdict is not None:
+        return issue_verdict
     if re.search(r"(>|Set-Content|Out-File|Add-Content)", cmd, re.IGNORECASE) and _is_protected_main_tree_path(cmd):
         return {
             "decision": "deny",

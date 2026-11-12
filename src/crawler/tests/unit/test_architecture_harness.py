@@ -100,6 +100,12 @@ class TestArchitectureHarness:
         for req in required_files:
             assert req.exists(), f"Required governance harness file missing: {req}"
 
+        hook_guard_src = (REPO_ROOT / ".agents" / "scripts" / "hook_guard.py").read_text(encoding="utf-8")
+        assert "_check_issue_pr_and_push_guard" in hook_guard_src
+        issue_gate_src = (REPO_ROOT / ".github" / "workflows" / "issue-gate.yml").read_text(encoding="utf-8")
+        assert "issue.data.state !== 'open'" in issue_gate_src
+        assert "unchecked.push(item)" in issue_gate_src
+
     def test_gate2_model_and_parser_reference_compliance(self):
         """Gate 2: InvestmentBaseModel is abstract, decimal 億円 parses without 10x inflation, no sys reload."""
         assert InvestmentBaseModel._meta.abstract is True

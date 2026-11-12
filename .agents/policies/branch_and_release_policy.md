@@ -14,10 +14,13 @@
 ### 2.2. 作業着手前の最新同期義務 (Pre-Flight Master Sync)
 - 作業開始前に必ず `git checkout master && git pull origin master` および `cmd /c codegraph sync` を完了した上で、作業ブランチを作成すること。
 
-### 2.3. 二段階マージゲートウェイ (Two-Stage Release Flow)
+### 2.3. 二段階マージゲートウェイ ＆ Issue未紐付けPR完全禁止原則 (Two-Stage Release Flow & Strict Issue Gate)
 - **Step 1 (作業ブランチ ➔ `master`)**:
-  - GitHub Issue の事前起票および紐付けが必須（`.githooks/pre-push` および `issue-gate.yml` で検証）。
-  - CI 合格後に `master` へマージ。
+  - **IssueなしのPR作成・プッシュ・マージは全面禁止**とし、以下の3層ゲートで機械的に強制する（Issue #1395）：
+    1. **ローカル PreToolUse ゲート (`.agents/scripts/hook_guard.py`)**: `production` 向けリリースPRを除くすべての `gh pr create` において、`Closes #<Issue番号>`（または `Fixes` / `Resolves`）の明示記載がないコマンド実行を即座に Deny する。また Issue 番号を含まない作業ブランチの `git push`（削除操作を除く）も Deny する。
+    2. **GitHub Actions CI ゲート (`.github/workflows/issue-gate.yml` + Branch Protection `enforce_admins: true`)**: PR本文の `Closes/Fixes/Resolves #<Issue番号>` 記載、対象 Issue が実在かつ **`open` 状態**であること、および受入基準チェックボックス（`- [x]`）が全件完了していることを検証する。Issue未紐付けまたはクローズ済みIssue指定のPRは自動的に `closed` へ遷移させ、マージをブロックする。
+    3. **アーキテクチャ・ハーネス検証 (`test_architecture_harness.py`)**: 上記2層のルール定義が削除・弱体化されていないことを常時自動テストする。
+  - CI 全件合格後に `master` へマージ。
 - **Step 2 (`master` ➔ `production`)**:
   - `production` への PR は `master` からのみ許可（`production-gate.yml`）。
   - マージ完了により本番デプロイパイプライン（`deploy-production.yml`）が起動。

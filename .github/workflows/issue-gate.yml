@@ -21,8 +21,6 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
-            const branchName = pr.head.ref;
-            const title = pr.title || '';
             const body = pr.body || '';
 
             // Exempt Dependabot PRs from Issue association gate
@@ -32,41 +30,36 @@ jobs:
               return;
             }
 
-            // 1. Extract potential issue numbers from branch, title, or body
-            // Regex patterns
-            const branchMatch = branchName.match(/(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)/i) 
-              || branchName.match(/(?:^|[-/_])(\d+)(?:[-/_]|$)/);
-            const titleMatch = title.match(/(?:#|issue[ -]?#?)(\d+)/i);
-            const bodyMatch = body.match(/(?:(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#|#|issue[ -]?#?)(\d+)/i);
-
-            let issueNumber = null;
-            if (branchMatch && branchMatch[1]) {
-              issueNumber = parseInt(branchMatch[1], 10);
-            } else if (titleMatch && titleMatch[1]) {
-              issueNumber = parseInt(titleMatch[1], 10);
-            } else if (bodyMatch && bodyMatch[1]) {
-              issueNumber = parseInt(bodyMatch[1], 10);
-            }
-
-            if (!issueNumber) {
-              const errorMessage = '⛔ **マージ不可 (Issue未紐付け)**: この Pull Request には対応する GitHub Issue が紐付けられていません。\n\n' +
-                '### 解決手順:\n' +
-                '1. [GitHub Issues](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/issues) でフィーチャーまたはバグチケットを起票してください。\n' +
-                '2. PR 本文に `Closes #<Issue番号>` を記載するか、ブランチ名（例: `feature/123-xxx`）または PR タイトルに Issue 番号（例: `[#123] ...`）を含めてください。\n' +
-                '3. 更新後、このチェックが自動的に再検証されます。';
-
+            async function rejectAndAutoClose(commentBody, failReason) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
-                body: errorMessage
+                body: commentBody
               });
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                state: 'closed'
+              });
+              core.setFailed(failReason);
+            }
 
-              core.setFailed('No associated GitHub Issue found in branch name, PR title, or PR body.');
+            // 1. Require explicit Closes/Fixes/Resolves #<IssueNumber> in PR body
+            const bodyMatch = body.match(/\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b/i);
+            const issueNumber = bodyMatch && bodyMatch[1] ? parseInt(bodyMatch[1], 10) : null;
+
+            if (!issueNumber) {
+              const errorMessage = '⛔ **PR自動クローズ (Issue未紐付け)**: Issueなしの Pull Request は禁止されています。\n\n' +
+                '### 解決手順:\n' +
+                '1. [GitHub Issues](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/issues) で OPEN 状態のチケットを起票してください（受入基準 `- [x]` 必須）。\n' +
+                '2. PR 本文に必ず `Closes #<Issue番号>`（または `Fixes #<Issue番号>` / `Resolves #<Issue番号>`）を明記し、PR を Reopen してください。';
+              await rejectAndAutoClose(errorMessage, 'No explicit Closes/Fixes/Resolves #<IssueNumber> found in PR body.');
               return;
             }
 
-            // 2. Verify issue existence on GitHub
+            // 2. Verify issue existence and OPEN state on GitHub
             try {
               const issue = await github.rest.issues.get({
                 owner: context.repo.owner,
@@ -74,13 +67,23 @@ jobs:
                 issue_number: issueNumber
               });
 
-              // Ensure it is an issue and not another pull request
               if (issue.data.pull_request) {
-                core.setFailed(`Reference #${issueNumber} is a Pull Request, not a GitHub Issue. Please reference a valid Issue.`);
+                await rejectAndAutoClose(
+                  `⛔ **PR自動クローズ (PR番号誤指定)**: 指定された #${issueNumber} は Issue ではなく Pull Request です。有効な OPEN Issue を指定してください。`,
+                  `Reference #${issueNumber} is a Pull Request, not a GitHub Issue.`
+                );
                 return;
               }
 
-              console.log(`✅ Verified associated GitHub Issue #${issueNumber}: "${issue.data.title}"`);
+              if (issue.data.state !== 'open') {
+                await rejectAndAutoClose(
+                  `⛔ **PR自動クローズ (クローズ済みIssue指定)**: 指定された Issue #${issueNumber} は既に \`${issue.data.state}\` 状態です。新規に OPEN Issue を起票して紐付けてください。`,
+                  `Issue #${issueNumber} is not open (state=${issue.data.state}).`
+                );
+                return;
+              }
+
+              console.log(`✅ Verified OPEN GitHub Issue #${issueNumber}: "${issue.data.title}"`);
 
               // 3. Verify Acceptance Criteria checkboxes in Issue body
               const issueBody = issue.data.body || '';
@@ -95,8 +98,11 @@ jobs:
                   const status = match[1];
                   const item = match[2].trim();
                   if (!item) continue;
-                  // If running in automated agent branch or PR resolves issue, treat defined criteria as satisfied if non-empty
-                  checked.push(item);
+                  if (status.toLowerCase() === 'x') {
+                    checked.push(item);
+                  } else {
+                    unchecked.push(item);
+                  }
                 }
               }
 
@@ -104,7 +110,7 @@ jobs:
 
               if (totalCriteria === 0) {
                 const noCriteriaMsg = `⛔ **マージ不可 (受入基準未定義)**: 紐付けられた Issue #${issueNumber} にアクセプタンスクライテリア（受入基準チェックボックス \`- [ ]\`）が定義されていません。\n\n` +
-                  `PRを作成・マージするには、Issue本文に受入基準チェックボックスを記載してください。`;
+                  `PRをマージするには、Issue本文に受入基準チェックボックスを記載し完了後に \`- [x]\` へ更新してください。`;
 
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
@@ -136,15 +142,7 @@ jobs:
 
               console.log(`✅ All ${totalCriteria} Acceptance Criteria in Issue #${issueNumber} are checked and verified!`);
             } catch (err) {
-              const notFoundMessage = `⛔ **マージ不可 (無効なIssue番号)**: 指定された Issue #${issueNumber} がリポジトリに見つかりません。\n` +
-                '有効な GitHub Issue 番号を指定してください。';
-
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: notFoundMessage
-              });
-
-              core.setFailed(`Issue #${issueNumber} does not exist: ${err.message}`);
+              const notFoundMessage = `⛔ **PR自動クローズ (無効なIssue番号)**: 指定された Issue #${issueNumber} がリポジトリに見つかりません。\n` +
+                '有効な OPEN 状態の GitHub Issue 番号を指定してください。';
+              await rejectAndAutoClose(notFoundMessage, `Issue #${issueNumber} does not exist: ${err.message}`);
             }
