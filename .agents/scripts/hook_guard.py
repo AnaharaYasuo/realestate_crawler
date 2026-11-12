@@ -24,11 +24,12 @@ def _is_protected_main_tree_path(path: str) -> bool:
 def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
     if re.search(r"\bgh\s+pr\s+create\b", cmd):
         is_release_pr = bool(re.search(r"(?:--base|-B)\s+['\"]?production\b", cmd))
+        has_bracket_title = bool(re.search(r"(?:--title|-t)\s+['\"]\[#\d+\]", cmd))
         has_closing_issue = bool(re.search(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#\d+\b", cmd, re.IGNORECASE))
-        if not is_release_pr and not has_closing_issue:
+        if not is_release_pr and (not has_bracket_title or not has_closing_issue):
             return {
                 "decision": "deny",
-                "reason": "Principle 4 violation: Issue-less PR creation is forbidden. Create an open GitHub Issue first and include 'Closes #<IssueNumber>' in the PR body.",
+                "reason": "Principle 4 violation: Issue-less or untagged PR creation is forbidden. Prefix --title with '[#<IssueNumber>]' and include 'Closes #<IssueNumber>' in --body.",
             }
 
     push_match = re.search(

@@ -16,26 +16,37 @@ def _load_hook_guard():
     return mod
 
 
-def test_hook_guard_blocks_pr_create_without_closing_issue():
-    """master 向け gh pr create で Closes/Fixes/Resolves #<番号> がない場合は deny されること"""
+def test_hook_guard_blocks_pr_create_without_closing_issue_or_bracket_title():
+    """master 向け gh pr create で [#<番号>] タイトルまたは Closes/Fixes/Resolves #<番号> がない場合は deny されること"""
     mod = _load_hook_guard()
 
-    denied = mod.evaluate_tool_call(
+    denied_no_body = mod.evaluate_tool_call(
         {
             "toolCall": {
                 "name": "run_command",
                 "args": {
-                    "CommandLine": 'gh pr create --base master --head feat/no-issue --title "feat: test" --body "summary only"'
+                    "CommandLine": 'gh pr create --base master --head feat/1395-test --title "[#1395] feat: test" --body "summary only"'
                 },
             }
         }
     )
-    assert denied["decision"] == "deny"
-    assert "Issue" in denied["reason"]
+    assert denied_no_body["decision"] == "deny"
+
+    denied_no_bracket_title = mod.evaluate_tool_call(
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": 'gh pr create --base master --head feat/1395-test --title "feat: test (#1395)" --body "Closes #1395"'
+                },
+            }
+        }
+    )
+    assert denied_no_bracket_title["decision"] == "deny"
 
 
 def test_hook_guard_allows_pr_create_with_closes_issue_and_release_pr():
-    """Closes #<番号> 付きPR作成および production 向けリリースPR作成は allow されること"""
+    """[#<番号>] タイトル + Closes #<番号> 付きPR作成および production 向けリリースPR作成は allow されること"""
     mod = _load_hook_guard()
 
     allowed_feature = mod.evaluate_tool_call(
@@ -43,7 +54,7 @@ def test_hook_guard_allows_pr_create_with_closes_issue_and_release_pr():
             "toolCall": {
                 "name": "run_command",
                 "args": {
-                    "CommandLine": 'gh pr create --base master --head feat/1395-gate --title "ci: gate (#1395)" --body "Closes #1395"'
+                    "CommandLine": 'gh pr create --base master --head feat/1395-gate --title "[#1395] ci: gate" --body "Closes #1395"'
                 },
             }
         }
@@ -105,3 +116,9 @@ def test_issue_gate_workflow_enforces_open_issue_closing_keyword_and_unchecked_c
     assert "unchecked.push(item)" in content
     assert "state: 'closed'" in content
     assert "close[sd]?|fixe?[sd]?|resolve[sd]?" in content
+
+    req_doc = (REPO_ROOT / "docs" / "6_platform_and_release" / "pre_pr_check_requirements.md").read_text(encoding="utf-8")
+    spec_doc = (REPO_ROOT / "docs" / "6_platform_and_release" / "pre_pr_check_specification.md").read_text(encoding="utf-8")
+    assert "Issue #1395" in req_doc
+    assert "Issue #1395" in spec_doc
+

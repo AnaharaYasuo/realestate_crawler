@@ -66,6 +66,16 @@ class StageResult:
 - リポジトリ内 worktree（`.worktrees/<branch>`）の `.git` ファイルはホストの絶対パスを指すため、コンテナ内ではそのままでは解決できない。
 - リポジトリ内 worktree 分岐では、`git rev-parse --absolute-git-dir` をメインリポジトリルートからの相対パスに変換し、`docker compose exec -e GIT_DIR=/app/<相対パス> -e GIT_WORK_TREE=/app/.worktrees/<branch>` として `pre_pr_check.py --diff` に渡す。
 
+### 2.4 3層 Issue-PR 厳格遮断ゲート仕様（Issue #1395）
+1. **Layer 1: PreToolUse エージェントフック (`.agents/scripts/hook_guard.py`)**
+   - `_check_issue_pr_and_push_guard(cmd)` にて、`--base production`（リリースPR）以外の `gh pr create` 実行時に `\[#\d+\]`（タイトル先頭タグ）および `(?:Closes|Fixes|Resolves)\s+#\d+`（本文クローズ宣言）の双方が含まれない場合、`decision: "deny"` で実行自体を遮断する。
+   - `git push ... origin <branch>`（ブランチ削除 `--delete`/`-d` および `master` を除く）において、ブランチ名に数字（Issue番号）が含まれない場合も `decision: "deny"` で遮断する。
+2. **Layer 2: GitHub Actions Issue PR Gate (`.github/workflows/issue-gate.yml`)**
+   - PR本文から `\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b` を抽出し、未記載・対象外（PR番号）・非OPEN（`issue.data.state !== 'open'`）の場合は理由コメント投稿後に `github.rest.pulls.update({ state: 'closed' })` でPRを自動クローズし、`core.setFailed` で必須ステータスチェックを失敗させる。
+   - Issue本文のチェックボックス `^[-*]\s*\[([ xX])\]\s*(.*)$` を走査し、`status.toLowerCase() === 'x'` を `checked`、空白 `' '` を `unchecked` に分類して、定義数0件または `unchecked.length > 0` の場合はマージを遮断する。
+3. **Layer 3: アーキテクチャ・ハーネス常時検証 (`src/crawler/tests/unit/test_architecture_harness.py`)**
+   - `TestArchitectureHarness` にて `hook_guard.py` と `issue-gate.yml` の上記不変条件を常時アサートする。
+
 ## 3. エラーハンドリングおよび終了コード
 - 全ステージ合格時: `0`
 - いずれかのステージでエラー検知時: `1`

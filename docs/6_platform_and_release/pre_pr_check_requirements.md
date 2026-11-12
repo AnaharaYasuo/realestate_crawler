@@ -29,6 +29,8 @@ GitHub PR提出後に実行される各種CIゲート（Issue PR Gate, Parser Te
 3. **厳守・遮断ガードレール要件**
    - `Taskfile.yml`: `task pr-check`（フル実行）、`task pr-check-fast`（差分実行）、`task coderabbit`、`task sonar-check`、`task pr-create`（全件合格時のみPR作成実行）。
    - `.githooks/pre-push`: Issue受入基準、SonarCloud静的解析、CodeRabbit CLIレビューを統合し、不備がある場合はリモートプッシュを水際でブロック。
+   - `.agents/scripts/hook_guard.py`（Antigravity PreToolUse ゲート / Issue #1395）: `production` 向けリリースPRを除くすべての `gh pr create` に対し、タイトル `[#<issue_num>]` および本文 `Closes/Fixes/Resolves #<issue_num>` が欠落しているコマンド実行を水際で即時遮断（Deny）し、Issue番号を含まない作業ブランチの `git push` も遮断する。
+   - `.github/workflows/issue-gate.yml`（GitHub CI ゲート / Issue #1395）: PR本文の `Closes/Fixes/Resolves #<issue_num>` 明示記載、対象 Issue が実在かつ `open` 状態であること、受入基準チェックボックス `- [x]` が全件完了していることを検証し、Issue未紐付け・クローズ済みIssue流用PRは自動クローズ（`state: 'closed'`）する。
    - `.agents/AGENTS.md` & `git-push-workflow`: PR提出・プッシュ前にローカル100%合格を客観的ログで確認することを義務化。
 
 ## 4. 非機能要件 (Non-Functional Requirements)
