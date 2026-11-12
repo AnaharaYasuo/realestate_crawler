@@ -272,8 +272,10 @@ def summarize_errors_with_gemini(
 
     default_summary = "\n".join(summary_lines)
 
+    # ユニットテスト環境等でGEMINI_API_KEYがあってもモック無しでLLM生成テキストが不定になるのを防ぐため、
+    # default_summary にプレースホルダーヘッダーを保持しつつ、Gemini APIコールを実行可能。
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or genai is None:
+    if not api_key or genai is None or os.getenv("TESTING") == "1":
         return default_summary
 
     consecutive_timeouts, cooldown_until = _load_cb_state()
