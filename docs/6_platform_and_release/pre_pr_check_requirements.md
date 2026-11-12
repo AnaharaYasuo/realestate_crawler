@@ -29,6 +29,12 @@ GitHub PR提出後に実行される各種CIゲート（Issue PR Gate, Parser Te
 3. **厳守・遮断ガードレール要件**
    - `Taskfile.yml`: `task pr-check`（フル実行）、`task pr-check-fast`（差分実行）、`task coderabbit`、`task sonar-check`、`task pr-create`（全件合格時のみPR作成実行）。
    - `.githooks/pre-push`: Issue受入基準、SonarCloud静的解析、CodeRabbit CLIレビューを統合し、不備がある場合はリモートプッシュを水際でブロック。
+   - `.agents/scripts/hook_guard.py`（Antigravity PreToolUse ゲート / Issue #1395）: `production` 向けリリースPRを除くすべての `gh pr create` に対し、タイトル `[#<issue_num>]` および本文 `Closes/Fixes/Resolves #<issue_num>` が欠落しているコマンド実行を水際で即時遮断（Deny）し、Issue番号を含まない作業ブランチの `git push` も遮断する。
+   - `.github/workflows/issue-gate.yml`（GitHub CI 必須ゲート `enforce_admins: true` / Issue #1395）: 管理者を含め誰一人として Issue-Driven・Spec-Driven (SDD)・Test-Driven (TDD) を逸脱できないよう、以下の4大ゲートを CI 上で機械的に強制する：
+     1. **Issue-Driven 厳格検査**: PR本文の `Closes/Fixes/Resolves #<issue_num>` 明示記載、PRタイトル先頭 `^\[#<issue_num>\]\s+` および作業ブランチ名 `<issue_num>` との3点完全一致、対象 Issue が実在かつ `open` 状態であること、ならびに **Issue作成日時 `<=` PR作成日時**（PR提出後の事後Issue起票禁止）を検証する。Issue未紐付け・PR番号誤指定・クローズ済みIssue流用PRは即時自動クローズ（`state: 'closed'`）する。
+     2. **受入基準 ＆ PRチェックリスト完了検査**: Issue本文の受入基準チェックボックス `- [x]` が1件以上定義され未完了 `- [ ]` が0件であること、かつ PR本文内（コードブロック外）にも未完了 `- [ ]` が残存していないことを検証する。
+     3. **Spec-Driven (SDD) 7大ドメイン正本更新必須ゲート**: PR差分（`pulls.listFiles`）に非テスト実装・インフラ・CIワークフロー・エージェント設定（`src/**`［`src/crawler/tests/**` 除く］、`terraform/**`、`.github/workflows/**`、`.agents/**`）の変更が含まれる場合、必ず7大ドメイン正本仕様書（`docs/1_...`〜`docs/7_.../*.md`）の更新が同一PR内に含まれることを必須とし、未更新時はマージを遮断する。
+     4. **Test-Driven (TDD) テストコード変更必須ゲート**: PR差分に実行可能コードまたはワークフロー定義（`src/**/*.py`［`src/crawler/tests/**` 除く］、`.agents/scripts/**/*.py`、`.github/workflows/*.yml|*.yaml`）の変更が含まれる場合、必ず `src/crawler/tests/**/*.py` 配下のテストコード追加・更新が同一PR内に含まれることを必須とし、未追加・未更新時はマージを遮断する。
    - `.agents/AGENTS.md` & `git-push-workflow`: PR提出・プッシュ前にローカル100%合格を客観的ログで確認することを義務化。
 
 ## 4. 非機能要件 (Non-Functional Requirements)

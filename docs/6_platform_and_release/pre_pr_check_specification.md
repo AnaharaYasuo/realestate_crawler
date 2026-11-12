@@ -2,7 +2,8 @@
 
 ## 1. モジュール配置
 - 検証本体スクリプト: `src/crawler/scripts/ops/pre_pr_check.py`
-- 単体テスト: `src/crawler/tests/unit/test_pre_pr_check.py`
+- CI ガバナンス4大ゲート判定エンジン: `src/crawler/package/utils/ci_governance_gate.py`
+- 単体テスト: `src/crawler/tests/unit/test_pre_pr_check.py`, `src/crawler/tests/unit/test_ci_governance_gate.py`, `src/crawler/tests/unit/test_issue_1395_strict_issue_pr_gate.py`
 - Pre-Push Gitフック: `.githooks/pre-push`
 - タスク定義: `Taskfile.yml`
 
@@ -65,6 +66,27 @@ class StageResult:
 ### 2.3 `.githooks/pre-push` のコンテナ実行時 git メタデータ受け渡し（Issue #530）
 - リポジトリ内 worktree（`.worktrees/<branch>`）の `.git` ファイルはホストの絶対パスを指すため、コンテナ内ではそのままでは解決できない。
 - リポジトリ内 worktree 分岐では、`git rev-parse --absolute-git-dir` をメインリポジトリルートからの相対パスに変換し、`docker compose exec -e GIT_DIR=/app/<相対パス> -e GIT_WORK_TREE=/app/.worktrees/<branch>` として `pre_pr_check.py --diff` に渡す。
+
+### 2.4 3層 Issue-Driven × Spec-Driven (SDD) × Test-Driven (TDD) 厳格遮断ゲート仕様（Issue #1395）
+1. **Layer 1: PreToolUse エージェントフック (`.agents/scripts/hook_guard.py`)**
+   - `_check_issue_pr_and_push_guard(cmd)` にて、`--base production`（リリースPR）以外の `gh pr create` 実行時に `\[#\d+\]`（タイトル先頭タグ）および `(?:Closes|Fixes|Resolves)\s+#\d+`（本文クローズ宣言）の双方が含まれない場合、`decision: "deny"` で実行自体を遮断する。
+   - `git push ... origin <branch>`（ブランチ削除 `--delete`/`-d` および `master` を除く）において、ブランチ名に数字（Issue番号）が含まれない場合も `decision: "deny"` で遮断する。
+2. **Layer 2: GitHub Actions 必須CIゲート (`.github/workflows/issue-gate.yml` + `src/crawler/package/utils/ci_governance_gate.py` / `enforce_admins: true`)**
+   - `.github/workflows/issue-gate.yml` が GitHub REST API（`issues.get`, `pulls.listFiles`）で収集した `{ pr, issue, files }` JSON を標準入出力（`stdin` ➔ `stdout`、外部ファイルパス引数なし）経由で標準ライブラリ完結の `ci_governance_gate.py`（`evaluate_pr_governance()`）へ渡し、`dependabot[bot]` 以外の全 `master` 向け PR に対し以下の4段階検査を実行する：
+     - **Gate A (Issue-Driven 一貫性 ＆ 先行起票検査)**:
+       - PR本文から `\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b` を抽出し、未記載・対象外（PR番号）・非OPEN（`issue.data.state !== 'open'`）の場合は理由コメント投稿後に `github.rest.pulls.update({ state: 'closed' })` でPRを自動クローズし、`core.setFailed` で失敗させる。
+       - PRタイトル先頭 `^\[#(\d+)\]\s+` の番号および作業ブランチ名 `pr.head.ref` 内の独立数値トークンが本文の `issueNumber` と完全一致することを検証する。
+       - `new Date(issue.data.created_at).getTime() <= new Date(pr.created_at).getTime()` を検証し、PR作成後に後付けで起票された Issue の紐付けを遮断する。
+     - **Gate B (受入基準 ＆ PRチェックリスト完了検査)**:
+       - Issue本文のチェックボックス `^[-*]\s*\[([ xX])\]\s*(.*)$` を走査し、定義数0件または `unchecked.length > 0` の場合はマージを遮断する。
+       - PR本文（フェンスドコードブロック除外後）に未完了チェックボックス `^[-*]\s*\[\s\]\s*.+$` が残存している場合もマージを遮断する。
+     - **Gate C (Spec-Driven / 7大ドメイン正本仕様書必須検査)**:
+       - `github.paginate(github.rest.pulls.listFiles, ...)` でPR内の全変更ファイルを取得する。
+       - 非テスト実装・インフラ・CI・エージェント領域（`src/**`［`src/crawler/tests/**` 除く］、`terraform/**`、`.github/workflows/**`、`.agents/**`）に変更がある場合、`^docs\/[1-7]_[^/]+\/.+\.md$` に一致する7大ドメイン正本仕様書の変更が1ファイル以上含まれていなければ `core.setFailed` で遮断する。
+     - **Gate D (Test-Driven / 単体テスト必須検査)**:
+       - 実行コードまたはCIワークフロー（`src/**/*.py`［`src/crawler/tests/**` 除く］、`.agents/scripts/**/*.py`、`.github/workflows/*.yml|*.yaml`）に変更がある場合、`^src\/crawler\/tests\/.+\.py$` に一致するテストファイルの追加・更新が1ファイル以上含まれていなければ `core.setFailed` で遮断する。
+3. **Layer 3: アーキテクチャ・ハーネス常時検証 (`src/crawler/tests/unit/test_architecture_harness.py`)**
+   - `TestArchitectureHarness` にて `hook_guard.py` と `issue-gate.yml` の上記4大ゲート不変条件が削除・弱体化されていないことを常時アサートする。
 
 ## 3. エラーハンドリングおよび終了コード
 - 全ステージ合格時: `0`
