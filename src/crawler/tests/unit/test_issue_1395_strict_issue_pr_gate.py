@@ -17,7 +17,7 @@ def _load_hook_guard():
 
 
 def test_hook_guard_blocks_pr_create_without_closing_issue_or_bracket_title():
-    """master 向け gh pr create で [#<番号>] タイトルまたは Closes/Fixes/Resolves #<番号> がない場合は deny されること"""
+    """master 向け gh pr create で [#<番号>] タイトル・Closes #<番号> 欠落または番号不一致の場合は deny されること"""
     mod = _load_hook_guard()
 
     denied_no_body = mod.evaluate_tool_call(
@@ -43,6 +43,18 @@ def test_hook_guard_blocks_pr_create_without_closing_issue_or_bracket_title():
         }
     )
     assert denied_no_bracket_title["decision"] == "deny"
+
+    denied_mismatch = mod.evaluate_tool_call(
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": 'gh pr create --base master --head feat/1395-test --title "[#9999] feat: test" --body "Closes #1395"'
+                },
+            }
+        }
+    )
+    assert denied_mismatch["decision"] == "deny"
 
 
 def test_hook_guard_allows_pr_create_with_closes_issue_and_release_pr():
@@ -110,15 +122,17 @@ def test_hook_guard_blocks_git_push_branch_without_issue_number():
 
 
 def test_issue_gate_workflow_enforces_open_issue_closing_keyword_and_unchecked_criteria():
-    """issue-gate.yml が PR本文の Closes/Fixes/Resolves 必須化・OPEN状態検証・自動クローズ・未完了チェックボックス検出を備えること"""
+    """issue-gate.yml が pulls.listFiles と ci_governance_gate.py を呼び出し、自動クローズおよび必須チェック失敗を実行すること"""
     content = ISSUE_GATE_WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert "issue.data.state !== 'open'" in content
-    assert "unchecked.push(item)" in content
+    assert "pulls.listFiles" in content
+    assert "ci_governance_gate.py" in content
+    assert "verdict.auto_close" in content
     assert "state: 'closed'" in content
-    assert "close[sd]?|fixe?[sd]?|resolve[sd]?" in content
+    assert "core.setFailed" in content
 
     req_doc = (REPO_ROOT / "docs" / "6_platform_and_release" / "pre_pr_check_requirements.md").read_text(encoding="utf-8")
     spec_doc = (REPO_ROOT / "docs" / "6_platform_and_release" / "pre_pr_check_specification.md").read_text(encoding="utf-8")
-    assert "Issue #1395" in req_doc
-    assert "Issue #1395" in spec_doc
+    assert "Spec-Driven (SDD)" in req_doc
+    assert "Test-Driven (TDD)" in req_doc
+    assert "ci_governance_gate.py" in spec_doc
 

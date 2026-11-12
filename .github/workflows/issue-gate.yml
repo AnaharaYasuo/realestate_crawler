@@ -16,133 +16,96 @@ jobs:
     name: Verify GitHub Issue Association
     runs-on: ubuntu-latest
     steps:
-      - name: Check for associated GitHub Issue
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Enforce Issue-Driven, Spec-Driven (SDD), and Test-Driven (TDD) Governance
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { execFileSync } = require('child_process');
+
             const pr = context.payload.pull_request;
             const body = pr.body || '';
-
-            // Exempt Dependabot PRs from Issue association gate
-            const isDependabot = pr.user && pr.user.login === 'dependabot[bot]';
-            if (isDependabot) {
-              console.log('🤖 Dependabot PR detected. Skipping Issue association gate.');
-              return;
-            }
-
-            async function rejectAndAutoClose(commentBody, failReason) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: commentBody
-              });
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                state: 'closed'
-              });
-              core.setFailed(failReason);
-            }
-
-            // 1. Require explicit Closes/Fixes/Resolves #<IssueNumber> in PR body
             const bodyMatch = body.match(/\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b/i);
             const issueNumber = bodyMatch && bodyMatch[1] ? parseInt(bodyMatch[1], 10) : null;
 
-            if (!issueNumber) {
-              const errorMessage = '⛔ **PR自動クローズ (Issue未紐付け)**: Issueなしの Pull Request は禁止されています。\n\n' +
-                '### 解決手順:\n' +
-                '1. [GitHub Issues](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/issues) で OPEN 状態のチケットを起票してください（受入基準 `- [x]` 必須）。\n' +
-                '2. PR 本文に必ず `Closes #<Issue番号>`（または `Fixes #<Issue番号>` / `Resolves #<Issue番号>`）を明記し、PR を Reopen してください。';
-              await rejectAndAutoClose(errorMessage, 'No explicit Closes/Fixes/Resolves #<IssueNumber> found in PR body.');
+            let issueData = { exists: false };
+            if (issueNumber) {
+              try {
+                const resp = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                issueData = {
+                  exists: true,
+                  number: resp.data.number,
+                  state: resp.data.state,
+                  is_pull_request: Boolean(resp.data.pull_request),
+                  created_at: resp.data.created_at,
+                  body: resp.data.body || ''
+                };
+              } catch (err) {
+                issueData = { exists: false };
+              }
+            }
+
+            const changedFiles = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            const tempDir = process.env.RUNNER_TEMP || '/tmp';
+            const inputPath = path.join(tempDir, 'governance_input.json');
+            const outputPath = path.join(tempDir, 'governance_verdict.json');
+
+            const payload = {
+              repo_owner: context.repo.owner,
+              repo_name: context.repo.repo,
+              pr: {
+                number: pr.number,
+                title: pr.title || '',
+                body: body,
+                head_ref: pr.head && pr.head.ref ? pr.head.ref : '',
+                user_login: pr.user && pr.user.login ? pr.user.login : '',
+                created_at: pr.created_at || ''
+              },
+              issue: issueData,
+              files: changedFiles.map(f => f.filename)
+            };
+
+            fs.writeFileSync(inputPath, JSON.stringify(payload), 'utf8');
+            execFileSync(
+              'python3',
+              ['src/crawler/package/utils/ci_governance_gate.py', inputPath, outputPath],
+              { stdio: 'inherit' }
+            );
+
+            const verdict = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+            if (!verdict.passed) {
+              if (verdict.comment_body) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: verdict.comment_body
+                });
+              }
+              if (verdict.auto_close) {
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  state: 'closed'
+                });
+              }
+              core.setFailed(verdict.fail_reason || 'CI Governance Gate failed.');
               return;
             }
 
-            // 2. Verify issue existence and OPEN state on GitHub
-            try {
-              const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber
-              });
-
-              if (issue.data.pull_request) {
-                await rejectAndAutoClose(
-                  `⛔ **PR自動クローズ (PR番号誤指定)**: 指定された #${issueNumber} は Issue ではなく Pull Request です。有効な OPEN Issue を指定してください。`,
-                  `Reference #${issueNumber} is a Pull Request, not a GitHub Issue.`
-                );
-                return;
-              }
-
-              if (issue.data.state !== 'open') {
-                await rejectAndAutoClose(
-                  `⛔ **PR自動クローズ (クローズ済みIssue指定)**: 指定された Issue #${issueNumber} は既に \`${issue.data.state}\` 状態です。新規に OPEN Issue を起票して紐付けてください。`,
-                  `Issue #${issueNumber} is not open (state=${issue.data.state}).`
-                );
-                return;
-              }
-
-              console.log(`✅ Verified OPEN GitHub Issue #${issueNumber}: "${issue.data.title}"`);
-
-              // 3. Verify Acceptance Criteria checkboxes in Issue body
-              const issueBody = issue.data.body || '';
-              const lines = issueBody.split(/\r?\n/);
-              const checked = [];
-              const unchecked = [];
-
-              for (const line of lines) {
-                const trimmed = line.trim();
-                const match = trimmed.match(/^[-*]\s*\[([ xX])\]\s*(.*)$/);
-                if (match) {
-                  const status = match[1];
-                  const item = match[2].trim();
-                  if (!item) continue;
-                  if (status.toLowerCase() === 'x') {
-                    checked.push(item);
-                  } else {
-                    unchecked.push(item);
-                  }
-                }
-              }
-
-              const totalCriteria = checked.length + unchecked.length;
-
-              if (totalCriteria === 0) {
-                const noCriteriaMsg = `⛔ **マージ不可 (受入基準未定義)**: 紐付けられた Issue #${issueNumber} にアクセプタンスクライテリア（受入基準チェックボックス \`- [ ]\`）が定義されていません。\n\n` +
-                  `PRをマージするには、Issue本文に受入基準チェックボックスを記載し完了後に \`- [x]\` へ更新してください。`;
-
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: noCriteriaMsg
-                });
-
-                core.setFailed(`Issue #${issueNumber} does not define any Acceptance Criteria checkboxes (- [ ]).`);
-                return;
-              }
-
-              if (unchecked.length > 0) {
-                const uncheckedList = unchecked.map(c => `* [ ] ${c}`).join('\n');
-                const incompleteMsg = `⛔ **マージ不可 (受入基準未達)**: 紐付けられた Issue #${issueNumber} のアクセプタンスクライテリアに未完了の項目があります (${checked.length}/${totalCriteria} 完了)。\n\n` +
-                  `すべての受入基準を満たし、Issue 本文のチェックボックスを \`- [x]\` に更新してください。\n\n` +
-                  `### 未完了の受入基準:\n${uncheckedList}`;
-
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: incompleteMsg
-                });
-
-                core.setFailed(`Issue #${issueNumber} has ${unchecked.length} unchecked Acceptance Criteria.`);
-                return;
-              }
-
-              console.log(`✅ All ${totalCriteria} Acceptance Criteria in Issue #${issueNumber} are checked and verified!`);
-            } catch (err) {
-              const notFoundMessage = `⛔ **PR自動クローズ (無効なIssue番号)**: 指定された Issue #${issueNumber} がリポジトリに見つかりません。\n` +
-                '有効な OPEN 状態の GitHub Issue 番号を指定してください。';
-              await rejectAndAutoClose(notFoundMessage, `Issue #${issueNumber} does not exist: ${err.message}`);
-            }
+            console.log(`✅ Verified Issue-Driven, Spec-Driven (SDD), and Test-Driven (TDD) compliance (Issue #${verdict.issue_number || 'exempt'}).`);

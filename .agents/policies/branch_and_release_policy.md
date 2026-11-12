@@ -23,7 +23,11 @@
 - **Step 1 (作業ブランチ ➔ `master`)**:
   - **IssueなしのPR作成・プッシュ・マージは全面禁止**とし、以下の3層ゲートで機械的に強制する（Issue #1395）：
     1. **ローカル PreToolUse ゲート (`.agents/scripts/hook_guard.py`)**: `production` 向けリリースPRを除くすべての `gh pr create` において、タイトル `[#<Issue番号>]` および本文 `Closes #<Issue番号>`（または `Fixes` / `Resolves`）の明示記載がないコマンド実行を即座に Deny する。また Issue 番号を含まない作業ブランチの `git push`（削除操作を除く）も Deny する。
-    2. **GitHub Actions CI ゲート (`.github/workflows/issue-gate.yml` + Branch Protection `enforce_admins: true`)**: PR本文の `Closes/Fixes/Resolves #<Issue番号>` 記載、対象 Issue が実在かつ **`open` 状態**であること、および受入基準チェックボックス（`- [x]`）が全件完了していることを検証する。Issue未紐付けまたはクローズ済みIssue指定のPRは自動的に `closed` へ遷移させ、マージをブロックする。
+    2. **GitHub Actions CI 必須ゲート (`.github/workflows/issue-gate.yml` + Branch Protection `enforce_admins: true`)**: 以下の4条件を管理者例外なしで機械的に強制し、1つでも逸脱したPRのマージを完全遮断する：
+       - **Issue-Driven**: PR本文の `Closes/Fixes/Resolves #<N>`・タイトル先頭 `[#<N>]`・ブランチ名 `<N>` の3点完全一致、対象 Issue が実在かつ `open` 状態であること、および `issue.created_at <= pr.created_at`（PR作成後の後付けIssue起票禁止）。Issue未紐付けまたはクローズ済みIssue指定PRは自動クローズ（`closed`）する。
+       - **Criteria Completion**: Issue本文の受入基準 `- [x]` 全件完了（未完了0件）および PR本文内の未完了 `- [ ]` ゼロ。
+       - **Spec-Driven (SDD)**: コード・インフラ・CI・エージェント設定（`src/**`［`tests` 除く］、`terraform/**`、`.github/workflows/**`、`.agents/**`）を変更するPRは、必ず7大ドメイン正本仕様書（`docs/1_...`〜`docs/7_.../*.md`）の更新を含むこと。
+       - **Test-Driven (TDD)**: 実行コード・CIワークフロー（`src/**/*.py`［`tests` 除く］、`.agents/scripts/**/*.py`、`.github/workflows/*.yml|*.yaml`）を変更するPRは、必ず `src/crawler/tests/**/*.py` のテスト追加・更新を含むこと。
     3. **アーキテクチャ・ハーネス検証 (`test_architecture_harness.py`)**: 上記2層のルール定義が削除・弱体化されていないことを常時自動テストする。
   - CI 全件合格後に `master` へマージ。
 - **Step 2 (`master` ➔ `production`)**:

@@ -24,12 +24,13 @@ def _is_protected_main_tree_path(path: str) -> bool:
 def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
     if re.search(r"\bgh\s+pr\s+create\b", cmd):
         is_release_pr = bool(re.search(r"(?:--base|-B)\s+['\"]?production\b", cmd))
-        has_bracket_title = bool(re.search(r"(?:--title|-t)\s+['\"]\[#\d+\]", cmd))
-        has_closing_issue = bool(re.search(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#\d+\b", cmd, re.IGNORECASE))
-        if not is_release_pr and (not has_bracket_title or not has_closing_issue):
+        title_match = re.search(r"(?:--title|-t)\s+['\"]\[#(\d+)\]\s+", cmd)
+        body_match = re.search(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b", cmd, re.IGNORECASE)
+        same_issue = bool(title_match and body_match and title_match.group(1) == body_match.group(1))
+        if not is_release_pr and not same_issue:
             return {
                 "decision": "deny",
-                "reason": "Principle 4 violation: Issue-less or untagged PR creation is forbidden. Prefix --title with '[#<IssueNumber>]' and include 'Closes #<IssueNumber>' in --body.",
+                "reason": "Principle 4 violation: Issue-less, untagged, or mismatched PR creation is forbidden. Prefix --title with '[#<IssueNumber>] ' and include matching 'Closes #<IssueNumber>' in --body.",
             }
 
     push_match = re.search(
