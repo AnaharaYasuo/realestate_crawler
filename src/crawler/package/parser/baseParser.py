@@ -1461,10 +1461,12 @@ class ParserBase(metaclass=ABCMeta):
                         return cand
         return ""
 
+    BUS_PATTERN = re.compile(r"(?:【?バス(?:乗車)?】?|バス\s*利用可\s*バス)\s*([0-9０-９]{1,3})\s*分")
+
     @classmethod
     def _extract_bus_stop_from_text(cls, text: str) -> str:
         """Extract bus stop name from text after 'バスN分'."""
-        m_bus = re.search(r"バス\s*[0-9０-９]{1,3}\s*分", text or "")
+        m_bus = cls.BUS_PATTERN.search(text or "")
         after_bus = text[m_bus.end() :] if m_bus else (text or "")
         bracketed = cls._extract_bracketed_bus_stop(after_bus)
         if bracketed:
@@ -1481,7 +1483,7 @@ class ParserBase(metaclass=ABCMeta):
     def _apply_bus_fields(cls, item: models.Model, text: str) -> None:
         """Populate busUse1 / busWalkMinute1 / busStation1 when bus access is present."""
         first_line = (text or "").splitlines()[0] if text else ""
-        m_bus = re.search(r"バス\s*([0-9０-９]{1,3})\s*分", first_line)
+        m_bus = cls.BUS_PATTERN.search(first_line)
         if not m_bus:
             return
         bus_str = m_bus.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
