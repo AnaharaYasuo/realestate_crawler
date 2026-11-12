@@ -585,19 +585,6 @@ def _run_post_crawl_pipeline(
         failed_steps.append("Step 2/6: Scraping Data Validation & Automated Cleansing")
         logger.error(f"❌ [Step 2/6 Error] Data validation step failed: {e}")
 
-    # AI自己修復用のバグ指示書生成
-    try:
-        run_command(
-            [
-                sys.executable,
-                os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
-            ],
-            "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent",
-        )
-    except Exception as e:
-        failed_steps.append("Step 2.5/6: Auto-Heal Instruction Generation for AI Agent")
-        logger.error(f"❌ [Step 2.5/6 Error] Auto-heal instruction generation failed: {e}")
-
     # Step 2 (3/6): 最新データによるMLモデル再学習 (失敗時も価格推定を継続)
     skip_ml_train = skip_train or os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1")
     if not skip_ml_train:
@@ -663,6 +650,23 @@ def _run_post_crawl_pipeline(
         logger.error(f"❌ [Step 6/6 Error] Daily ML Prediction Diagnostics failed: {e}")
 
     return failed_steps
+
+
+def _run_auto_heal_instruction_step(debug_tools_dir: str, failed_steps: list[str] | None = None) -> None:
+    """全ステップ完了後（または異常終了時）に包括的自己修復指示書を生成する (Issue #1391)"""
+    try:
+        cmd = [
+            sys.executable,
+            os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+        ]
+        if failed_steps:
+            cmd.append(f"--failed-steps={json.dumps(failed_steps, ensure_ascii=False)}")
+        run_command(
+            cmd,
+            "Step 7: E2E Pipeline Comprehensive Health & AI Auto-Heal Instruction Generation",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 7 Error] Auto-heal instruction generation failed: {e}")
 
 
 def main():
@@ -872,6 +876,10 @@ def main():
         if not crawler_ok:
             failed_steps.insert(0, "Step 1/6: Parallel Crawling")
 
+        # Step 7: E2E Pipeline Comprehensive Health & AI Auto-Heal Instruction Generation (Issue #1391)
+        # クロールからML学習・推論・配信までの全フェーズの成否とエラーを包括集約しAI指示書を生成
+        _run_auto_heal_instruction_step(debug_tools_dir, failed_steps=failed_steps)
+
         if failed_steps:
             logger.error(
                 f"❌ Pipeline finished with partial failures in steps: {', '.join(failed_steps)}"
@@ -883,6 +891,11 @@ def main():
         logger.info(BORDER_LINE)
     except Exception as exc:
         logger.exception("Pipeline crashed due to unhandled exception")
+        try:
+            # 異常終了時も必ずオートヒール指示書作成を実行し、クラッシュ原因をAI分析・指示書化する (Issue #1391)
+            _run_auto_heal_instruction_step(debug_tools_dir, failed_steps=[f"Fatal Crash: {exc}"])
+        except Exception as auto_heal_err:
+            logger.warning(f"Failed to generate auto-heal instructions on fatal crash: {auto_heal_err}")
         notify_pipeline_timeout_sync(
             task_index=task_index,
             task_count=task_count,
