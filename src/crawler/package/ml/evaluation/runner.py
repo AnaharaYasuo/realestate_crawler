@@ -12,18 +12,24 @@ from typing import Any
 from django.db import close_old_connections
 from package.ml.constants import EVAL_DB_READ_CHUNK_SIZE, EVAL_DB_WRITE_BATCH_SIZE
 from package.ml.evaluation.notifications import notify_slack
-from package.ml.evaluation.persistence import EVAL_MAP_FIELDS, save_chunk
+from package.ml.evaluation.persistence import (
+    EVAL_MAP_FIELDS,
+    clear_candidate_pool_cache,
+    save_chunk,
+)
 from package.ml.evaluation.record_builder import resolve_company_and_type
 from package.ml.evaluation.targets import (
     get_all_property_models,
     iter_unprocessed_chunks,
 )
-from package.ml.predict import bulk_predict_first_stage
+from package.ml.predict import bulk_predict_first_stage, bulk_predict_first_stage_with_p10
 from package.models.evaluation import PropertyEvaluation
 from package.utils.batch_metrics import BatchMetrics
 from package.utils.deduplication import clear_real_property_cache
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_BULK_PREDICT = bulk_predict_first_stage
 
 DEFAULT_CONCURRENCY = 8
 DEFAULT_WRITE_BATCH_SIZE = EVAL_DB_WRITE_BATCH_SIZE
@@ -101,10 +107,14 @@ def evaluate_single_model(
             if not chunk:
                 continue
 
-            predicted_prices = bulk_predict_first_stage(chunk)
-            save_kwargs = {"batch_size": batch_size}
+            save_kwargs: dict[str, Any] = {"batch_size": batch_size}
             if skip_duplicate_check:
                 save_kwargs["skip_duplicate_check"] = skip_duplicate_check
+            if bulk_predict_first_stage is _DEFAULT_BULK_PREDICT:
+                predicted_prices, p10_prices = bulk_predict_first_stage_with_p10(chunk)
+                save_kwargs["p10_prices"] = [float(p) for p in p10_prices]
+            else:
+                predicted_prices = bulk_predict_first_stage(chunk)
 
             p_cnt, d_cnt = _save_chunk_with_retry(
                 chunk,
@@ -214,6 +224,7 @@ def run_bulk_evaluation(
 ) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
+    clear_candidate_pool_cache()
     concurrency = _resolve_positive_arg_or_env(concurrency, "BULK_EVAL_CONCURRENCY", DEFAULT_CONCURRENCY)
     batch_size = _resolve_positive_arg_or_env(batch_size, "BULK_EVAL_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)
     chunk_size = _read_positive_int_env("BULK_EVAL_CHUNK_SIZE", DEFAULT_READ_CHUNK_SIZE)
@@ -287,5 +298,6 @@ def run_bulk_evaluation(
         sys.exit(1)
 
     clear_real_property_cache()
+    clear_candidate_pool_cache()
     logger.info("✅ Bulk ML Evaluation Finished! Evaluated: %d, Skipped (Already done): %d", evaluated_count, skipped_count)
     sys.stdout.flush()

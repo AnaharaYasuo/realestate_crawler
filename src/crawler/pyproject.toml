@@ -88,7 +88,8 @@ dependencies = [
     "ruff (>=0.17.3)",
     "minify-html (>=0.15.0)",
     "django-db-connection-pool (>=1.2.6)",
-    "slack-bolt (>=1.30.0)"
+    "slack-bolt (>=1.30.0)",
+    "opencv-python-headless (>=5.0.0.93,<6.0.0.0)"
 ]
 
 

@@ -1,4 +1,4 @@
-"""スレッドセーフな機械学習モデルおよびマスタ管理レジストリ (Issue #714)"""
+"""スレッドセーフな機械学習モデルおよびマスタ管理レジストリ (Issue #714, #1380)"""
 
 import logging
 import os
@@ -45,7 +45,6 @@ def ensure_models_available(
         logger.warning("ML: Failed to download models from storage: %s", e)
 
 
-
 class ModelRegistry:
     """スレッド安全・遅延ロード対応の ML モデル & マスタ管理レジストリ"""
 
@@ -55,10 +54,12 @@ class ModelRegistry:
         self.model_dir = os.path.abspath(model_dir)
         self._lock = threading.Lock()
         self._models: dict[tuple[str, str], dict[str, Any]] = {}
+        self._p10_models: dict[tuple[str, str], Any] = {}
         self._market_master: dict[str, Any] | None = None
         self._smearing_factors: dict[str, Any] | None = None
         self._ensemble_weights: dict[str, Any] | None = None
         self._location_encoders: dict[str, Any] | None = None
+        self._p10_conformal: dict[str, Any] | None = None
 
     def _normalize_stage(self, stage: str) -> str:
         s = stage.lower()
@@ -83,7 +84,6 @@ class ModelRegistry:
             except Exception:
                 logger.exception("ML: Failed to load %s %s %s model", ptype, stage_key, algo)
 
-        # Legacy fallback
         if algo == "lgb":
             legacy_path = os.path.join(self.model_dir, f"{ptype}_{stage_key}_model.joblib")
             if os.path.exists(legacy_path):
@@ -150,7 +150,7 @@ class ModelRegistry:
                         self._smearing_factors = {}
                 else:
                     self._smearing_factors = {}
-            
+
             factors = self._smearing_factors.get(ptype, {})
             val = factors.get(s_key, 1.0)
             return float(val) if val and float(val) > 0 else 1.0
@@ -170,8 +170,6 @@ class ModelRegistry:
                         self._ensemble_weights = {}
                 else:
                     self._ensemble_weights = {}
-
-
 
             dynamic = self._ensemble_weights.get(ptype, {}).get(s_key)
             if dynamic:
@@ -221,27 +219,63 @@ class ModelRegistry:
         with self._lock:
             self._location_encoders = encoders
 
+    def p10_model(self, ptype: str, stage: str) -> Any:
+        """P10 分位点回帰モデルを取得（未保存時は None）"""
+        stage_key = self._normalize_stage(stage)
+        cache_key = (ptype, stage_key)
+        with self._lock:
+            if cache_key in self._p10_models:
+                return self._p10_models[cache_key]
+            ensure_models_available(self.model_dir)
+            m = self._load_single_model(ptype, stage_key, "p10")
+            self._p10_models[cache_key] = m
+            return m
+
+    def p10_conformal_offset(self, ptype: str, stage: str) -> float:
+        """Split Conformal 較正オフセット q90 を取得（既定 0.0）"""
+        s_key = "first" if "first" in stage.lower() else "second"
+        with self._lock:
+            if self._p10_conformal is None:
+                path = os.path.join(self.model_dir, "p10_conformal.joblib")
+                if os.path.exists(path):
+                    try:
+                        self._p10_conformal = joblib.load(path)
+                        logger.info("ML: Loaded P10 conformal offsets.")
+                    except Exception:
+                        logger.exception("ML: Failed to load P10 conformal offsets")
+                        self._p10_conformal = {}
+                else:
+                    self._p10_conformal = {}
+            val = self._p10_conformal.get(ptype, {}).get(s_key, 0.0)
+            return float(val) if val is not None else 0.0
+
     def preload(self) -> None:
         """全モデルおよびマスタを事前ウォームアップ"""
         self.market_master()
         for ptype in PROPERTY_TYPES:
             self.location_encoder(ptype, "first_stage")
             self.location_encoder(ptype, "second_stage")
+            self.p10_conformal_offset(ptype, "first_stage")
+            self.p10_conformal_offset(ptype, "second_stage")
             self.weights(ptype, "first_stage")
             self.weights(ptype, "second_stage")
             self.smearing(ptype, "first_stage")
             self.smearing(ptype, "second_stage")
             self.models(ptype, "first_stage")
             self.models(ptype, "second_stage")
+            self.p10_model(ptype, "first_stage")
+            self.p10_model(ptype, "second_stage")
 
     def clear(self) -> None:
         """キャッシュクリア（テストまたはモデル再学習時）"""
         with self._lock:
             self._models.clear()
+            self._p10_models.clear()
             self._market_master = None
             self._smearing_factors = None
             self._ensemble_weights = None
             self._location_encoders = None
+            self._p10_conformal = None
 
 
 _DEFAULT_REGISTRY: ModelRegistry | None = None

@@ -45,6 +45,7 @@ class LandPricePointRecord:
     has_gas: bool = True
     has_water: bool = True
     has_sewer: bool = True
+    zone_name: str = ""
 
 
 @dataclass(slots=True, frozen=True)
@@ -59,6 +60,9 @@ class HazardMapRecord:
     city: str
     flood_risk_level: int
     landslide_risk_level: int
+    tsunami_risk_level: int = 0
+    red_zone_landslide_flag: int = 0
+    liquefaction_risk_level: int = 0
 
 
 @dataclass(slots=True, frozen=True)

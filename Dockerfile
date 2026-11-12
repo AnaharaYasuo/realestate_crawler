@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     cron \
     libgomp1 \
+    libglib2.0-0 \
     && apt-get upgrade -y \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir "poetry>=2.0,<3" "poetry-plugin-export>=1.8" \

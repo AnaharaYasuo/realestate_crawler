@@ -161,12 +161,23 @@ def _load_stations(station_cls) -> bool:
 def _load_hazards(hazard_cls) -> bool:
     if _hazard_cache:
         return False
-    for row in hazard_cls.objects.values("prefecture", "city", "flood_risk_level", "landslide_risk_level"):
+    ext_fields = (
+        "prefecture", "city", "flood_risk_level", "landslide_risk_level",
+        "tsunami_risk_level", "red_zone_landslide_flag", "liquefaction_risk_level",
+    )
+    try:
+        rows = list(hazard_cls.objects.values(*ext_fields))
+    except Exception:
+        rows = list(hazard_cls.objects.values("prefecture", "city", "flood_risk_level", "landslide_risk_level"))
+    for row in rows:
         h_rec = HazardMapRecord(
             prefecture=row["prefecture"],
             city=row["city"],
             flood_risk_level=int(row["flood_risk_level"]),
             landslide_risk_level=int(row["landslide_risk_level"]),
+            tsunami_risk_level=int(row.get("tsunami_risk_level") or 0),
+            red_zone_landslide_flag=int(row.get("red_zone_landslide_flag") or 0),
+            liquefaction_risk_level=int(row.get("liquefaction_risk_level") or 0),
         )
         _hazard_cache[(h_rec.prefecture, h_rec.city)] = h_rec
     return bool(_hazard_cache)
@@ -497,13 +508,68 @@ def _find_first_attr(property_obj: Any, attrs: tuple[str, ...]) -> Any:
     return None
 
 
-def resolve_zone_limits(property_obj: Any) -> tuple[float, float, float, float, Any]:
+def _nearest_zone_by_coordinates(
+    pool: Sequence[LandPricePointRecord], latitude: float, longitude: float, max_km: float = 0.801
+) -> str:
+    best_dist = max_km
+    best_zone = ""
+    for rec in pool:
+        if rec.zone_name:
+            d_km = _haversine_km(latitude, longitude, rec.latitude, rec.longitude)
+            if d_km < best_dist:
+                best_dist = d_km
+                best_zone = rec.zone_name
+    return best_zone
+
+
+def _impute_zone_name_from_gis_points(
+    prefecture: str,
+    city: str,
+    chome_group: str,
+    latitude: float | None,
+    longitude: float | None,
+) -> str:
+    """用途地域が欠損している場合、近傍800m以内または同一町丁目の国交省標準地(L01/L02)から用途地域名を空間補完する。"""
+    _init_global_caches()
+    pref = (prefecture or "").strip()
+    cty = (city or "").strip()
+    ch = (chome_group or "").strip()
+
+    if latitude is not None and longitude is not None:
+        pool = (
+            _lp_points_by_chome.get(ch)
+            or _lp_points_by_city.get((pref, cty))
+            or _lp_points_by_pref.get(pref)
+            or []
+        )
+        coord_zone = _nearest_zone_by_coordinates(pool, latitude, longitude)
+        if coord_zone:
+            return coord_zone
+
+    candidates = (*_lp_points_by_chome.get(ch, ()), *_lp_points_by_town.get(_strip_chome_digits(ch), ()))
+    return next((rec.zone_name for rec in candidates if rec.zone_name), "")
+
+
+def resolve_zone_limits(
+    property_obj: Any,
+    prefecture: str = "",
+    city: str = "",
+    chome_group: str = "",
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> tuple[float, float, float, float, Any]:
+    _init_global_caches()
     youseki_raw = _find_first_attr(property_obj, ('youseki', 'yousekiStr', 'kenpeiYousekiStr', 'yousekiRitsu'))
     kenpei_raw = _find_first_attr(property_obj, ('kenpei', 'kenpeiStr', 'kenpeiYousekiStr', 'kenpeiRitsu'))
     max_youseki = extract_limit_value(youseki_raw, is_youseki=True)
     max_kenpei = extract_limit_value(kenpei_raw, is_youseki=False)
 
     zone_name_prop = _find_first_attr(property_obj, ('zone_name', 'youtoChiiki', 'youto'))
+    if not zone_name_prop and (prefecture or chome_group or (latitude is not None and longitude is not None)):
+        imputed = _impute_zone_name_from_gis_points(prefecture, city, chome_group, latitude, longitude)
+        if imputed:
+            zone_name_prop = imputed
+
     zone_rec = _find_zone_record_by_name(zone_name_prop)
     max_kenpei, max_youseki, zone_max_kenpei, zone_max_youseki = _resolve_zone_from_record(zone_rec, max_kenpei, max_youseki)
     max_kenpei, max_youseki, zone_max_kenpei, zone_max_youseki = _fallback_zone_from_keywords(
@@ -635,6 +701,20 @@ def query_hazard_features(address1: str, address2: str) -> tuple[int, int]:
     return flood_risk_level, landslide_risk_level
 
 
+def query_extended_hazard_features(address1: str, address2: str) -> tuple[int, int, int, int, int]:
+    """浸水・土砂・津波・土砂特別警戒区域(レッドゾーン)・液状化の5種ハザード特徴量を返す。"""
+    hz = _hazard_cache.get((address1, address2))
+    if not hz:
+        return 0, 0, 0, 0, 0
+    return (
+        hz.flood_risk_level,
+        hz.landslide_risk_level,
+        hz.tsunami_risk_level,
+        hz.red_zone_landslide_flag,
+        hz.liquefaction_risk_level,
+    )
+
+
 def calculate_regional_sensitivity_features(
     property_type: str,
     walk_min: float,
@@ -676,6 +756,7 @@ _calculate_effective_walk_min = calculate_effective_walk_min
 _resolve_zone_limits = resolve_zone_limits
 _blend_land_prices = blend_land_prices
 _calculate_hazard_features = query_hazard_features
+_query_extended_hazard_features = query_extended_hazard_features
 _calculate_regional_sensitivity_features = calculate_regional_sensitivity_features
 
 
@@ -1094,7 +1175,7 @@ def _init_lp_point_cache(lp_point_cls: Any) -> bool:
     try:
         rows = lp_point_cls.objects.values(
             "prefecture", "city", "chome_key", "latitude", "longitude",
-            "land_price", "growth_rate", "land_use", "road_width",
+            "land_price", "growth_rate", "land_use", "zone_name", "road_width",
             "station_name", "station_distance_m", "has_gas", "has_water", "has_sewer",
         )
         for r in rows:
@@ -1113,6 +1194,7 @@ def _init_lp_point_cache(lp_point_cls: Any) -> bool:
                 has_gas=bool(r["has_gas"]),
                 has_water=bool(r["has_water"]),
                 has_sewer=bool(r["has_sewer"]),
+                zone_name=r.get("zone_name") or "",
             )
             _index_land_price_point(rec)
     except Exception as exc:

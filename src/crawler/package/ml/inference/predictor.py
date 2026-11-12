@@ -10,7 +10,11 @@ import pandas as pd
 
 from package.ml.features import FEATURE_SETS, build_features_batch
 from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
-from package.ml.inference.ensemble import align_features, apply_smearing_and_ensemble
+from package.ml.inference.ensemble import (
+    align_features,
+    apply_smearing_and_ensemble,
+    compute_prediction_interval_p10,
+)
 from package.ml.inference.model_registry import ModelRegistry, get_default_registry
 from package.utils.property_type_detector import PropertyTypeDetector
 
@@ -62,16 +66,28 @@ def _enrich_inference_df_with_location_encoder(
     ptype: str,
     loc_encoder: Any,
 ) -> pd.DataFrame:
-    """文字列所在地列が残っている段階で階層ベイズエンコーダとアンカー対数単価を更新する"""
+    """文字列所在地列が残っている段階で階層ベイズ・空間kNNエンコーダとアンカー対数単価を更新する"""
     raw_df = pd.DataFrame(features_list)
     if raw_df.empty:
         return raw_df
-    transform_fn = getattr(loc_encoder, "transform", None) if loc_encoder is not None else None
-    if callable(transform_fn):
-        transformed = transform_fn(raw_df)
-        if isinstance(transformed, tuple) and len(transformed) == 2:
-            raw_df["chome_oof_unit_price"] = transformed[0]
-            raw_df["station_walk_oof_unit_price"] = transformed[1]
+    applied_extended = False
+    ext_fn = getattr(loc_encoder, "transform_extended", None) if loc_encoder is not None else None
+    if callable(ext_fn):
+        ext = ext_fn(raw_df)
+        if isinstance(ext, dict):
+            raw_df["chome_oof_unit_price"] = ext.get("chome_oof", 0.0)
+            raw_df["station_walk_oof_unit_price"] = ext.get("station_walk_oof", 0.0)
+            raw_df["building_oof_unit_price"] = ext.get("building_oof", 0.0)
+            raw_df["knn_500m_oof_unit_price"] = ext.get("knn_500m_oof", 0.0)
+            raw_df["knn_500m_comp_count"] = ext.get("knn_500m_count", 0.0)
+            applied_extended = True
+    if not applied_extended:
+        transform_fn = getattr(loc_encoder, "transform", None) if loc_encoder is not None else None
+        if callable(transform_fn):
+            transformed = transform_fn(raw_df)
+            if isinstance(transformed, tuple) and len(transformed) == 2:
+                raw_df["chome_oof_unit_price"] = transformed[0]
+                raw_df["station_walk_oof_unit_price"] = transformed[1]
     ptype_hint = "tochi" if ptype == "tochi" else ""
     raw_df["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(raw_df, property_type=ptype_hint)
     return raw_df
@@ -124,6 +140,35 @@ def predict_batch_ensemble(
             preds_log_dict[algo] = np.array(pred_log)
     areas = df["area"].values
     return apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
+
+
+def predict_batch_ensemble_with_p10(
+    models: dict[str, Any],
+    weights: dict[str, float],
+    smearing_factor: float,
+    df: pd.DataFrame,
+    p10_model: Any = None,
+    p10_conformal_offset: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """点予測値と Split Conformal 較正済み P10 下限予測値を一括算出（未保存時はアンサンブル分散フォールバック）"""
+    preds_log_dict = {}
+    for algo, model in models.items():
+        if model and weights.get(algo, 0.0) > 0:
+            df_for_pred = align_features(df, model)
+            preds_log_dict[algo] = np.asarray(model.predict(df_for_pred), dtype=float)
+    areas = np.asarray(df["area"].values, dtype=float)
+
+    if p10_model is None:
+        return compute_prediction_interval_p10(preds_log_dict, weights, smearing_factor, areas)
+
+    point_preds = apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
+    df_p10 = align_features(df, p10_model)
+    calibrated_log = np.asarray(p10_model.predict(df_p10), dtype=float) - float(p10_conformal_offset)
+    p10_units = np.maximum(0.0, np.expm1(calibrated_log))
+    p10_raw = p10_units * areas
+    floor_positive = np.where(point_preds > 0.0, np.maximum(1.0, point_preds * 0.35), 0.0)
+    p10_bounded = np.minimum(point_preds, np.maximum(floor_positive, p10_raw))
+    return point_preds, p10_bounded
 
 
 def _resolve_models_and_master(
@@ -244,6 +289,55 @@ def bulk_predict(
         )
 
     return final_results
+
+
+def bulk_predict_with_p10(
+    properties_list: list[Any],
+    stage: str = "first",
+    registry: ModelRegistry | None = None,
+    models_provider: Any = None,
+    weights_provider: Any = None,
+    smearing_provider: Any = None,
+    features_list: list[dict[str, Any]] | None = None,
+) -> tuple[list[int], list[int]]:
+    """複数物件に対する点予測値および P10 下限予測値の一括ベクトル化推論"""
+    if not properties_list:
+        return [], []
+
+    reg = registry or get_default_registry()
+    stage_key = "second" if "second" in stage.lower() else "first"
+    grouped_props = group_properties_by_type(properties_list)
+    point_results = [0] * len(properties_list)
+    p10_results = [0] * len(properties_list)
+
+    dynamic_weights = weights_provider(reg.model_dir) if callable(weights_provider) else None
+    smearing_factors = smearing_provider(reg.model_dir) if callable(smearing_provider) else None
+
+    for ptype, items in grouped_props.items():
+        models, mkt_master = _resolve_models_and_master(reg, ptype, stage_key, models_provider)
+        if not models:
+            continue
+        sub_indices = [idx for idx, _ in items]
+        sub_props = [p for _, p in items]
+        group_features = (
+            [dict(features_list[idx]) for idx in sub_indices]
+            if features_list is not None and len(features_list) == len(properties_list)
+            else build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
+        )
+        loc_encoder = _resolve_location_encoder(reg, ptype, stage_key, models_provider)
+        raw_df = _enrich_inference_df_with_location_encoder(group_features, ptype, loc_encoder)
+        df = prepare_df_features(raw_df, FEATURE_SETS.get(ptype, {}).get(stage_key, []))
+        weights, sf = _resolve_weights_and_smearing(reg, ptype, stage_key, dynamic_weights, smearing_factors)
+        p10_m = reg.p10_model(ptype, stage_key)
+        p10_off = reg.p10_conformal_offset(ptype, stage_key)
+        pts, p10s = predict_batch_ensemble_with_p10(models, weights, sf, df, p10_model=p10_m, p10_conformal_offset=p10_off)
+        for i, idx in enumerate(sub_indices):
+            pt_int = int(max(0, pts[i]))
+            p10_int = min(pt_int, int(max(0, p10s[i])))
+            point_results[idx] = pt_int
+            p10_results[idx] = p10_int
+
+    return point_results, p10_results
 
 
 def _predict_stage_from_raw_features(

@@ -26,6 +26,8 @@ from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.property_type_detector import PropertyTypeDetector
+from decimal import Decimal
+from package.ml.inference.ensemble import compute_risk_adjusted_bargain_score
 from package.ml.report_generator import generate_professional_and_danchou_report
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -365,6 +367,28 @@ def _select_two_stage_recommendations(
 
     return final_selected
 
+def _compute_p10_priority_bonus(eval_rec, asking_price_man: int, pred_price: float) -> tuple[float, float]:
+    """P10コンフォーマル下限予測値に基づくリスク調整後優先度ボーナスとP10割安率を算出する (Issue #1380)"""
+    if eval_rec is None or asking_price_man <= 0 or pred_price <= 0:
+        return 0.0, 0.0
+    raw_p10 = getattr(eval_rec, "first_stage_p10_price", None)
+    if not (isinstance(raw_p10, (int, float, Decimal)) and not isinstance(raw_p10, bool)):
+        return 0.0, 0.0
+    p10_val = float(raw_p10)
+    if p10_val <= 0:
+        return 0.0, 0.0
+    ra_score = compute_risk_adjusted_bargain_score(asking_price_man, pred_price, p10_val)
+    p10_disc_pct = (p10_val - asking_price_man) / p10_val * 100.0
+    # P10下限予測価格でも売出価格を上回る「確実割安物件」には大幅ボーナス (+15点 + P10割安率×0.5)、
+    # P10が大きく売出価格を下回る不確実性過大物件は優先度を減点する
+    if p10_val > asking_price_man:
+        bonus = 15.0 + max(0.0, p10_disc_pct) * 0.5 + ra_score * 10.0
+    else:
+        downside_gap_pct = (asking_price_man - p10_val) / max(asking_price_man, 1) * 100.0
+        bonus = -min(15.0, downside_gap_pct * 0.4)
+    return float(bonus), float(p10_disc_pct)
+
+
 def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     asking_price = getattr(prop, "price", 0) if prop else 0
     asking_price_man = normalize_asking_price_man(asking_price)
@@ -385,19 +409,23 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
     if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
-        calc_priority = 70.0 + discount_pct + (float(score) * 0.1)
-        reason = f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】"
+        p10_bonus, p10_disc_pct = _compute_p10_priority_bonus(eval_rec, asking_price_man, pred_price)
+        calc_priority = 70.0 + discount_pct + (float(score) * 0.1) + p10_bonus
+        p10_tag = f" / P10下限比 {p10_disc_pct:.1f}%割安" if p10_disc_pct > 0 else ""
+        reason = f"【市場予測価格より {discount_pct:.1f}% 割安{p10_tag}（投資お宝物件！）】"
         return True, reason, calc_priority
 
     return False, "", 0.0
 
-def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: float) -> tuple:
+def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: float, eval_rec=None) -> tuple:
     if pred_price <= 0 or asking_price_man <= 0:
         return False, "", 0.0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
     # 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
     if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
-        return True, f"【市場予測価格より {discount_pct:.1f}% 割安（超お宝物件！）】", discount_pct
+        p10_bonus, p10_disc_pct = _compute_p10_priority_bonus(eval_rec, asking_price_man, pred_price)
+        p10_tag = f" / P10下限比 {p10_disc_pct:.1f}%割安" if p10_disc_pct > 0 else ""
+        return True, f"【市場予測価格より {discount_pct:.1f}% 割安{p10_tag}（超お宝物件！）】", discount_pct + p10_bonus
     return False, "", 0.0
 
 def _is_bus_route(prop, index: int) -> bool:
@@ -430,7 +458,7 @@ def _evaluate_candidate(eval_rec, prop) -> tuple:
 
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
-    return _evaluate_residential_candidate(prop, asking_price_man, pred_price)
+    return _evaluate_residential_candidate(prop, asking_price_man, pred_price, eval_rec=eval_rec)
 
 def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
     ptype_clean = eval_rec.property_type.lower().replace("_", "")
@@ -682,6 +710,14 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
         f"・売出価格: {asking_price_man}万円\n"
         f"・理論予測価格: {int(pred_price) if pred_price > 0 else '-'}万円\n"
     )
+    raw_p10 = getattr(eval_rec, "first_stage_p10_price", None)
+    if isinstance(raw_p10, (int, float, Decimal)) and not isinstance(raw_p10, bool) and int(raw_p10) > 0:
+        p10_int = int(raw_p10)
+        p10_gap = ""
+        if asking_price_man > 0:
+            p10_disc = (p10_int - asking_price_man) / p10_int * 100.0
+            p10_gap = f" ({p10_disc:.1f}% 割安)" if p10_disc >= 0 else f" ({abs(p10_disc):.1f}% 下振れ余地)"
+        msg += f"・下限予測価格(P10): {p10_int:,}万円{p10_gap}\n"
     if pred_price > 0:
         msg += f"・割安度: -{diff_man}万円 ({discount_pct:.1f}% 割安)\n"
 

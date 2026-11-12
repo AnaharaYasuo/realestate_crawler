@@ -79,8 +79,15 @@ python src/crawler/package/ml/train.py
 python src/crawler/scripts/ops/run_bulk_ml_evaluation.py --force --no-skip-portals --workers 16 --batch-size 100
 ```
 
+### 4.3 16並列バルク評価のロック競合防止 ＆ ハイブリッド画像解析レート制御（Issue #1380）
+- **InnoDB 行ロックデッドロック・タイムアウト（1205）の構造的防止**:
+  - [`persistence.py:bulk_update_evaluation_records`](../../src/crawler/package/ml/evaluation/persistence.py) は `PropertyEvaluation.objects.bulk_update` 実行前に必ず主キー（`pk`）昇順ソートを行い、ジッター付き指数バックオフ（最大5回試行）で一時的なロック競合を自動吸収します。
+  - `PropertyEvaluation.analyzed_at` インデックスおよび重複照合候補プールのスレッド安全TTLキャッシュにより、16並列実行時のDB読み取り負荷を最小化します。
+- **OpenCV × `gemini-2.5-flash` 低速レート制御**:
+  - 画像・区画図解析は OpenCV によるローカル幾何・色相計測を先行実行し、`gemini-2.5-flash` 呼び出し時は `GEMINI_MIN_INTERVAL_SEC`（既定 `2.0` 秒間隔）および自動リトライ（`GEMINI_MAX_RETRIES`、既定 `4` 回）により無料・低速枠のレート制限超過を防止します。
+
 ---
 
-**最終更新**: 2026年11月11日  
-**バージョン**: 1.2 (外部基礎データ定期更新スケジュール・GCS同期運用手順追記)
+**最終更新**: 2026年11月12日  
+**バージョン**: 1.3 (P10コンフォーマル予測・空間kNN・OpenCV×Gemini2.5Flash低速制御・16並列PK昇順更新手順追記)
 

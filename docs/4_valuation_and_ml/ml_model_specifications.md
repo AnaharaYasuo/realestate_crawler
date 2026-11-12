@@ -795,4 +795,39 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
    - **ガード②（`send_recommendations.py` での配信前オンデマンド補完＆DB永続化）**: お宝物件候補の抽出・Slack通知メッセージ生成時（`_build_recommendation_msg` およびメインループ）に、`eval_rec.dcf_theoretical_price` が未設定（`None` または `<= 0`）または積算価格が未設定の場合は、その場で決定論的DCFエンジン `evaluate_dcf_and_yields(prop, eval_rec.property_type)` および最新積算価格計算 `calculate_sekisan_price(prop, eval_rec.property_type)` を実行して `eval_rec` にセット・DB保存し、Slack通知の「💰 価格・割安度（3面アプローチ）」に必ず `10年DCF理論価格` と `期待利回り(表面/実質)` を出力する。
    - **ガード③（`report_generator.py` でのプロンプトコンテキスト自動補完）**: `_format_dcf_context_line(eval_rec, prop)` においても、`eval_rec.dcf_theoretical_price` が未設定の場合は `prop` からオンデマンドで `evaluate_dcf_and_yields` を算出して補完し、AI定性鑑定プロンプトへ3面アプローチ数値を漏れなく供給する。
 
+---
+
+## 16. P10コンフォーマル下限予測・空間k-NN相場・GISオープンデータ・OpenCV×Gemini2.5Flash協調仕様 (Issue #1380)
+
+### 16.1 下限予測値 $P_{10}$（LightGBM Quantile Regression × Split Conformal Prediction）
+点予測値 $\hat{y}$ のみでお宝判定を行うと、特徴量欠損や特殊物件で不確実性（分散）が大きい物件を過大予測した「偽のお宝（False Positive）」が混入する。これを統計的に排除するため、[`src/crawler/package/ml/AGENTS.md`](../../src/crawler/package/ml/AGENTS.md) §4 に準拠し以下を実装する：
+1. **分位点回帰モデルの同時学習**: 各物件種別・各ステージにおいて、平均アンサンブルと並行して `LGBMRegressor(objective="quantile", alpha=0.10)` を `AnchorResidualEstimator` ラップ＋時間減衰サンプル重み付きで学習し、`{ptype}_{stage}_stage_p10.joblib` として保存・GCS同期する。
+2. **GroupKFold リークなし Split Conformal 較正**: 同一マンション棟・同一所在地グループ（`GroupKFold`）の Out-of-Fold 下限予測 $\hat{y}_{P10}^{\text{OOF}}$ に対し、経験的被覆率 $P(y \ge \hat{y}_{P10} - q_{0.90}) \ge 90\%$ を満たすコンフォーマル補正量 $q_{0.90} = \text{Quantile}_{0.90}(\hat{y}_{P10}^{\text{OOF}} - y)$ を算出し、`p10_conformal.joblib` として保存する。
+3. **推論・DB永続化・お宝スクリーニング連携**:
+   - `PropertyEvaluation` に `first_stage_p10_price`（下限10%理論価格・万円）および `prediction_uncertainty_ratio`（$( \hat{P} - \hat{P}_{10} ) / \hat{P}$）を永続化する。
+   - `p10` 専用モデル未配置環境ではアンサンブル分散ベースの `compute_prediction_interval_p10` へ自動フォールバックし、後方互換性を100%維持する。
+   - お宝スクリーニング（`send_recommendations.py` 等）では、保守的な下限予測値 $P_{10}$ でも売出価格を上回る（または僅差で下支えされる）低不確実性物件の優先度を引き上げ、不確実性が極端に高いノイズ物件を抑制する。
+
+### 16.2 同一マンション相場 ＆ 半径500m近傍コンプス（`scipy.spatial.cKDTree` 空間 k-NN OOF 特徴量）
+[`MicroLocationTargetEncoder`](../../src/crawler/package/ml/training/target_encoding.py) を拡張し、従来の町丁目・駅徒歩圏OOFに加え、ミクロ空間比較特徴量3種を全種別（`_COMMON_SPATIAL_AND_ANCHOR_FEATURES`）へ追加する：
+1. **`building_oof_unit_price`**: 正規化建物グループ（`building_group`）ごとの階層ベイズ縮小 OOF 対数単価（サンプル数が少ない棟は `chome_oof_unit_price` へ自動縮小。`GroupKFold` により学習時の自己リークは構造的にゼロ）。
+2. **`knn_500m_oof_unit_price` / `knn_500m_comp_count`**: 緯度・経度をメートル平面座標へ変換して `scipy.spatial.cKDTree` を構築し、半径 500m 以内の近傍最大 $k=12$ 件（学習時は同一 Fold および同一 `building_group` を厳密除外）の逆距離重み付き OOF 対数単価および近傍取引密度件数を算出する（500m以内に近傍がない場合は `chome_oof_unit_price` へ滑らかに縮小）。
+
+### 16.3 無料オープンデータ拡張（津波・土砂災害レッドゾーン・液状化 ＆ 法定用途地域/建蔽容積率GIS補完）
+1. **ハザード3指標の全国拡張**: `HazardMapPotential` および [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) に `tsunami_risk_level`（0〜3）、`red_zone_landslide_flag`（急傾斜地崩壊・土砂災害特別警戒区域リスク 0/1、GSI DEM傾斜角 $\ge 30^\circ$ とも連動）、`liquefaction_risk_level`（埋立地・低地液状化リスク 0〜3）を追加し、全種別特徴量へ供給する。
+2. **用途地域・法定建ぺい率・容積率のGIS空間補完**: 物件レコードに `youtoChiiki`・`kenpei`・`youseki` が記載されていない場合、[`reference_data.py`](../../src/crawler/package/ml/features/reference_data.py) にキャッシュされた全国4.7万地点の国交省地価公示・基準地価（`LandPricePointPotential.zone_name`）の最近傍地点（同一町丁目または半径800m以内）から用途地域および法定建ぺい率・容積率を自動補完する。
+
+### 16.4 OpenCV × `gemini-2.5-flash`（2秒間隔レート制御＋多重リトライ）適材適所ハイブリッド画像解析
+課金コストをゼロ〜極小に抑えつつ定量的正確性と定性的目利きを両立するため、OpenCV と `gemini-2.5-flash` をそれぞれの得意領域で役割分担する：
+1. **OpenCV ローカル決定論的解析（[`opencv_image_analyzer.py`](../../src/crawler/package/utils/opencv_image_analyzer.py) — 全対象画像に即時実行・API通信ゼロ）**:
+   - **区画図・間取り図（`plot_plan`, `layout`）のポリゴン輪郭計測**: グレースケール化・適応的二値化/Cannyエッジ抽出・モルフォロジー閉処理・`cv2.findContours` / `cv2.approxPolyDP` により敷地境界ポリゴン頂点列を抽出し、[`plot_shape_analyzer.py:analyze_plot_shape`](../../src/crawler/package/utils/plot_shape_analyzer.py) へ入力して `shadow_area_ratio`（かげ地割合）、`shape_score_100`、`nta_irregular_discount`、`plot_shape_type` を数学的に厳密算出する（LLMの数値ハルシネーションを排除）。
+   - **内装・外観写真（`interior`, `exterior`）のフォトメトリクス採点**: HSV色空間の明度分布・彩度、Laplacian分散による鮮鋭度、壁面黄ばみ/汚れ色相比率から決定論的なベースライン `interior_score` / `maintenance_score`（1.0〜5.0）を算出する。
+2. **`gemini-2.5-flash` 低速レート制限＋多重リトライ定性査定（[`gemini_rate_limiter.py`](../../src/crawler/package/utils/gemini_rate_limiter.py) + [`image_handler.py`](../../src/crawler/package/utils/image_handler.py)）**:
+   - スレッド安全なグローバルレートリミッタ `GeminiFlashRateLimiter` により、リクエスト間隔を最低 **2.0秒以上**（`GEMINI_MIN_INTERVAL_SEC=2.0`）に制限し、`429 RESOURCE_EXHAUSTED` / `503` / タイムアウト発生時は指数バックオフ＋ジッター付きで最大4回リトライする。
+   - OpenCVでは判別困難な高次セマンティクス（擁壁種別 `rc_legal`/`stone_masonry`/`two_tier_illegal`、敷地内電柱・支線、雨漏り染み、階段勾配、室内洗濯機置場、露出老朽配管、間取り動線 `layout_score`、想定リフォーム規模 `renovation_budget_tier`）を専門に査定し、画地幾何指標はOpenCV実測値を優先統合する（APIキー未設定やクォータ上限到達時もOpenCV計測値へシームレスにフォールバック）。
+
+### 16.5 主要サイトパーサーの接道・間口・道路幅員・建蔽容積率 充填率（Fill-Rate）強化
+`TochiParserBase` / `KodateParserBase` の複合ヘッダ（`建ぺい率/容積率`・`建蔽率/容積率`）対応、`HomesParser` の全角メートル（`ｍ`）対応および `接道` 誤マッチ防止・`HomesKodateParser` の用途地域/地目/権利抽出追加、`KenbiyaParser` 各サブクラスへの間口・道路幅員バインド追加、`NomuraParser` の建蔽率表記ゆれ対応により、上流データの欠損率を低減する。
+
+
 

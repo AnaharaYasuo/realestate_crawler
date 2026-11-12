@@ -10,7 +10,7 @@ import pandas as pd
 from package.ml.constants import ALGOS
 from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
 from package.ml.training.metrics import calculate_mape
-from package.ml.training.regressors import get_regressor
+from package.ml.training.regressors import get_quantile_p10_regressor, get_regressor
 from package.ml.training.target_encoding import MicroLocationTargetEncoder
 from package.ml.training.tuning import tune_hyperparameters
 from scipy.optimize import minimize
@@ -36,11 +36,15 @@ class TrainedEnsemble(dict):
         weights: dict[str, float] | None = None,
         smearing_factor: float = 1.0,
         location_encoder: Any = None,
+        p10_model: Any = None,
+        p10_conformal_offset: float = 0.0,
     ):
         super().__init__(models)
         self.weights = weights or {}
         self.smearing_factor = smearing_factor
         self.location_encoder = location_encoder
+        self.p10_model = p10_model
+        self.p10_conformal_offset = float(p10_conformal_offset)
 
 
 def _fill_empty_labels_with_singletons(vals: pd.Series) -> np.ndarray:
@@ -359,23 +363,67 @@ def compute_smearing_factor(
     return smearing_factor
 
 
+def train_quantile_p10_with_conformal(
+    X: pd.DataFrame,
+    y: pd.Series,
+    rkf: Any,
+    sample_weight: np.ndarray | None = None,
+    groups: np.ndarray | None = None,
+) -> tuple[Any, float]:
+    """LightGBM 分位点回帰 (alpha=0.10) の OOF Split Conformal 較正オフセット算出と全体学習を行う。"""
+    n = len(X)
+    oof_p10 = np.zeros(n, dtype=float)
+    oof_cnt = np.zeros(n, dtype=float)
+
+    split_iter = rkf.split(X, y, groups) if isinstance(rkf, GroupKFold) and groups is not None else rkf.split(X)
+    for train_idx, val_idx in split_iter:
+        fold_q = get_quantile_p10_regressor(alpha=0.10)
+        if sample_weight is not None:
+            fold_q.fit(X.iloc[train_idx], y.iloc[train_idx], sample_weight=sample_weight[train_idx])
+        else:
+            fold_q.fit(X.iloc[train_idx], y.iloc[train_idx])
+        oof_p10[val_idx] += fold_q.predict(X.iloc[val_idx])
+        oof_cnt[val_idx] += 1.0
+
+    valid_mask = oof_cnt > 0
+    if np.any(valid_mask):
+        oof_pred_log = oof_p10[valid_mask] / oof_cnt[valid_mask]
+        nonconformity = oof_pred_log - y.to_numpy(dtype=float)[valid_mask]
+        m_valid = len(nonconformity)
+        q_level = min(0.98, max(0.50, float(np.ceil((m_valid + 1) * 0.90) / max(1, m_valid))))
+        conformal_offset = float(np.clip(np.quantile(nonconformity, q_level), -0.25, 0.45))
+    else:
+        conformal_offset = 0.0
+
+    final_p10 = get_quantile_p10_regressor(alpha=0.10)
+    if sample_weight is not None:
+        final_p10.fit(X, y, sample_weight=sample_weight)
+    else:
+        final_p10.fit(X, y)
+    logger.info("Trained P10 Quantile + Split Conformal offset (q90=%.4f)", conformal_offset)
+    return final_p10, conformal_offset
+
+
 def train_and_compare(
     df: pd.DataFrame,
     feature_cols: list[str],
     stage_name: str,
     sample_weight: np.ndarray | None = None,
 ) -> TrainedEnsemble:
-    """複数アルゴリズムの学習・CV比較・最適重み算出・アンサンブル構築"""
+    """複数アルゴリズムの学習・CV比較・最適重み算出・P10コンフォーマル構築"""
     df_work = df.copy()
     groups = _resolve_group_labels(df_work)
     rkf, cv_desc = get_cv_strategy(df_work, groups=groups)
     y_raw = pd.Series(np.log1p(df_work["price"] / df_work["area"]), index=df_work.index)
     loc_encoder = MicroLocationTargetEncoder(smoothing=8.0)
-    oof_chome, oof_st = loc_encoder.fit_transform_oof(
+    ext_oof = loc_encoder.fit_transform_oof_extended(
         df_work, y_raw, rkf, groups=groups, sample_weight=sample_weight
     )
-    df_work["chome_oof_unit_price"] = oof_chome
-    df_work["station_walk_oof_unit_price"] = oof_st
+    df_work["chome_oof_unit_price"] = ext_oof["chome_oof"]
+    df_work["station_walk_oof_unit_price"] = ext_oof["station_walk_oof"]
+    df_work["building_oof_unit_price"] = ext_oof["building_oof"]
+    df_work["knn_500m_oof_unit_price"] = ext_oof["knn_500m_oof"]
+    df_work["knn_500m_comp_count"] = ext_oof["knn_500m_count"]
     ptype_hint = "tochi" if stage_name.strip().lower().startswith("tochi") else ""
     df_work["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(df_work, property_type=ptype_hint)
 
@@ -398,7 +446,15 @@ def train_and_compare(
     smearing_factor = compute_smearing_factor(
         df_work, oof_unit_preds, opt_w, sample_weight=sample_weight
     )
+    p10_model, p10_conformal_offset = train_quantile_p10_with_conformal(
+        X, y, rkf, sample_weight=sample_weight, groups=groups
+    )
 
     return TrainedEnsemble(
-        trained_models, optimal_weights, smearing_factor, location_encoder=loc_encoder
+        trained_models,
+        optimal_weights,
+        smearing_factor,
+        location_encoder=loc_encoder,
+        p10_model=p10_model,
+        p10_conformal_offset=p10_conformal_offset,
     )
