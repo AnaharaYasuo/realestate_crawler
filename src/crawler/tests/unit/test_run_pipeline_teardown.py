@@ -8,15 +8,16 @@ from scripts.ops import run_pipeline
 
 
 def test_pipeline_crash_triggers_finally_teardown():
-    """When a pipeline step crashes in cloud coordinator mode, ensure_resources_stopped is executed in finally."""
+    """When a pipeline step crashes in cloud coordinator mode, auto-heal is attempted and ensure_resources_stopped is executed in finally."""
     with patch.dict("os.environ", {"IS_CLOUD": "true"}), \
          patch("sys.argv", ["run_pipeline.py"]), \
          patch("scripts.ops.run_pipeline.get_task_config", return_value=(0, 1)), \
          patch("scripts.ops.run_pipeline.run_command") as mock_run_cmd:
 
-        # Let the first command (Step 0) raise an exception
+        # Step 0 crashes, auto-heal runs (or succeeds), teardown in finally succeeds
         mock_run_cmd.side_effect = [
             RuntimeError("Step failed!"),  # Step 0 crashes
+            None,                          # Auto-heal instructions generation in except
             None,                          # Teardown in finally succeeds
         ]
 
@@ -24,8 +25,11 @@ def test_pipeline_crash_triggers_finally_teardown():
             run_pipeline.main()
 
         assert exc_info.value.code == 1
-        # Check that teardown was called in finally
-        assert mock_run_cmd.call_count == 2
+        # Check that Step 0, Auto-heal, and Teardown were called
+        assert mock_run_cmd.call_count == 3
+        auto_heal_call = mock_run_cmd.call_args_list[-2]
+        assert "auto_heal_parsers.py" in auto_heal_call[0][0][1]
+
         teardown_call = mock_run_cmd.call_args_list[-1]
         assert "ensure_resources_stopped.py" in teardown_call[0][0][1]
         assert "Teardown" in teardown_call[0][1]
@@ -33,20 +37,26 @@ def test_pipeline_crash_triggers_finally_teardown():
 
 
 def test_pipeline_non_cloud_skips_teardown():
-    """When running locally (IS_CLOUD not set), teardown is skipped on crash."""
+    """When running locally (IS_CLOUD not set), teardown is skipped on crash, but auto-heal is executed."""
     with patch.dict("os.environ", {}, clear=True), \
          patch("sys.argv", ["run_pipeline.py"]), \
          patch("scripts.ops.run_pipeline.get_task_config", return_value=(0, 1)), \
          patch("scripts.ops.run_pipeline.run_command") as mock_run_cmd:
 
-        mock_run_cmd.side_effect = RuntimeError("Step failed!")
+        # Step 0 crashes, auto-heal instruction generation succeeds
+        mock_run_cmd.side_effect = [
+            RuntimeError("Step failed!"),
+            None,
+        ]
 
         with pytest.raises(SystemExit) as exc_info:
             run_pipeline.main()
 
         assert exc_info.value.code == 1
-        # Only the crashing step was called; no teardown
-        assert mock_run_cmd.call_count == 1
+        # Crashing step and auto-heal step were called; teardown is skipped in non-cloud
+        assert mock_run_cmd.call_count == 2
+        auto_heal_call = mock_run_cmd.call_args_list[-1]
+        assert "auto_heal_parsers.py" in auto_heal_call[0][0][1]
 
 
 def test_run_command_timeout_terminates_child_process():
