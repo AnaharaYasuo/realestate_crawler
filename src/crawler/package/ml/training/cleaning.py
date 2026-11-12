@@ -3,12 +3,17 @@
 """
 
 import logging
+import re
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
 logger = logging.getLogger(__name__)
+
+_OFFICE_ADDRESS_CONTAMINATION_RE = re.compile(
+    r"〒\s*\d{3}[-ー－]\d{4}.*(?:ビル|階)|(?:大和ハウス|フコク生命|センター)ビル\d+階"
+)
 
 
 def _resolve_reference_land_man(df: pd.DataFrame) -> pd.Series | None:
@@ -120,6 +125,23 @@ def _apply_isolation_forest_filtering(df: pd.DataFrame, ptype: str) -> pd.DataFr
     return filtered
 
 
+def _exclude_special_and_contaminated_records(df: pd.DataFrame) -> pd.DataFrame:
+    """共有持分のみ売買・底地のみ等の特殊取引および店舗ビル住所汚染・自治体欠損を除外する"""
+    df_work = df
+    if "is_special_sale_share" in df_work.columns:
+        share_vals = pd.to_numeric(df_work["is_special_sale_share"], errors="coerce").fillna(0.0)
+        df_work = df_work[share_vals < 0.5].copy()
+    if "address" in df_work.columns:
+        office_mask = df_work["address"].astype(str).str.contains(_OFFICE_ADDRESS_CONTAMINATION_RE, regex=True, na=False)
+        if office_mask.any():
+            df_work = df_work[~office_mask].copy()
+    for loc_col in ("prefecture", "city"):
+        if loc_col in df_work.columns:
+            valid_loc = df_work[loc_col].notna() & (df_work[loc_col].astype(str).str.strip() != "")
+            df_work = df_work[valid_loc].copy()
+    return df_work
+
+
 def clean_training_data(df: pd.DataFrame, ptype: str) -> pd.DataFrame:
     """
     共有持分除外・基準地価比（Anchor-Ratio）・IQR法・Isolation Forestを用いた学習データの自動クレンジング処理
@@ -130,14 +152,12 @@ def clean_training_data(df: pd.DataFrame, ptype: str) -> pd.DataFrame:
 
     logger.info("Cleaning training data for %s (initial records: %d)...", ptype, initial_count)
 
-    # 0. 共有持分のみ売買・底地のみ等の特殊取引除外 (Issue #1360)
-    df_work = df
-    if "is_special_sale_share" in df_work.columns:
-        share_vals = pd.to_numeric(df_work["is_special_sale_share"], errors="coerce").fillna(0.0)
-        df_work = df_work[share_vals < 0.5].copy()
+    # 0. 共有持分のみ売買・底地のみ等の特殊取引および店舗ビル住所汚染・自治体欠損除外 (Issue #1360, Issue #1369)
+    df_work = _exclude_special_and_contaminated_records(df)
 
     # 1. 物理的な異常値の機械的除外
-    cond = (df_work["price"] > 50) & (df_work["area"] > 5.0)
+    min_area = 10.0 if ptype == "mansion" else 5.0
+    cond = (df_work["price"] > 50) & (df_work["area"] > min_area)
     if "chikunen" in df_work.columns and ptype != "tochi":
         cond = cond & (df_work["chikunen"] >= 0) & (df_work["chikunen"] < 100)
     df_clean = df_work[cond].copy()

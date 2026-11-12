@@ -36,8 +36,8 @@ try:
     from google import genai
     from google.genai import types
 except ImportError:
-    genai = None
-    types = None
+    genai = None  # type: ignore[assignment]
+    types = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -221,17 +221,11 @@ def _get_price_tier(price_man: float) -> str:
         return "tier_ultra (3億超)"
 
 
-def _extract_single_eval_item(ev, model_cache: dict):
-    company = ev.company
-    ptype = ev.property_type
-    model_key = f"{company}{ptype}".lower()
-    prop_model = model_cache.get(model_key) or model_cache.get(f"{company}_{ptype}".lower())
-    if not prop_model:
-        return None
-
-    prop_obj = prop_model.objects.filter(id=ev.property_id).first()
+def _extract_single_eval_item(ev, prop_obj):
     if not prop_obj:
         return None
+    company = ev.company
+    ptype = ev.property_type
 
     raw_price = getattr(prop_obj, "price", 0)
     if not raw_price or float(raw_price) <= 0:
@@ -273,16 +267,56 @@ def _extract_single_eval_item(ev, model_cache: dict):
     }
 
 
+def _fetch_objects_by_ids(prop_model, id_set: set) -> dict:
+    try:
+        qs = prop_model.objects.filter(id__in=list(id_set))
+        rows = list(qs) if hasattr(qs, "__iter__") else []
+        if rows:
+            return {getattr(o, "id", None): o for o in rows}
+    except Exception:
+        pass
+    result = {}
+    for pid in id_set:
+        try:
+            obj = prop_model.objects.filter(id=pid).first()
+            if obj:
+                result[pid] = obj
+        except Exception as e:
+            logger.warning(f"Error fetching {prop_model.__name__} id={pid}: {e}")
+    return result
+
+
+def _is_clean_eval_record(ev) -> bool:
+    issue = getattr(ev, "data_quality_issue", "")
+    return not (isinstance(issue, str) and issue.strip())
+
+
 def _collect_diagnostics_data(eval_records: list) -> list:
     model_cache = {}
     app_config = apps.get_app_config("package")
     for m in app_config.get_models():
         model_cache[m.__name__.lower()] = m
 
-    diagnostics_data = []
+    by_model_ids: dict = {}
+    ev_with_model: list = []
     for ev in eval_records:
+        model_key = f"{ev.company}{ev.property_type}".lower()
+        prop_model = model_cache.get(model_key) or model_cache.get(f"{ev.company}_{ev.property_type}".lower())
+        if not prop_model:
+            continue
+        by_model_ids.setdefault(prop_model, set()).add(ev.property_id)
+        ev_with_model.append((ev, prop_model))
+
+    fetched_map = {
+        prop_model: _fetch_objects_by_ids(prop_model, id_set)
+        for prop_model, id_set in by_model_ids.items()
+    }
+
+    diagnostics_data = []
+    for ev, prop_model in ev_with_model:
         try:
-            item = _extract_single_eval_item(ev, model_cache)
+            prop_obj = fetched_map.get(prop_model, {}).get(ev.property_id)
+            item = _extract_single_eval_item(ev, prop_obj)
             if item:
                 diagnostics_data.append(item)
         except Exception as e:
@@ -322,7 +356,7 @@ def _extract_worst_items(df: pd.DataFrame) -> list:
     return worst_items
 
 
-def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = False, notify: bool = False):
+def run_diagnostics(limit: int = 5000, target_date: str | None = None, dry_run: bool = False, notify: bool = False):
     """
     価格推定の最新精度診断を一括実行し、レポートを出力する。
     """
@@ -331,13 +365,20 @@ def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = 
     bound_mysql_timeouts()
     logger.info(f"Starting daily prediction diagnostics (limit={limit}, dry_run={dry_run})...")
 
-    # 1. 評価済みレコードの収集 (最新順にスライス取得し、全件カウントによるタイムアウトを回避)
-    base_qs = PropertyEvaluation.objects.filter(first_stage_predicted_price__isnull=False)
+    # 1. 評価済みレコードの収集 (インデックスの効く needs_parser_fix / needs_recrawl で絞り込み、長文テキスト列を除外して高速取得)
+    base_qs = PropertyEvaluation.objects.filter(
+        first_stage_predicted_price__isnull=False,
+        first_stage_predicted_price__gt=0,
+        needs_parser_fix=False,
+        needs_recrawl=False,
+    )
     if target_date:
         base_qs = base_qs.filter(analyzed_at__date=target_date)
 
-    # 最新順にlimit件を取得
-    eval_records = list(base_qs.order_by("-id")[:limit])
+    # 最新順に取得し、TEXT列 data_quality_issue が空の正常レコードを limit 件抽出
+    ordered_qs = base_qs.order_by("-id")
+    raw_eval_records = list(ordered_qs[: limit + 500])
+    eval_records = [ev for ev in raw_eval_records if _is_clean_eval_record(ev)][:limit]
     if not eval_records:
         logger.warning("No evaluated properties found for diagnostics.")
         return None

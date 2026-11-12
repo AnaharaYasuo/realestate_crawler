@@ -1,6 +1,6 @@
 import re
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, ClassVar
 
 # Error messages (Sonar S1192 constant reuse)
 ERR_MISSING_SENYU = "必須項目欠損 (専有面積が未抽出)"
@@ -9,6 +9,7 @@ ERR_MISSING_TATEMONO = "必須項目欠損 (建物面積が未抽出)"
 ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
 ERR_MISSING_NAME = "必須項目欠損 (物件名が未抽出)"
 ERR_MISSING_ADDRESS = "必須項目欠損 (住所が未抽出)"
+ERR_OFFICE_ADDRESS_CONTAMINATION = "住所異常 (担当店舗・ビル階数住所の誤抽出)"
 ERR_MISSING_TRAFFIC = "必須項目欠損 (交通が未抽出)"
 ERR_MISSING_TRAFFIC_MINUTES = "必須項目欠損 (交通アクセス所要時間が未抽出)"
 ERR_MISSING_KENPEI = "必須項目欠損 (建ぺい率が未抽出)"
@@ -16,6 +17,9 @@ ERR_MISSING_YOUSEKI = "必須項目欠損 (容積率が未抽出)"
 ERR_MISSING_MADORI = "必須項目欠損 (間取りが未抽出)"
 ERR_MISSING_AGE = "必須項目欠損 (築年月が未抽出)"
 _BLANKS = ("", "-", "None", "nan")
+_OFFICE_ADDRESS_CONTAMINATION_RE = re.compile(
+    r"〒\s*\d{3}[-ー－]\d{4}.*(?:ビル|階)|(?:大和ハウス|フコク生命|センター)ビル\d+階"
+)
 
 
 def _blank(val: Any) -> bool:
@@ -73,8 +77,11 @@ class PropertyDataValidator:
         """全ページに必ず存在する項目 (物件名・住所・交通) の欠損検査"""
         if _blank(getattr(item, "propertyName", None)):
             reasons.append(ERR_MISSING_NAME)
-        if _blank(getattr(item, "address", None)):
+        addr_val = getattr(item, "address", None)
+        if _blank(addr_val):
             reasons.append(ERR_MISSING_ADDRESS)
+        elif _OFFICE_ADDRESS_CONTAMINATION_RE.search(str(addr_val)):
+            reasons.append(ERR_OFFICE_ADDRESS_CONTAMINATION)
         has_traffic_name = not (
             _blank(getattr(item, "traffic", None))
             and _blank(getattr(item, "station1", None))
@@ -112,22 +119,28 @@ class PropertyDataValidator:
 
         if has_madori_field:
             madori_val = getattr(item, "madori", None)
-            if _blank(madori_val) and str(madori_val or "").strip() not in ("-", "―", "ー", "未定", "相談"):
-                # 投資用区分マンションはスペック表に間取り表記がない場合があるため除外
-                if not cls._is_invest_unit_mansion(item):
-                    reasons.append(ERR_MISSING_MADORI)
-        if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
-            if not cls._is_under_construction(item):
-                reasons.append(ERR_MISSING_AGE)
+            if (
+                _blank(madori_val)
+                and str(madori_val or "").strip() not in ("-", "―", "ー", "未定", "相談")
+                and not cls._is_invest_unit_mansion(item)
+            ):
+                reasons.append(ERR_MISSING_MADORI)
+        if (
+            has_age_field
+            and _blank(getattr(item, "chikunengetsu", None))
+            and _blank(getattr(item, "chikunengetsuStr", None))
+            and not cls._is_under_construction(item)
+        ):
+            reasons.append(ERR_MISSING_AGE)
 
-    _LOW_PRICE_CHIMOKU = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
+    _LOW_PRICE_CHIMOKU: ClassVar[set[str]] = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
     _LOW_PRICE_KEYWORDS = (
         "山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ",
         "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
         "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
     )
     _RURAL_KEYWORDS = ("郡", "村", "大字", "字", "温泉")
-    _INVEST_PTYPES = {
+    _INVEST_PTYPES: ClassVar[set[str]] = {
         "investment", "invest", "apartment", "investmentapartment",
         "investment_apartment", "invest_apartment", "invest_kodate",
         "investment_kodate", "investmentkodate",
@@ -244,33 +257,33 @@ class PropertyDataValidator:
                 return True
         return False
 
+    @staticmethod
+    def _resolve_area_attrs(ptype: str) -> list[str]:
+        if ptype in ("mansion", "invest_mansion"):
+            return ["senyuMenseki"]
+        if ptype == "tochi":
+            return ["tochiMenseki"]
+        return ["senyuMenseki", "tatemonoMenseki", "tochiMenseki"]
+
+    @staticmethod
+    def _select_best_area(parsed: list[float]) -> float:
+        if not parsed:
+            return 0.0
+        valid_areas = [val for val in parsed if val > 5.0]
+        if valid_areas:
+            return max(valid_areas)
+        positive_areas = [val for val in parsed if val > 0.0]
+        return max(positive_areas) if positive_areas else parsed[0]
+
     @classmethod
     def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
-        area = 0.0
-        if ptype in ("mansion", "invest_mansion"):
-            attrs = ("senyuMenseki",)
-        elif ptype == "tochi":
-            attrs = ("tochiMenseki",)
-        else:
-            attrs = ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+        attrs = cls._resolve_area_attrs(ptype)
+        candidates = [cls._parse_candidate_float(getattr(item, attr, None)) for attr in attrs]
+        area = cls._select_best_area([c for c in candidates if c is not None])
 
-        candidates = [
-            cls._parse_candidate_float(getattr(item, attr, None))
-            for attr in attrs
-        ]
-        parsed = [c for c in candidates if c is not None]
-        if parsed:
-            # > 5.0 を優先、なければ > 0.0 の正の値を優先
-            valid_areas = [val for val in parsed if val > 5.0]
-            if valid_areas:
-                area = max(valid_areas)
-            else:
-                positive_areas = [val for val in parsed if val > 0.0]
-                area = max(positive_areas) if positive_areas else parsed[0]
-
-        if area <= 5.0:
-            if not cls._is_invest_area_exempt(item, ptype):
-                reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
+        min_area = 10.0 if ptype == "mansion" else 5.0
+        if area <= min_area and not cls._is_invest_area_exempt(item, ptype):
+            reasons.append(f"面積異常 ({area:.1f}㎡: {min_area:.0f}㎡以下)")
         elif area > 10000.0 and ptype in ["mansion", "kodate", "invest_kodate"]:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
         return area
@@ -289,7 +302,7 @@ class PropertyDataValidator:
 
     @staticmethod
     def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:
-        current_year = datetime.now(timezone.utc).year
+        current_year = datetime.now(UTC).year
         # 戸建て・古民家（京町家等）は明治初期（1850年以降）を許容、マンション・投資等は1900年以降
         min_year = 1850 if "kodate" in ptype else 1900
         chikunengetsu = getattr(item, "chikunengetsu", None)
@@ -368,10 +381,8 @@ class PropertyDataValidator:
         if not has_floor and cls._has_located_floor(getattr(item, "kaisuStr", None)):
             has_floor = True
 
-        if not has_floor:
-            # 投資用区分マンションはサイトスペック表に所在階が非掲載の場合があるため除外
-            if not cls._is_invest_unit_mansion(item):
-                reasons.append(ERR_MISSING_FLOOR)
+        if not has_floor and not cls._is_invest_unit_mansion(item):
+            reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod
     def _check_kodate_specs(item: Any, reasons: list[str]) -> None:
