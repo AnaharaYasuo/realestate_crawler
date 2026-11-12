@@ -157,3 +157,117 @@ def test_athome_bracket_bus_traffic_parsing():
     assert _format_single_access(item, 1) == "西武新宿線 東村山 バス10分(停 廻田町三丁目) 徒歩10分"
 
 
+
+
+def test_daikyo_inverted_bus_traffic_parsing():
+    """Issue #1379: 大京形式のバス停先頭・逆順構文のパースおよびSlack表示検証"""
+    from package.parser.daikyoParser import DaikyoMansionParser
+    p = DaikyoMansionParser()
+    item = p.createEntity()
+    traffic_text = "バス停 「西一之江四丁目」 徒歩4分 総武本線 「新小岩」駅 までバス18分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.railway1 == "総武本線"
+    assert item.station1 == "新小岩"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 18
+    assert item.busStation1 == "西一之江四丁目"
+    assert item.railwayWalkMinute1 == 4
+
+    assert is_bus_access_property(item) is True
+    assert _format_single_access(item, 1) == "総武本線 新小岩 バス18分(停 西一之江四丁目) 徒歩4分"
+
+
+def test_totate_bus_traffic_parsing():
+    """Issue #1379: トータテ形式の駅まで物件から徒歩X分バス停乗車構文のパースおよびSlack表示検証"""
+    from package.parser.totateParser import TotateKodateParser
+    p = TotateKodateParser()
+    item = p.createEntity()
+    traffic_text = "小田急電鉄小田原線「相模大野」駅 まで 物件から徒歩3分の「御園五丁目」バス停乗車 バス14分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.railway1 == "小田急電鉄小田原線"
+    assert item.station1 == "相模大野"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 14
+    assert item.busStation1 == "御園五丁目"
+    assert item.railwayWalkMinute1 == 3
+
+    assert is_bus_access_property(item) is True
+    assert _format_single_access(item, 1) == "小田急電鉄小田原線 相模大野 バス14分(停 御園五丁目) 徒歩3分"
+
+
+def test_tokyu_concatenated_bus_routes_parsing():
+    """Issue #1379: 東急リバブル形式の複数路線連続連結および「...」停 徒歩X分構文のパース検証"""
+    from package.parser.tokyuParser import TokyuKodateParser
+    p = TokyuKodateParser()
+    item = p.createEntity()
+    traffic_text = "千代田・常磐緩行線「北千住」駅バス14分 「島根町」停 徒歩4分東武伊勢崎・大師線「西新井」駅徒歩22分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.railway1 == "千代田・常磐緩行線"
+    assert item.station1 == "北千住"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 14
+    assert item.busStation1 == "島根町"
+    assert item.railwayWalkMinute1 == 4
+
+
+def test_daikyo_bus_center_mae_not_bus_use():
+    """Issue #1379: 「バスセンター前」駅がバス利用物件と誤判定されないことの検証"""
+    from package.parser.daikyoParser import DaikyoMansionParser
+    p = DaikyoMansionParser()
+    item = p.createEntity()
+    traffic_text = "札幌市東西線 「バスセンター前」駅 徒歩5分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.station1 == "バスセンター前"
+    assert item.busUse1 in (None, 0)
+    assert item.railwayWalkMinute1 == 5
+    assert is_bus_access_property(item) is False
+
+
+def test_kenbiya_boilerplate_traffic_ignored():
+    """Issue #1379: 健美家のシステム注記定型文がバス利用と誤認されないことの検証"""
+    from package.parser.kenbiyaParser import KenbiyaKodateParser
+    p = KenbiyaKodateParser()
+    item = p.createEntity()
+    boilerplate = "最寄の沿線駅名及び駅までの徒歩分数または距離を表示。 バス利用の場合は最寄駅からのバス乗車時間及び、停留所からの徒歩分数を表示。"
+    item.traffic = boilerplate
+    p.clean_parsed_item(item)
+
+    assert item.station1 in ("", None)
+    assert item.busUse1 in (None, 0)
+    assert is_bus_access_property(item) is False
+
+
+def test_mizuho_standalone_bus_stop_parsing():
+    """Issue #1379: みずほ等のバス停名単独表記（乗車分数なし・停歩のみ）のパースおよびSlack表示検証"""
+    from package.parser.mizuhoParser import MizuhoKodateParser
+    p = MizuhoKodateParser()
+    item = p.createEntity()
+    item.traffic = "折手バス停 徒歩1分"
+    p.clean_parsed_item(item)
+
+    assert item.busUse1 == 1
+    assert item.busStation1 == "折手"
+    assert item.railwayWalkMinute1 == 1
+    assert _format_single_access(item, 1) == "バス(停 折手) 徒歩1分"
+
+
+def test_mid_brokers_clean_parsed_item_populates_traffic():
+    """Issue #1379: 中堅仲介系（ietan/haseko/adcast/toho）でclean_parsed_itemによる交通補完が正しく機能すること"""
+    from package.models.mid_brokers import IetanMansion
+    from package.parser.ietanParser import IetanMansionParser
+
+    p = IetanMansionParser()
+    item = IetanMansion()
+    item.traffic = "西武新宿線 / 東村山駅 【バス】10分 廻田町三丁目 停歩10分"
+    p.clean_parsed_item(item)
+
+    assert item.railway1 == "西武新宿線"
+    assert item.station1 == "東村山"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 10
+    assert item.busStation1 == "廻田町三丁目"
+    assert item.railwayWalkMinute1 == 10

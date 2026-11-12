@@ -1511,6 +1511,109 @@ class ParserBase(metaclass=ABCMeta):
         return ""
 
     BUS_PATTERN = re.compile(r"(?:【?バス(?:乗車)?】?|バス\s*利用可\s*バス)\s*([0-9０-９]{1,3})\s*分")
+    _BUS_WALK_MIN_RE = re.compile(r"(\d{1,3})分")
+
+    @classmethod
+    def _normalize_daikyo_traffic(cls, text: str) -> str | None:
+        """大京等: バス停 「西一之江四丁目」 徒歩4分 総武本線 「新小岩」駅 までバス18分"""
+        if not text.startswith("バス停"):
+            return None
+        idx_open = min([i for i in (text.find("「"), text.find("『")) if i >= 0], default=-1)
+        idx_close = min([i for i in (text.find("」"), text.find("』")) if i >= 0], default=-1)
+        if idx_open >= 0 and idx_close > idx_open:
+            bus_stop = text[idx_open + 1 : idx_close]
+            after_stop = text[idx_close + 1 :]
+        else:
+            parts = text.split()
+            bus_stop = parts[1] if len(parts) > 1 else ""
+            after_stop = " ".join(parts[2:])
+
+        m_w = cls._BUS_WALK_MIN_RE.search(after_stop)
+        walk_min = m_w.group(1) if m_w else ""
+
+        idx_st_open = min([i for i in (after_stop.rfind("「"), after_stop.rfind("『")) if i >= 0], default=-1)
+        idx_st_close = min([i for i in (after_stop.rfind("」"), after_stop.rfind("』")) if i >= 0], default=-1)
+        st = after_stop[idx_st_open + 1 : idx_st_close] if idx_st_open >= 0 and idx_st_close > idx_st_open else ""
+        railway = after_stop[:idx_st_open].strip().split()[-1] if idx_st_open > 0 else ""
+
+        m_b = re.search(r"バス\s*(\d+)分", after_stop)
+        bus_min = m_b.group(1) if m_b else ""
+
+        if railway and st and bus_min and bus_stop and walk_min:
+            return f"{railway}「{st}」駅バス{bus_min}分 「{bus_stop}」停 徒歩{walk_min}分"
+        return None
+
+    @classmethod
+    def _normalize_totate_traffic(cls, text: str) -> str | None:
+        """トータテ等: 小田急電鉄小田原線「相模大野」駅 まで 物件から徒歩3分の「御園五丁目」バス停乗車 バス14分"""
+        if "まで" not in text or "バス" not in text:
+            return None
+        part1, part2 = text.split("まで", 1)
+        idx1 = min([i for i in (part1.find("「"), part1.find("『")) if i >= 0], default=-1)
+        idx2 = min([i for i in (part1.find("」"), part1.find("』")) if i >= 0], default=-1)
+        railway = part1[:idx1].strip() if idx1 > 0 else ""
+        st = part1[idx1 + 1 : idx2].strip() if idx1 >= 0 and idx2 > idx1 else ""
+
+        idx_b1 = min([i for i in (part2.find("「"), part2.find("『")) if i >= 0], default=-1)
+        idx_b2 = min([i for i in (part2.find("」"), part2.find("』")) if i >= 0], default=-1)
+        bus_stop = part2[idx_b1 + 1 : idx_b2].strip() if idx_b1 >= 0 and idx_b2 > idx_b1 else ""
+
+        m_w = re.search(r"徒歩\s*(\d+)分", part2)
+        walk_min = m_w.group(1) if m_w else ""
+
+        m_b = re.search(r"バス\s*(\d+)分", part2)
+        bus_min = m_b.group(1) if m_b else ""
+
+        if railway and st and bus_min and bus_stop and walk_min:
+            return f"{railway}「{st}」駅バス{bus_min}分 「{bus_stop}」停 徒歩{walk_min}分"
+        return None
+
+    @classmethod
+    def _normalize_mitsui_traffic(cls, text: str) -> str:
+        """三井等の複数区切り: 路線 駅名 / バス停 徒歩M分 を結合変換"""
+        if "/" not in text and "／" not in text:
+            return text
+        parts = [p.strip() for p in re.split(r"[/／]", text) if p.strip()]
+        if len(parts) < 2 or not any(k in text for k in ("バス", "停")):
+            return text
+        p0 = parts[0].split()
+        if len(p0) < 2:
+            return text
+        railway = p0[0]
+        station = p0[1].replace("駅", "")
+        rest = " ".join(parts[1:])
+        m_w = cls._BUS_WALK_MIN_RE.search(rest)
+        w_min = m_w.group(1) if m_w else ""
+        stop = ""
+        for tok in rest.split():
+            if tok not in ("バス停", "停留所", "停") and not any(tok.startswith(k) for k in ("徒歩", "停歩", "歩")):
+                stop = tok.strip("「」『』()（） ")
+                break
+        return f"{railway}「{station}」駅 「{stop}」停 徒歩{w_min}分"
+
+    @classmethod
+    def _normalize_traffic_text(cls, text: str) -> str:
+        """交通アクセステキストの構文揺れ・逆順・注記文言を標準構文に正規化 (Issue #1379)"""
+        if not text:
+            return ""
+        # 健美家等の注記定型文言をスキップ
+        if "最寄の沿線駅名及び駅までの徒歩分数または距離を表示" in text:
+            return ""
+
+        stripped = text.strip()
+
+        daikyo_res = cls._normalize_daikyo_traffic(stripped)
+        if daikyo_res:
+            return daikyo_res
+
+        totate_res = cls._normalize_totate_traffic(stripped)
+        if totate_res:
+            return totate_res
+
+        # 東急等: 複数路線の連続連結 (分と路線の間にスペースを挿入)
+        normalized = re.sub(r"(分)(?=[^\s\d]+(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線|モノレール))", r"\1 ", text)
+
+        return cls._normalize_mitsui_traffic(normalized)
 
     @classmethod
     def _extract_bus_stop_from_text(cls, text: str) -> str:
@@ -1528,24 +1631,131 @@ class ParserBase(metaclass=ABCMeta):
                     return candidate
         return ""
 
+    _STANDALONE_BUS_PATTERNS = (
+        re.compile(r"[(（]バス[:：]\s*([^()（）\s/「」『』]+?)(?:停留所|バス停)?[)）]"),
+        re.compile(r"【バス】\s*([^「」『』\s/]+)"),
+        re.compile(r"(?:市外線|市内線|[^\s/「」『』]+(?:交通|バス))\s*[「『]([^「」『』]+)[」』]"),
+        re.compile(r"バス停\s*[「『]([^「」『』]+)[」』]?"),
+        re.compile(r"^バス停\s+([^「」『』\s/]+)"),
+        re.compile(r"([^「」『』\s/]+?)(?:バス停|停留所)"),
+        re.compile(r"([^「」『』\s/]+?バス)\s+([^「」『』\s/]+)"),
+        re.compile(r"([^「」『』\s/]+?)バス"),
+        re.compile(r"[「『]([^「」『』]+)[」』]\s*(?:バス停|停留所|停)"),
+        re.compile(r"([^「」『』\s/]+)[「『]([^「」『』]+)[」』]\s*(?:バス停|停留所|停)"),
+        re.compile(r"バス便\s+([^「」『』\s/]+)\s+\d+分"),
+        re.compile(r"バス\s+西鉄[「『]([^「」『』]+)[」』]停留所"),
+        re.compile(r"^バス(?:停)?$"),
+    )
+
+    @staticmethod
+    def _select_bus_group_token(groups: list[str]) -> str:
+        """正規表現マッチ結果から有効なバス停トークンを選択"""
+        if not groups or groups[0] in ("バス停", "停留所", "バス"):
+            return ""
+        if len(groups) > 1 and groups[0].endswith(("バス", "交通", "線")):
+            return groups[1]
+        return groups[0]
+
     @classmethod
-    def _apply_bus_fields(cls, item: models.Model, text: str) -> None:
-        """Populate busUse1 / busWalkMinute1 / busStation1 when bus access is present."""
-        first_line = (text or "").splitlines()[0] if text else ""
+    def _extract_standalone_bus_stop(cls, text: str) -> str:
+        """単独バス停表記（乗車分数なし・停歩のみ等）からバス停名を抽出"""
+        for p in cls._STANDALONE_BUS_PATTERNS:
+            m = p.search(text)
+            if not m:
+                continue
+            groups = [x for x in m.groups() if x]
+            token = cls._select_bus_group_token(groups)
+            if token:
+                return token
+        return ""
+
+    @classmethod
+    def _find_bus_route_text(cls, first_line: str) -> str:
+        """スラッシュ区切り等の複数経路からバス関連の経路文字列を特定"""
+        routes = [r.strip() for r in re.split(r"[/／]", first_line) if r.strip()]
+        for i, r in enumerate(routes):
+            if ("バス" in r or "停" in r) and "バスセンター" not in r:
+                if i > 0 and any(routes[i - 1].endswith(sfx) for sfx in ("駅", "駅まで")):
+                    return f"{routes[i - 1]} {r}"
+                return r
+        return first_line
+
+    @classmethod
+    def _apply_standard_bus_line(cls, item: models.Model, first_line: str) -> bool:
+        """BUS_PATTERN 準拠の標準バス乗車表記をパースして適用"""
         m_bus = cls.BUS_PATTERN.search(first_line)
         if not m_bus:
-            return
+            return False
         bus_str = m_bus.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
-        bus_min = int(bus_str)
         if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
             item.busUse1 = 1
         if hasattr(item, "busWalkMinute1") and getattr(item, "busWalkMinute1", None) in (None, 0):
-            item.busWalkMinute1 = bus_min
+            item.busWalkMinute1 = int(bus_str)
         if hasattr(item, "busWalkMinute1Str") and not getattr(item, "busWalkMinute1Str", None):
             item.busWalkMinute1Str = bus_str
         stop = cls._extract_bus_stop_from_text(first_line)
         if stop and hasattr(item, "busStation1") and not getattr(item, "busStation1", None):
             item.busStation1 = stop
+        return True
+
+    @classmethod
+    def _extract_ride_stop_name(cls, after_b: str) -> str:
+        """乗車分数以降のテキストからバス停名を抽出"""
+        bracket_stop = cls._extract_bracketed_bus_stop(after_b)
+        if bracket_stop:
+            return bracket_stop
+        for tok in after_b.split():
+            if tok not in ("バス停", "停留所", "停") and not any(tok.startswith(k) for k in ("徒歩", "停歩", "歩")):
+                return cls._strip_bus_stop_affixes(tok)
+        return ""
+
+    @classmethod
+    def _apply_bus_ride_with_minutes(cls, item: models.Model, target_text: str) -> bool:
+        """【バス】N分、バス乗車N分 等の表記をパースして適用"""
+        m_b = re.search(r"【?バス(?:乗車)?】?\s*(\d+)分", target_text)
+        if not m_b:
+            return False
+        bus_str = m_b.group(1).translate(cls._ZENKAKU_DIGIT_TRANS)
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = 1
+        if hasattr(item, "busWalkMinute1") and getattr(item, "busWalkMinute1", None) in (None, 0):
+            item.busWalkMinute1 = int(bus_str)
+        if hasattr(item, "busWalkMinute1Str") and not getattr(item, "busWalkMinute1Str", None):
+            item.busWalkMinute1Str = bus_str
+        after_b = target_text[m_b.end():]
+        stop = cls._extract_ride_stop_name(after_b)
+        if stop and hasattr(item, "busStation1") and not getattr(item, "busStation1", None):
+            item.busStation1 = stop
+        m_w = cls._BUS_WALK_MIN_RE.search(after_b)
+        if m_w and hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            item.railwayWalkMinute1 = int(m_w.group(1).translate(cls._ZENKAKU_DIGIT_TRANS))
+        return True
+
+    @classmethod
+    def _apply_standalone_bus_info(cls, item: models.Model, target_text: str) -> None:
+        """単独バス停表記（乗車分数なし・停歩のみ等）をパースして適用"""
+        stop = cls._extract_standalone_bus_stop(target_text)
+        is_bus_kw = 'バス' in target_text and 'バスセンター' not in target_text
+        if not (is_bus_kw or stop):
+            return
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = 1
+        if stop and hasattr(item, "busStation1") and not getattr(item, "busStation1", None):
+            item.busStation1 = cls._strip_bus_stop_affixes(stop)
+        m_w = cls._BUS_WALK_MIN_RE.search(target_text)
+        if m_w and hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            item.railwayWalkMinute1 = int(m_w.group(1).translate(cls._ZENKAKU_DIGIT_TRANS))
+
+    @classmethod
+    def _apply_bus_fields(cls, item: models.Model, text: str) -> None:
+        """Populate busUse1 / busWalkMinute1 / busStation1 when bus access is present."""
+        first_line = (text or "").splitlines()[0] if text else ""
+        if cls._apply_standard_bus_line(item, first_line):
+            return
+        target_bus_text = cls._find_bus_route_text(first_line)
+        if cls._apply_bus_ride_with_minutes(item, target_bus_text):
+            return
+        cls._apply_standalone_bus_info(item, target_bus_text)
 
     @staticmethod
     def _normalize_station_name(station: str) -> str:
@@ -1599,12 +1809,35 @@ class ParserBase(metaclass=ABCMeta):
             return num_str.translate(cls._ZENKAKU_DIGIT_TRANS)
         return None
 
+    @classmethod
+    def _is_bus_bracket_match(cls, railway: str | None, after_bracket: str) -> bool:
+        """ブラケット内の駅名がバス停情報（停歩・バス会社線等）であるか判定"""
+        if railway and any(b in railway for b in ("バス", "市バス", "交通", "分")):
+            return True
+        after_str = after_bracket.strip()
+        if any(after_str.startswith(s) for s in ("停", "停留所", "バス停")):
+            return True
+        if railway in ("西鉄", "京急", "名鉄", "東武", "神奈中", "小田急") and any(s in after_bracket for s in ("停", "停留所")):
+            return True
+        return False
+
+    def _apply_bus_bracket_traffic(self, item: models.Model, station: str, before: str, after_bracket: str, traffic_text: str) -> bool:
+        """バス停ブラケット情報をモデルに適用"""
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = 1
+        if hasattr(item, "busStation1") and not getattr(item, "busStation1", None):
+            item.busStation1 = self._strip_bus_stop_affixes(station)
+        if not self._try_space_traffic(item, before):
+            self._try_fallback_station_traffic(item, before)
+        self._apply_bus_fields(item, after_bracket)
+        self._apply_bus_fields(item, traffic_text)
+        return True
+
     def _try_bracket_traffic(self, item: models.Model, traffic_text: str) -> bool:
-        """Parse 沿線「駅」徒歩N分 style traffic. Returns True if matched."""
-        if "「" not in traffic_text or "」" not in traffic_text:
+        if '「' not in traffic_text or '」' not in traffic_text:
             return False
-        left = traffic_text.find("「")
-        right = traffic_text.find("」", left)
+        left = traffic_text.find('「')
+        right = traffic_text.find('」', left)
         if right <= left:
             return False
         station = traffic_text[left + 1 : right].strip()
@@ -1612,8 +1845,13 @@ class ParserBase(metaclass=ABCMeta):
         railway = before.split()[-1] if before else None
         after_bracket = traffic_text[right + 1 :]
         walk_min = self._extract_walk_minutes(after_bracket)
+
+        if self._is_bus_bracket_match(railway, after_bracket):
+            return self._apply_bus_bracket_traffic(item, station, before, after_bracket, traffic_text)
+
         self._apply_railway_station_fields(item, railway, station, walk_min)
         self._apply_bus_fields(item, after_bracket)
+        self._apply_bus_fields(item, traffic_text)
         return True
 
     def _try_space_traffic(self, item: models.Model, traffic_text: str) -> bool:
@@ -1705,18 +1943,22 @@ class ParserBase(metaclass=ABCMeta):
         if not traffic_str:
             return item
         if isinstance(traffic_str, list):
-            traffic_text = "\n".join([str(x) for x in traffic_str if x])
+            raw_text = "\n".join([str(x) for x in traffic_str if x])
         else:
-            traffic_text = str(traffic_str or "")
+            raw_text = str(traffic_str or "")
+        traffic_text = self._normalize_traffic_text(raw_text)
         if hasattr(item, "traffic"):
-            item.traffic = traffic_text
+            item.traffic = raw_text
         if hasattr(item, "transport1"):
-            item.transport1 = traffic_text
+            item.transport1 = raw_text
+        if not traffic_text:
+            return item
         if self._try_bracket_traffic(item, traffic_text):
             return item
         if self._try_space_traffic(item, traffic_text):
             return item
         self._try_fallback_station_traffic(item, traffic_text)
+        self._apply_bus_fields(item, traffic_text)
         return item
 
     async def getResponseBs(
@@ -2081,6 +2323,13 @@ class ParserBase(metaclass=ABCMeta):
             cleaned_st = st_val.strip("『』「」 ").strip()
             if cleaned_st.endswith("駅"):
                 cleaned_st = cleaned_st[:-1].strip()
+            # 汎用フォールバックで「◯◯バス停」が駅名に入り、かつバス利用判定されている場合は駅名を空にする
+            if "バス停" in cleaned_st or "停留所" in cleaned_st:
+                idx = st_field[-1]
+                bus_use = getattr(item, f"busUse{idx}", 0)
+                bus_st = getattr(item, f"busStation{idx}", "")
+                if bus_use and bus_st:
+                    cleaned_st = ""
             setattr(item, st_field, cleaned_st)
 
     @staticmethod
@@ -2108,9 +2357,20 @@ class ParserBase(metaclass=ABCMeta):
         m = re.search(r"(?:^|[^地下上])(\d{1,3})\s*階", k_str)
         return int(m.group(1)) if m else None
 
+    def _clean_traffic_fields(self, item: models.Model) -> None:
+        """traffic文字列が存在し、busUse1等の交通項目が未設定の場合に自動パースして補完する"""
+        traffic_str = getattr(item, "traffic", "") or getattr(item, "transport1", "")
+        if not traffic_str or not isinstance(traffic_str, str):
+            return
+        need_bus = hasattr(item, "busUse1") and (getattr(item, "busUse1", None) is None or getattr(item, "busUse1", None) == 0)
+        need_station = hasattr(item, "station1") and not getattr(item, "station1", None)
+        if need_bus or need_station:
+            self._populateTraffic(item, traffic_str)
+
     def clean_parsed_item(self, item: models.Model) -> models.Model:
         self._clean_char_text_fields(item)
         self._clean_int_fields(item)
+        self._clean_traffic_fields(item)
         self._autofill_chidai_from_soup(item)
         self._guard_gross_yield(item)
         if hasattr(item, "floorType_kai") and getattr(item, "floorType_kai", None) is None:
