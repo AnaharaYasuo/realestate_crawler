@@ -815,7 +815,9 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 
 ### 16.3 無料オープンデータ拡張（津波・土砂災害レッドゾーン・液状化 ＆ 法定用途地域/建蔽容積率GIS補完）
 1. **ハザード3指標の全国拡張**: `HazardMapPotential` および [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) に `tsunami_risk_level`（0〜3）、`red_zone_landslide_flag`（急傾斜地崩壊・土砂災害特別警戒区域リスク 0/1、GSI DEM傾斜角 $\ge 30^\circ$ とも連動）、`liquefaction_risk_level`（埋立地・低地液状化リスク 0〜3）を追加し、全種別特徴量へ供給する。
-2. **用途地域・法定建ぺい率・容積率のGIS空間補完**: 物件レコードに `youtoChiiki`・`kenpei`・`youseki` が記載されていない場合、[`reference_data.py`](../../src/crawler/package/ml/features/reference_data.py) にキャッシュされた全国4.7万地点の国交省地価公示・基準地価（`LandPricePointPotential.zone_name`）の最近傍地点（同一町丁目または半径800m以内）から用途地域および法定建ぺい率・容積率を自動補完する。
+2. **用途地域・法定建ぺい率・容積率のGIS空間補完 & 単位球面 `cKDTree` 高速空間検索 (Issue #1380, #1387)**:
+   - 物件レコードに `youtoChiiki`・`kenpei`・`youseki` が記載されていない場合、[`reference_data.py`](../../src/crawler/package/ml/features/reference_data.py) にキャッシュされた全国4.7万地点の国交省地価公示・基準地価（`LandPricePointPotential.zone_name`）の最近傍地点（同一町丁目または半径800m以内）から用途地域および法定建ぺい率・容積率を自動補完する。
+   - 地価公示・基準地価の逆距離二乗加重補間（`query_micro_land_price_features`）および用途地域空間補完（`_impute_zone_name_from_gis_points`）では、緯度経度 $(\phi, \lambda)$ を3次元単位球面座標 $(x, y, z) = (\cos\phi\cos\lambda, \cos\phi\sin\lambda, \sin\phi)$ へ変換した `scipy.spatial.cKDTree` を都道府県別・全国別にオンメモリ構築する。単位球面上のユークリッド弦長 $c = 2\sin(d / 2R)$ から $d = 2R\arcsin(c/2)$ により Haversine 大圏距離と数学的に完全一致する距離を $O(\log N)$ で算出し、CPython GIL 競合を排除して16並列バルク評価・学習パイプラインを高速化する。
 
 ### 16.4 OpenCV × `gemini-2.5-flash`（2秒間隔レート制御＋多重リトライ）適材適所ハイブリッド画像解析
 課金コストをゼロ〜極小に抑えつつ定量的正確性と定性的目利きを両立するため、OpenCV と `gemini-2.5-flash` をそれぞれの得意領域で役割分担する：

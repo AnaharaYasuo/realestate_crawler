@@ -9,6 +9,9 @@ import re
 import threading
 from typing import Any
 
+import numpy as np
+from scipy.spatial import cKDTree
+
 from package.ml.features.constants import (
     PREFECTURE_BASE_LAND_PRICES,
     PREFECTURE_BASE_POP_DENSITY,
@@ -252,7 +255,8 @@ def _clear_all_caches() -> None:
                   _station_yearly_cache, _urban_zone_cache, _urban_zone_pref_cache,
                   _rent_market_cache, _cap_rate_cache,
                   _lp_points_by_chome, _lp_points_by_town, _lp_points_by_city,
-                  _lp_points_by_pref, _lp_points_by_station):
+                  _lp_points_by_pref, _lp_points_by_station,
+                  _lp_kdtree_by_pref, _lp_zone_kdtree_by_pref):
         cache.clear()
 
 
@@ -532,19 +536,15 @@ def _impute_zone_name_from_gis_points(
     """用途地域が欠損している場合、近傍800m以内または同一町丁目の国交省標準地(L01/L02)から用途地域名を空間補完する。"""
     _init_global_caches()
     pref = (prefecture or "").strip()
-    cty = (city or "").strip()
+    _ = city
     ch = (chome_group or "").strip()
 
     if latitude is not None and longitude is not None:
-        pool = (
-            _lp_points_by_chome.get(ch)
-            or _lp_points_by_city.get((pref, cty))
-            or _lp_points_by_pref.get(pref)
-            or []
-        )
-        coord_zone = _nearest_zone_by_coordinates(pool, latitude, longitude)
-        if coord_zone:
-            return coord_zone
+        zoned_entry = _get_lp_kdtree(pref, zoned_only=True)
+        if zoned_entry is not None:
+            hits = _query_kdtree_neighbors(zoned_entry, float(latitude), float(longitude), k=1, max_dist_km=0.801)
+            if hits:
+                return hits[0][1].zone_name
 
     candidates = (*_lp_points_by_chome.get(ch, ()), *_lp_points_by_town.get(_strip_chome_digits(ch), ()))
     return next((rec.zone_name for rec in candidates if rec.zone_name), "")
@@ -1149,7 +1149,90 @@ _lp_points_by_town: dict[str, list[LandPricePointRecord]] = {}
 _lp_points_by_city: dict[tuple[str, str], list[LandPricePointRecord]] = {}
 _lp_points_by_pref: dict[str, list[LandPricePointRecord]] = {}
 _lp_points_by_station: dict[tuple[str, str], list[LandPricePointRecord]] = {}
+_lp_kdtree_by_pref: dict[str, tuple[Any, list[LandPricePointRecord]]] = {}
+_lp_zone_kdtree_by_pref: dict[str, tuple[Any, list[LandPricePointRecord]]] = {}
 _CHOME_TRAILING_DIGITS = "0123456789０１２３４５６７８９"
+_EARTH_RADIUS_KM = 6371.0
+_ALL_PREFS_KEY = "__ALL__"
+
+
+def _latlon_to_unit_vec(lat: float, lon: float) -> tuple[float, float, float]:
+    phi = math.radians(lat)
+    lam = math.radians(lon)
+    cos_phi = math.cos(phi)
+    return (cos_phi * math.cos(lam), cos_phi * math.sin(lam), math.sin(phi))
+
+
+def _chord_to_km(chord: float) -> float:
+    return 2.0 * _EARTH_RADIUS_KM * math.asin(min(1.0, max(0.0, chord * 0.5)))
+
+
+def _km_to_chord(km: float) -> float:
+    return 2.0 * math.sin(min(math.pi * 0.5, max(0.0, km) / (2.0 * _EARTH_RADIUS_KM)))
+
+
+def _build_unit_sphere_kdtree(
+    records: Sequence[LandPricePointRecord],
+) -> tuple[Any, list[LandPricePointRecord]] | None:
+    rec_list = list(records)
+    if not rec_list:
+        return None
+    lats = np.radians(np.fromiter((r.latitude for r in rec_list), dtype=np.float64, count=len(rec_list)))
+    lons = np.radians(np.fromiter((r.longitude for r in rec_list), dtype=np.float64, count=len(rec_list)))
+    cos_lats = np.cos(lats)
+    coords = np.column_stack((cos_lats * np.cos(lons), cos_lats * np.sin(lons), np.sin(lats)))
+    return (cKDTree(coords), rec_list)
+
+
+def _select_kdtree_source_points(key: str, zoned_only: bool) -> list[LandPricePointRecord]:
+    if key != _ALL_PREFS_KEY:
+        raw = _lp_points_by_pref.get(key) or ()
+    else:
+        raw = [rec for pts in _lp_points_by_pref.values() for rec in pts]
+    return [r for r in raw if r.zone_name] if zoned_only else list(raw)
+
+
+def _get_lp_kdtree(pref: str, zoned_only: bool = False) -> tuple[Any, list[LandPricePointRecord]] | None:
+    target_cache = _lp_zone_kdtree_by_pref if zoned_only else _lp_kdtree_by_pref
+    key = pref if pref in _lp_points_by_pref else _ALL_PREFS_KEY
+    cached = target_cache.get(key)
+    if cached is not None:
+        return cached
+    with _cache_lock:
+        cached = target_cache.get(key)
+        if cached is not None:
+            return cached
+        built = _build_unit_sphere_kdtree(_select_kdtree_source_points(key, zoned_only))
+        if built is not None:
+            target_cache[key] = built
+        return built
+
+
+def _normalize_kdtree_raw_pairs(dists: Any, idxs: Any, k_eff: int) -> list[tuple[float, int]]:
+    if k_eff == 1:
+        return [(float(dists), int(idxs))]
+    return [(float(d), int(i)) for d, i in zip(dists, idxs)]
+
+
+def _query_kdtree_neighbors(
+    entry: tuple[Any, list[LandPricePointRecord]],
+    lat: float,
+    lon: float,
+    k: int,
+    max_dist_km: float,
+) -> list[tuple[float, LandPricePointRecord]]:
+    tree, records = entry
+    n = len(records)
+    k_eff = min(k, n)
+    uvec = _latlon_to_unit_vec(lat, lon)
+    dists, idxs = tree.query(uvec, k=k_eff, distance_upper_bound=_km_to_chord(max_dist_km) + 1e-12)
+    results: list[tuple[float, LandPricePointRecord]] = []
+    for d_val, i_val in _normalize_kdtree_raw_pairs(dists, idxs, k_eff):
+        if i_val < n and math.isfinite(d_val):
+            dist_km = _chord_to_km(d_val)
+            if dist_km <= max_dist_km:
+                results.append((dist_km, records[i_val]))
+    return results
 
 
 def _strip_chome_digits(chome_key: str) -> str:
@@ -1208,6 +1291,7 @@ def set_land_price_point_cache_for_test(records: Sequence[LandPricePointRecord])
         for cache in (
             _lp_points_by_chome, _lp_points_by_town,
             _lp_points_by_city, _lp_points_by_pref, _lp_points_by_station,
+            _lp_kdtree_by_pref, _lp_zone_kdtree_by_pref,
         ):
             cache.clear()
         for rec in records:
@@ -1314,14 +1398,17 @@ def query_micro_land_price_features(
     pref = (prefecture or "").strip()
     cty = (city or "").strip()
 
-    # 1. 緯度経度がある場合は空間KNN（逆距離二乗加重 IDW）を最優先
+    # 1. 緯度経度がある場合は空間KNN（逆距離二乗加重 IDW / 単位球面 cKDTree）を最優先
     if latitude is not None and longitude is not None:
-        pool = _lp_points_by_pref.get(pref) or [
-            rec for pts in _lp_points_by_pref.values() for rec in pts
-        ]
-        knn_weighted = _knn_interpolate_points(pool, float(latitude), float(longitude), comm_w)
-        if knn_weighted:
-            return _aggregate_weighted_points(knn_weighted, fallback_muni_price)
+        kd_entry = _get_lp_kdtree(pref, zoned_only=False)
+        if kd_entry is not None:
+            hits = _query_kdtree_neighbors(kd_entry, float(latitude), float(longitude), k=5, max_dist_km=15.0)
+            if hits:
+                knn_weighted = [
+                    (rec, _point_use_weight(rec, comm_w) / ((dist_km + 0.15) ** 2))
+                    for dist_km, rec in hits
+                ]
+                return _aggregate_weighted_points(knn_weighted, fallback_muni_price)
 
     # 2〜5. 町丁目完全一致 ➔ 大字・町名一致 ➔ 最寄駅一致 ➔ 市区町村平均
     matched_pts = _resolve_hierarchy_points(pref, cty, chome_group or "", station_name)
