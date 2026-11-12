@@ -81,6 +81,16 @@ def _resolve_p10_and_uncertainty(
     return Decimal(round(bounded)), unc
 
 
+def _extract_current_dup_id(rec: Any) -> Any:
+    """DB遅延クエリを発火させずに現在の duplicate_of_id を取得する"""
+    inst_dict = getattr(rec, "__dict__", None)
+    if isinstance(inst_dict, dict):
+        dup_obj = inst_dict.get("duplicate_of")
+        if dup_obj is not None and getattr(dup_obj, "id", None) is not None:
+            return dup_obj.id
+    return getattr(rec, "duplicate_of_id", None)
+
+
 def build_or_update_eval_record(
     item: Any,
     price_stage1: float,
@@ -99,7 +109,15 @@ def build_or_update_eval_record(
     monthly_rent, liability = extract_land_rent_and_liability(item)
     p10_dec, unc_ratio = _resolve_p10_and_uncertainty(price_stage1, p10_stage1)
 
+    prev_dup_id = None
+    prev_identity = None
     if existing and existing.pk:
+        prev_dup_id = getattr(existing, "duplicate_of_id", None)
+        prev_identity = (
+            getattr(existing, "company", None),
+            getattr(existing, "property_type", None),
+            getattr(existing, "property_id", None),
+        )
         rec = existing
         rec.company = company
         rec.property_type = property_type
@@ -148,5 +166,9 @@ def build_or_update_eval_record(
     rec.expected_net_yield = Decimal(f"{dcf_res.expected_net_yield:.2f}")
     rec.estimated_annual_rent = dcf_res.estimated_annual_rent
     rec.dcf_theoretical_price = dcf_res.dcf_theoretical_price
+
+    if not is_new:
+        rec._duplicate_of_changed = bool(_extract_current_dup_id(rec) != prev_dup_id)
+        rec._identity_changed = bool((rec.company, rec.property_type, rec.property_id) != prev_identity)
 
     return rec, is_new
