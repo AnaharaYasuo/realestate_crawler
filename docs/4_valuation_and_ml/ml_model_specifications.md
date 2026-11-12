@@ -753,3 +753,46 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
      - 「建築基準法に定める道路に接していない」等の無接道・法43条但書表現を再建築不可（`is_saikenchiku_fuka`）として検出し、「月々徴収する地代」「借地権が設定されている土地」等の底地表現を特殊取引・底地（`rights_ratio=0.20`, `is_special_sale_share=1.0`）として検出し、さらに備考欄の「私道部分XXX平米」を有効敷地面積から控除する。
 
 
+---
+
+## 15. 市街化調整区域の土地評価例外規定（倍率方式・3段階しんしゃく割合・雑種地/農地比準）およびお宝通知DCF自動補完仕様 (Issue #1370)
+
+### 15.1 市街化調整区域における土地評価の例外規定（2方式 `min` 比較 ＆ 3段階しんしゃく割合）
+市街化調整区域は都市計画法により原則として建物の建築・開発が制限されるため、一般的な市街化区域の路線価方式（または近傍標準地単価そのままの適用）ではなく、**倍率方式または近傍宅地比準による減価**を適用する。本システムでは、以下の評価規定を `cost_approach_value`、`residual_land_value`、`net_land_component_man` / `anchor_log_unit_price`、`calculate_sekisan_price`、および `evaluate_dcf_and_yields`（`_calc_land_residual_man`）の全評価経路に一貫適用する。
+
+1. **基本的な計算方法（宅地の場合の2方式 `min` 採用）**:
+   市街化調整区域の宅地単価は、以下の2つのうち**低い方の金額（`min`）**を採用する：
+   - **方式①（固定資産税倍率方式）**:
+     $$\text{単価}_1 = \text{固定資産税評価額単価} \times \text{宅地倍率}$$
+     （※固定資産税評価額単価は `estimated_fixed_asset_price` または基準地価の $0.70$ 倍、調整区域の標準宅地倍率は $1.10$ 倍）
+   - **方式②（近傍標準宅地比準・しんしゃく減価方式）**:
+     $$\text{単価}_2 = \text{近傍標準宅地単価（または路線価）} \times \text{宅地倍率} \times \text{画地調整率} \times (1 - \text{しんしゃく割合})$$
+   - **採用単価**:
+     $$\text{評価単価} = \min(\text{単価}_1, \text{単価}_2)$$
+
+2. **「しんしゃく割合（斟酌割合）」による3段階減額 (`resolve_shigaika_shinshaku_rate`)**:
+   市街化調整区域における法的制限による価値下落分を、利用状況や周囲の環境・都市計画法34条許可要件に応じて以下の3段階で差し引く：
+   - **50%減（しんしゃく割合 `0.50`、評価乗数 `0.50`）**:
+     - 建築不可・原則として開発や建築利用制限がある一般の市街化調整区域土地（デフォルト）。
+     - ※明示的に「再建築不可」かつ既存建物の既得権もない更地の場合はさらに厳しい減価（乗数 `0.35`）を適用。
+   - **30%減（しんしゃく割合 `0.30`、評価乗数 `0.70`）**:
+     - 店舗・事務所・沿道サービス施設などの建築が可能な幹線道路沿い（国道・県道・バイパス沿い、都市計画法34条1号/9号該当、または前面道路幅員6.0m以上で店舗・事務所建築可の記載がある土地）。
+   - **0%減（しんしゃく割合 `0.00`、評価乗数 `1.00`）**:
+     - 郊外型店舗が並ぶ地域や、既存宅地確認済・開発許可済・分譲地内・都市計画法34条11号/12号指定区域など、一般の宅地と同等の建築・取引実態がある地域（「既存宅地」「開発許可済」「検査済証」「34条11号」「34条12号」「誰でも建築可」「宅地並み」等の記載があり建築不可でない場合）。
+
+3. **雑種地および農地（田・畑）として評価する場合の比準・減価規定 (`resolve_chimoku_valuation_multiplier`)**:
+   - **雑種地（資材置き場・駐車場・車両置場など）**:
+     - 近傍の宅地を基準に比準し、地目・造成制限および利用制限に応じたしんしゃく割合を適用して算出する（市街化区域内の雑種地は宅地比準 $\times 0.90$、市街化調整区域内の雑種地は $(1 - \text{しんしゃく割合}) \times 0.85$、資材置場等の建築不可雑種地はしんしゃく割合50%＋雑種地減価を適用）。
+   - **農地（田・畑）として使われている場合**:
+     - 純農地・中間農地（市街化調整区域内の田・畑、農地法許可制限あり）は純農地評価・農地比準（原則建築不可のため宅地基準に対し $0.25 \sim 0.35$ 倍の農地比準単価）を用い、市街化区域内の宅地介在農地（生産緑地以外の転用届出可能な田・畑）は宅地比準から農地転用・造成費相当を控除した比準倍率（畑: $0.85$、田: 造成・盛土費がかさむため $0.63$）を適用する。
+
+### 15.2 お宝物件通知・鑑定レポートにおけるDCF理論価格・期待利回りの欠落防止（オンデマンド自動補完）
+1. **背景（原因）**:
+   - Migration `0070`（`dcf_theoretical_price`, `expected_gross_yield`, `expected_net_yield`, `estimated_annual_rent` カラム追加）より前に評価された既存レコード（例: `青葉区下愛子字町土地`）では、DB上の `dcf_theoretical_price` が `None` となっていた。
+   - 一括評価のスキップ判定 [`targets.py:_should_skip_item`](../../src/crawler/package/ml/evaluation/targets.py) が `first_stage_predicted_price > 0` のみを確認していたため再評価されず、さらに [`send_recommendations.py`](../../src/crawler/scripts/ops/send_recommendations.py) および [`report_generator.py`](../../src/crawler/package/ml/report_generator.py) でも `dcf_theoretical_price` が `None`/`0` の場合に空文字を返して表示を省略していた。
+2. **仕様（3重の欠落防止ガード）**:
+   - **ガード①（バルク評価での自動再評価対象化）**: `targets.py` の `_should_skip_item` において、`existing_eval.dcf_theoretical_price is None` または `existing_eval.estimated_sekisan_price is None` のレコードはスキップせず（`return False`）、バルク評価バッチで確実にバックフィル更新する。
+   - **ガード②（`send_recommendations.py` での配信前オンデマンド補完＆DB永続化）**: お宝物件候補の抽出・Slack通知メッセージ生成時（`_build_recommendation_msg` およびメインループ）に、`eval_rec.dcf_theoretical_price` が未設定（`None` または `<= 0`）または積算価格が未設定の場合は、その場で決定論的DCFエンジン `evaluate_dcf_and_yields(prop, eval_rec.property_type)` および最新積算価格計算 `calculate_sekisan_price(prop, eval_rec.property_type)` を実行して `eval_rec` にセット・DB保存し、Slack通知の「💰 価格・割安度（3面アプローチ）」に必ず `10年DCF理論価格` と `期待利回り(表面/実質)` を出力する。
+   - **ガード③（`report_generator.py` でのプロンプトコンテキスト自動補完）**: `_format_dcf_context_line(eval_rec, prop)` においても、`eval_rec.dcf_theoretical_price` が未設定の場合は `prop` からオンデマンドで `evaluate_dcf_and_yields` を算出して補完し、AI定性鑑定プロンプトへ3面アプローチ数値を漏れなく供給する。
+
+

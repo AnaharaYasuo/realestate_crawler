@@ -116,3 +116,44 @@ def test_base_parser_populate_traffic_bus_does_not_conflate_bus_and_walk():
     assert item.busStation1 == "国分寺台第８"
     assert item.railwayWalkMinute1 == 7
 
+
+def test_sumifu_tochi_urawa_bus_traffic_parsing():
+    """Issue #1372: 今回問題が発生した住友不動産ステップの浦和駅バス11分・停歩2分のパースおよびSlack表示検証"""
+    from package.parser.sumifuParser import SumifuTochiParser
+    p = SumifuTochiParser()
+    item = p.createEntity()
+    traffic_text = "高崎線「浦和」駅バス11 分「稲荷越」バス停徒歩2 分武蔵野線「東浦和」駅バス8 分「広ヶ谷戸」バス停徒歩2 分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.railway1 == "高崎線"
+    assert item.station1 == "浦和"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 11
+    assert item.busWalkMinute1Str == "11"
+    assert item.busStation1 == "稲荷越"
+    assert item.railwayWalkMinute1 == 2
+    assert item.railwayWalkMinute1Str == "2"
+
+    assert is_bus_access_property(item) is True
+    assert _format_single_access(item, 1) == "高崎線 浦和 バス11分(停 稲荷越) 徒歩2分"
+
+
+def test_athome_bracket_bus_traffic_parsing():
+    """Issue #1372: アットホーム形式の【バス】10分 停歩10分のパースおよびSlack表示検証"""
+    from package.parser.athomeParser import AthomeTochiParser
+    p = AthomeTochiParser()
+    item = p.createEntity()
+    traffic_text = "西武新宿線 / 東村山駅 【バス】10分 廻田町三丁目 停歩10分"
+    p._populateTraffic(item, traffic_text)
+
+    assert item.railway1 == "西武新宿線"
+    assert item.station1 == "東村山"
+    assert item.busUse1 == 1
+    assert item.busWalkMinute1 == 10
+    assert item.busStation1 == "廻田町三丁目"
+    assert item.railwayWalkMinute1 == 10
+
+    assert is_bus_access_property(item) is True
+    assert _format_single_access(item, 1) == "西武新宿線 東村山 バス10分(停 廻田町三丁目) 徒歩10分"
+
+
