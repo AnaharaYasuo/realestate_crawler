@@ -40,6 +40,16 @@ KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
+_KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
+_KENBIYA_MAGUCHI_RE = re.compile(
+    r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
+)
+_KENBIYA_WIDTH_LABEL_RE = re.compile(
+    r"(?:道路幅員|幅員|幅)[\s：:約]{0,8}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
+)
+_KENBIYA_WIDTH_DIR_RE = re.compile(
+    r"(?:北東|北西|南東|南西|[北南東西])側?[\s：:約公私道]{0,10}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]"
+)
 
 
 class KenbiyaParserBase(ParserBase):
@@ -485,8 +495,8 @@ class KenbiyaParserBase(ParserBase):
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         raw = self._extract_youseki_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
-        if raw and re.search(r"[／/・]", raw):
-            parts = re.split(r"[／/・]", raw)
+        if raw and _KENBIYA_RATIO_SPLIT_RE.search(raw):
+            parts = _KENBIYA_RATIO_SPLIT_RE.split(raw)
             if len(parts) >= 2:
                 return converter.parse_ratio(parts[1])
         return converter.parse_ratio(raw)
@@ -500,7 +510,7 @@ class KenbiyaParserBase(ParserBase):
                 return parsed
         setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
         if setsudou_val:
-            m = re.search(r"(?:間口|接面)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?", setsudou_val)
+            m = _KENBIYA_MAGUCHI_RE.search(setsudou_val)
             if m:
                 return Decimal(m.group(1))
         return None
@@ -510,17 +520,16 @@ class KenbiyaParserBase(ParserBase):
         for k in ("道路幅員", "幅員", "道路幅"):
             direct = specs.get(k, "")
             if direct:
-                m_dir = re.search(r"(\d+(?:\.\d+)?)", direct)
+                m_dir = re.search(r"(\d{1,4}(?:\.\d{1,3})?)", direct)
                 if m_dir:
                     return Decimal(m_dir.group(1))
         setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
         if setsudou_val:
-            m = re.search(
-                r"(?:(?:幅員|道路幅員|幅)\s*[：:]?\s*(?:約\s*)?|(?P<dir>北東|北西|南東|南西|北|南|東|西)(?:側)?(?:\s*(?:公道|私道))?\s*[：:]?\s*(?:約\s*)?)(\d+(?:\.\d+)?)\s*[mｍ米]",
-                setsudou_val,
+            m = _KENBIYA_WIDTH_LABEL_RE.search(setsudou_val) or _KENBIYA_WIDTH_DIR_RE.search(
+                setsudou_val
             )
             if m:
-                return Decimal(m.group(2))
+                return Decimal(m.group(1))
         return None
 
     def _parse_traffic(self, item, traffic_text: str):

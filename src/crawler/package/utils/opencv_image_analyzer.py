@@ -162,7 +162,12 @@ def _score_layout_diagram(img: Image.Image) -> float:
     rgb = _pil_to_rgb_array(img, max_side=512)
     h, w = rgb.shape[:2]
     aspect = max(h, w) / max(1.0, float(min(h, w)))
-    aspect_bonus = 0.4 if aspect <= 1.6 else (-0.3 if aspect >= 2.6 else 0.1)
+    if aspect <= 1.6:
+        aspect_bonus = 0.4
+    elif aspect >= 2.6:
+        aspect_bonus = -0.3
+    else:
+        aspect_bonus = 0.1
     gray = np.mean(rgb.astype(np.float32), axis=2)
     line_ratio = float(np.mean(gray < 200.0))
     density_bonus = 0.3 if 0.04 <= line_ratio <= 0.45 else -0.2

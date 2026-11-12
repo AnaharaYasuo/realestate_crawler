@@ -154,6 +154,16 @@ def _prefetch_candidate_pool(
         return None
 
 
+def _resolve_item_p10(p10_prices: list[float] | None, idx: int) -> float | None:
+    if p10_prices is None or idx >= len(p10_prices):
+        return None
+    return float(p10_prices[idx])
+
+
+def _extract_item_url(item: Any) -> str:
+    return str(getattr(item, "pageUrl", None) or getattr(item, "url", None) or "")
+
+
 def save_chunk(
     chunk: list[Any],
     predicted_prices: list[float],
@@ -170,12 +180,11 @@ def save_chunk(
     chunk_passed = 0
     chunk_duplicates = 0
 
-    candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type) if not skip_duplicate_check else None
+    candidate_pool = None if skip_duplicate_check else _prefetch_candidate_pool(existing_eval_map, property_type)
 
     for idx, (item, price_stage1) in enumerate(zip(chunk, predicted_prices)):
-        page_url = str(getattr(item, "pageUrl", None) or getattr(item, "url", None) or "")
+        page_url = _extract_item_url(item)
         existing = existing_eval_map.get(page_url) if page_url else None
-        p10_val = float(p10_prices[idx]) if p10_prices is not None and idx < len(p10_prices) else None
         rec, is_new = build_or_update_eval_record(
             item=item,
             price_stage1=price_stage1,
@@ -184,16 +193,11 @@ def save_chunk(
             property_type=property_type,
             candidate_pool=candidate_pool,
             skip_duplicate_check=skip_duplicate_check,
-            p10_stage1=p10_val,
+            p10_stage1=_resolve_item_p10(p10_prices, idx),
         )
-        if rec.is_first_stage_passed:
-            chunk_passed += 1
-        if getattr(rec, "duplicate_of_id", None):
-            chunk_duplicates += 1
-        if is_new:
-            records_to_create.append(rec)
-        else:
-            records_to_update.append(rec)
+        chunk_passed += int(bool(rec.is_first_stage_passed))
+        chunk_duplicates += int(bool(getattr(rec, "duplicate_of_id", None)))
+        (records_to_create if is_new else records_to_update).append(rec)
 
     _bulk_create_records(records_to_create, batch_size)
     if records_to_update:

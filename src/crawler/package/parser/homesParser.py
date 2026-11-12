@@ -23,23 +23,29 @@ CSS_LAND_AREA = "td.prg-landAreaTableItem"
 CSS_ROAD_TABLE = "td.prg-roadTableItem"
 CSS_FLOOR_AREA_RATIO = "td.prg-floorAreaRatioTableItem"
 CSS_BUILDING_COVERAGE = "td.prg-buildingCoverageTableItem"
+CSS_LAND_CATEGORY = "td.prg-landCategoryTableItem"
+CSS_RIGHT_TABLE = "td.prg-rightTableItem"
+CSS_CHIMOKU_SELECTORS = ("td.prg-chimokuTableItem", CSS_LAND_CATEGORY)
+CSS_RIGHT_SELECTORS = (CSS_RIGHT_TABLE,)
+CSS_YOUTO_SELECTORS = ("td.prg-areaTableItem", "td.prg-useDistrictTableItem")
 LABEL_KENPEI_YOUSEKI_FULL = "建ぺい率／容積率"
 LABEL_KENPEI_YOUSEKI_HALF = "建ぺい率/容積率"
 LABEL_KENPEI_KANJI_FULL = "建蔽率／容積率"
 LABEL_KENPEI_KANJI_HALF = "建蔽率/容積率"
 
-_HOMES_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
+_HOMES_RATIO_SPLIT_RE = re.compile(r"[／/・]")
+_HOMES_DIRECTION_RE = r'(北東|北西|南東|南西|[北南東西])'
 _HOMES_MAGUCHI_RE = (
-    r'(?:間口|接面|接す)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?'
+    r'(?:間口|接面|接す)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?'
 )
-_HOMES_MAGUCHI_SUFFIX_RE = r'(\d+(?:\.\d+)?)\s*[mｍ米]\s*接(?:す|面)'
-_HOMES_WIDTH_RE = r'(?:幅員|幅|前面道路|前面|道路幅員)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]?'
+_HOMES_MAGUCHI_SUFFIX_RE = r'(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]\s{0,3}接[す面]'
+_HOMES_WIDTH_RE = r'(?:道路幅員|幅員|前面道路|前面|幅)[\s：:約]{0,8}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?'
 _HOMES_DIR_WIDTH_RE = (
-    r'(?:北東|北西|南東|南西|北|南|東|西)(?:側)?\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]'
+    r'(?:北東|北西|南東|南西|[北南東西])側?[\s：:約公私道]{0,10}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]'
 )
-_HOMES_SETSUDOU_WIDTH_RE = r'接道\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ米]'
-_HOMES_ROAD_TYPE_RE = r'(公道|私道)'
-_HOMES_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
+_HOMES_SETSUDOU_WIDTH_RE = r'接道[\s：:約]{0,8}(\d{1,4}(?:\.\d{1,3})?)\s{0,3}[mｍ米]'
+_HOMES_ROAD_TYPE_RE = r'([公私]道)'
+_HOMES_ROAD_STRUCT_RE = r'(角地|[二三四]方|敷延|袋小路|中間地|両面道路)'
 
 
 class HomesParser(ParserBase):
@@ -372,14 +378,14 @@ class HomesParser(ParserBase):
 
     @staticmethod
     def _split_combined_kenpei_youseki(kenpei_text: str, youseki_text: str) -> tuple[str, str]:
-        if youseki_text and re.search(r"[／/・]", youseki_text):
-            parts = re.split(r"[／/・]", youseki_text)
+        if youseki_text and _HOMES_RATIO_SPLIT_RE.search(youseki_text):
+            parts = _HOMES_RATIO_SPLIT_RE.split(youseki_text)
             if len(parts) >= 2:
-                if not kenpei_text or kenpei_text == youseki_text or re.search(r"[／/・]", kenpei_text):
+                if not kenpei_text or kenpei_text == youseki_text or _HOMES_RATIO_SPLIT_RE.search(kenpei_text):
                     kenpei_text = parts[0].strip()
                 youseki_text = parts[1].strip()
-        elif kenpei_text and re.search(r"[／/・]", kenpei_text):
-            parts = re.split(r"[／/・]", kenpei_text)
+        elif kenpei_text and _HOMES_RATIO_SPLIT_RE.search(kenpei_text):
+            parts = _HOMES_RATIO_SPLIT_RE.split(kenpei_text)
             kenpei_text = parts[0].strip()
             if not youseki_text and len(parts) >= 2:
                 youseki_text = parts[1].strip()
@@ -665,17 +671,17 @@ class HomesKodateParser(HomesParser, KodateParserBase):
 
         item.chimoku = getattr(item, "chimoku", "") or self._homes_text_from_selectors(
             response,
-            ("td.prg-chimokuTableItem", "td.prg-landCategoryTableItem"),
+            CSS_CHIMOKU_SELECTORS,
             ["地目"],
         )
         item.tochikenri = getattr(item, "tochikenri", "") or self._homes_text_from_selectors(
             response,
-            ("td.prg-rightTableItem",),
+            CSS_RIGHT_SELECTORS,
             ["土地権利", "敷地権利形態", "権利"],
         )
         item.youtoChiiki = getattr(item, "youtoChiiki", "") or self._homes_text_from_selectors(
             response,
-            ("td.prg-areaTableItem", "td.prg-useDistrictTableItem"),
+            CSS_YOUTO_SELECTORS,
             ["用途地域"],
         )
 
@@ -785,8 +791,8 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
 
         item.setsudou = self._get_table_text(response, CSS_ROAD_TABLE, ["接道状況", "接道"])
-        item.chimoku = self._get_table_text(response, "td.prg-landCategoryTableItem", ["地目"])
-        item.tochikenri = self._get_table_text(response, "td.prg-rightTableItem", ["土地権利", "権利"])
+        item.chimoku = self._get_table_text(response, CSS_LAND_CATEGORY, ["地目"])
+        item.tochikenri = self._get_table_text(response, CSS_RIGHT_TABLE, ["土地権利", "権利"])
         item.hikiwatashi = self._get_table_text(response, "td.prg-deliveryTableItem", ["引渡", "引渡し", "引渡時期"])
         item.youtoChiiki = self._get_table_text(response, "td.prg-useAreaTableItem", ["用途地域"])
         item.soukosuStr = self._get_table_text(response, "td.prg-allNumberTableItem", ["総戸数", "戸数", "総区画"])
@@ -882,17 +888,17 @@ class HomesTochiParser(HomesParser, TochiParserBase):
 
         item.chimoku = self._homes_text_from_selectors(
             response,
-            ("td.prg-chimokuTableItem", "td.prg-landCategoryTableItem"),
+            CSS_CHIMOKU_SELECTORS,
             ["地目"],
         )
         item.tochikenri = self._homes_text_from_selectors(
             response,
-            ("td.prg-rightTableItem",),
+            CSS_RIGHT_SELECTORS,
             ["土地権利", "権利"],
         )
         item.youtoChiiki = self._homes_text_from_selectors(
             response,
-            ("td.prg-areaTableItem", "td.prg-useDistrictTableItem"),
+            CSS_YOUTO_SELECTORS,
             ["用途地域"],
         )
         self._homes_apply_setsudou_details(item, setsudou_info)

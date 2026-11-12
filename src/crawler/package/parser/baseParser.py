@@ -736,6 +736,7 @@ class ParserBase(metaclass=ABCMeta):
         "建ぺい/容積率",
         "建蔽/容積率",
     )
+    _RATIO_SPLIT_RE = re.compile(r"[／/・]")
 
     @classmethod
     def _extract_kenpei_from_specs(cls, specs: dict) -> str:
@@ -745,9 +746,9 @@ class ParserBase(metaclass=ABCMeta):
         for key in cls._COMBINED_KENPEI_YOUSEKI_KEYS:
             combined = specs.get(key, "")
             if combined:
-                return re.split(r"[／/・]", combined)[0].strip()
+                return cls._RATIO_SPLIT_RE.split(combined)[0].strip()
         if direct:
-            return re.split(r"[／/・]", direct)[0].strip()
+            return cls._RATIO_SPLIT_RE.split(direct)[0].strip()
         return ""
 
     @classmethod
@@ -758,11 +759,11 @@ class ParserBase(metaclass=ABCMeta):
         for key in cls._COMBINED_KENPEI_YOUSEKI_KEYS:
             combined = specs.get(key, "")
             if combined:
-                parts = re.split(r"[／/・]", combined)
+                parts = cls._RATIO_SPLIT_RE.split(combined)
                 if len(parts) >= 2:
                     return parts[1].strip()
         if direct:
-            parts = re.split(r"[／/・]", direct)
+            parts = cls._RATIO_SPLIT_RE.split(direct)
             return parts[1].strip() if len(parts) >= 2 else direct.strip()
         return ""
 
