@@ -17,6 +17,7 @@ from datetime import datetime
 
 CLOSING_ISSUE_RE = re.compile(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b", re.IGNORECASE)
 TITLE_PREFIX_RE = re.compile(r"^\[#(\d+)\]\s+\S")
+TESTS_DIR_PREFIX = "src/crawler/tests/"
 
 
 def _verdict(
@@ -103,7 +104,7 @@ def _is_seven_domain_spec(path: str) -> bool:
 
 
 def _is_unit_test_file(path: str) -> bool:
-    return path.startswith("src/crawler/tests/") and path.endswith(".py") and len(path) > len("src/crawler/tests/.py")
+    return path.startswith(TESTS_DIR_PREFIX) and path.endswith(".py") and len(path) > len(TESTS_DIR_PREFIX) + 3
 
 
 def _check_pr_metadata_and_issue_link(pr: dict, owner: str, repo: str) -> tuple[int | None, dict | None]:
@@ -237,13 +238,13 @@ def _check_criteria_and_pr_checklist(pr: dict, issue: dict, issue_number: int) -
 
 
 def _requires_sdd_spec(path: str) -> bool:
-    if path.startswith("src/") and not path.startswith("src/crawler/tests/"):
+    if path.startswith("src/") and not path.startswith(TESTS_DIR_PREFIX):
         return True
     return path.startswith(("terraform/", ".github/workflows/", ".agents/"))
 
 
 def _requires_tdd_test(path: str) -> bool:
-    if path.startswith("src/") and not path.startswith("src/crawler/tests/") and path.endswith(".py"):
+    if path.startswith("src/") and not path.startswith(TESTS_DIR_PREFIX) and path.endswith(".py"):
         return True
     if path.startswith(".agents/scripts/") and path.endswith(".py"):
         return True
