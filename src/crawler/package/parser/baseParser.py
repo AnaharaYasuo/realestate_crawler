@@ -936,7 +936,7 @@ class ParserBase(metaclass=ABCMeta):
     def _put_th_td_pairs(ths, tds, specs: dict) -> None:
         for th, td in zip(ths, tds):
             k = th.get_text(strip=True)
-            if k:
+            if k and k not in specs:
                 specs[k] = td.get_text(strip=True)
 
     @classmethod
@@ -953,7 +953,7 @@ class ParserBase(metaclass=ABCMeta):
                 cls._put_th_td_pairs(ths, tds, specs)
             else:
                 k = ths[0].get_text(strip=True)
-                if k:
+                if k and k not in specs:
                     specs[k] = tds[0].get_text(strip=True)
 
     @classmethod
@@ -964,7 +964,7 @@ class ParserBase(metaclass=ABCMeta):
                 continue
             for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
                 k = dt.get_text(strip=True)
-                if k:
+                if k and k not in specs:
                     specs[k] = dd.get_text(strip=True)
 
     @staticmethod
@@ -1010,7 +1010,7 @@ class ParserBase(metaclass=ABCMeta):
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:
             return cached
-        specs = {}
+        specs: dict[str, Any] = {}
         self._ingest_tr_specs(response, specs)
         self._ingest_dl_specs(response, specs)
         self._ingest_table_row_specs(response, specs)
@@ -1362,12 +1362,15 @@ class ParserBase(metaclass=ABCMeta):
         "市原市": "千葉県",
         "市川市": "千葉県",
         "世田谷区": "東京都",
+        "千代田区": "東京都",
+        "武蔵野市": "東京都",
         "町田市": "東京都",
         "武蔵村山市": "東京都",
         "東村山市": "東京都",
         "羽村市": "東京都",
         "荒川区": "東京都",
         "横浜市中区": "神奈川県",
+        "横浜市西区": "神奈川県",
     }
 
     @classmethod
@@ -1407,13 +1410,18 @@ class ParserBase(metaclass=ABCMeta):
             return m.group(1)
         return ""
 
+    _LEADING_POSTAL_CODE_RE = re.compile(r"^〒?\s*\d{3}[-ー－]\d{4}\s*")
+
     def _split_address(self, address_str: str):
         """都道府県・市区町村・町名の自動分割ユーティリティ (市川市・市原市・町田市・武蔵村山市等対応)"""
         if not address_str:
             return ("", "", "")
-        pref_match = re.match("^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)", address_str)
+        cleaned = self._LEADING_POSTAL_CODE_RE.sub("", str(address_str).strip()).strip()
+        if not cleaned:
+            return ("", "", "")
+        pref_match = re.match("^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)", cleaned)
         pref = pref_match.group(1) if pref_match else ""
-        rest = address_str[len(pref) :] if pref else address_str
+        rest = cleaned[len(pref) :] if pref else cleaned
         city = self._match_city_from_rest(rest)
         town = rest[len(city) :] if city else rest
         if not pref and city:

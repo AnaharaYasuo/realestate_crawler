@@ -226,6 +226,11 @@ class ModelRegistry:
         self.market_master()
         for ptype in PROPERTY_TYPES:
             self.location_encoder(ptype, "first_stage")
+            self.location_encoder(ptype, "second_stage")
+            self.weights(ptype, "first_stage")
+            self.weights(ptype, "second_stage")
+            self.smearing(ptype, "first_stage")
+            self.smearing(ptype, "second_stage")
             self.models(ptype, "first_stage")
             self.models(ptype, "second_stage")
 

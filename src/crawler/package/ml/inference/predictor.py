@@ -72,8 +72,18 @@ def _enrich_inference_df_with_location_encoder(
         if isinstance(transformed, tuple) and len(transformed) == 2:
             raw_df["chome_oof_unit_price"] = transformed[0]
             raw_df["station_walk_oof_unit_price"] = transformed[1]
-    raw_df["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(raw_df, property_type=ptype)
+    ptype_hint = "tochi" if ptype == "tochi" else ""
+    raw_df["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(raw_df, property_type=ptype_hint)
     return raw_df
+
+
+def _resolve_location_encoder(reg: ModelRegistry, ptype: str, stage_key: str, models_provider: Any) -> Any:
+    """デフォルトファサード（_get_models_and_master）または明示注入されたエンコーダを解決する"""
+    if not callable(models_provider) or getattr(models_provider, "__name__", "") == "_get_models_and_master":
+        return reg.location_encoder(ptype, stage_key)
+    if reg._location_encoders is not None:
+        return reg.location_encoder(ptype, stage_key)
+    return None
 
 
 def group_properties_by_type(properties_list: list[Any]) -> dict[str, list[tuple[int, Any]]]:
@@ -180,7 +190,7 @@ def _predict_single_type_group(
     if stage_key == "second":
         attach_image_scores(group_features, sub_indices, interior_scores, layout_scores)
 
-    loc_encoder = reg.location_encoder(ptype, stage_key) if not callable(models_provider) else None
+    loc_encoder = _resolve_location_encoder(reg, ptype, stage_key, models_provider)
     raw_df = _enrich_inference_df_with_location_encoder(group_features, ptype, loc_encoder)
     feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
     df = prepare_df_features(raw_df, feature_cols)
@@ -248,7 +258,7 @@ def _predict_stage_from_raw_features(
 ) -> list[int]:
     if not models_dict:
         return [0] * len(raw_features)
-    loc_enc = reg.location_encoder(ptype, stage) if not callable(models_provider) else None
+    loc_enc = _resolve_location_encoder(reg, ptype, stage, models_provider)
     raw_df = _enrich_inference_df_with_location_encoder(raw_features, ptype, loc_enc)
     cols = FEATURE_SETS.get(ptype, {}).get(stage, [])
     df_feat = prepare_df_features(raw_df, cols)
@@ -342,7 +352,7 @@ def log_prediction_error(
         page_url = get_attr(property_obj, "pageUrl", "") or get_attr(property_obj, "page_url", "")
         address = get_attr(property_obj, "address", "") or f"{features.get('prefecture', '')}{features.get('city', '')}"
 
-        now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
         row = {
             "timestamp": now_str,
             "property_type": property_type,

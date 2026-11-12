@@ -53,17 +53,17 @@ def _get_models_and_master(property_type: str) -> tuple[dict[str, Any], dict[str
 def _load_ensemble_weights(model_dir: str | None = None) -> dict[str, Any]:
     """既存テスト互換用: 重み辞書取得・注入インターフェース"""
     reg = get_default_registry()
-    if reg._ensemble_weights is not None:
-        return reg._ensemble_weights
-    return {}
+    if reg._ensemble_weights is None:
+        reg.weights("tochi", "first")
+    return reg._ensemble_weights or {}
 
 
 def _load_smearing_factors(model_dir: str | None = None) -> dict[str, Any]:
     """既存テスト互換用: スミアリング係数辞書取得・注入インターフェース"""
     reg = get_default_registry()
-    if reg._smearing_factors is not None:
-        return reg._smearing_factors
-    return {}
+    if reg._smearing_factors is None:
+        reg.smearing("tochi", "first")
+    return reg._smearing_factors or {}
 
 
 def preload_all_models() -> None:

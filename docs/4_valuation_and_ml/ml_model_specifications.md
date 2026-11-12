@@ -740,4 +740,16 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
    - **敷地レバレッジ・個別減価を保存する町丁目OOFブレンド**: `refresh_anchor_log_unit_price_column` で `chome_oof_unit_price` をブレンドする際、町丁目平均単価をそのまま混合して個別物件の敷地広狭（`lot_to_building_ratio`）や再建築不可・固定費控除を希釈させないよう、`land_value_share` に応じて敷地レバレッジ倍率・物理減価率・固定費控除単価で町丁目OOF単価を個別補正した上でブレンドする。
 4. **バルク価格推定バッチの並列数・書き込みバッチサイズ制御（`run_bulk_ml_evaluation.py`）**:
    - CLI引数 `--workers`（別名 `--concurrency`）および `--batch-size` により、並列ワーカースレッド数（例: 16並列）および `PropertyEvaluation` の一括DB更新バッチサイズ（例: 100件単位）を明示指定可能とする。
+5. **学習・推論間の空間エンコーダ適用一貫性 ＆ 店舗所在地汚染防止ゲート（Issue #1369）**:
+   - **推論時の `location_encoders.joblib`・`ensemble_weights.joblib`・`smearing_factors.joblib` 確実適用**:
+     - `predict.py`（`bulk_predict_first_stage` / `bulk_predict_second_stage`）および `predictor.py` において、カスタムのインメモリモックモデル注入時（テスト用）を除き、常に `ModelRegistry.location_encoder(ptype, stage)` をロードして `chome_oof_unit_price`・`station_walk_oof_unit_price` を推論特徴量へ反映する。
+     - `ModelRegistry.preload()` および `_load_ensemble_weights` / `_load_smearing_factors` は遅延未ロード時に必ずディスクから重み・スミアリング係数を読み込む。
+   - **`refresh_anchor_log_unit_price_column` の学習・推論間完全整合**:
+     - 学習時（`ensemble.py`）と推論時（`predictor.py`）で `refresh_anchor_log_unit_price_column` に渡す `property_type` ヒントを完全一致させ、`AnchorResidualEstimator` のベースラインアンカー定義のズレを根絶する。
+   - **店舗所在地上書き防止（`ParserBase._get_specs`）および学習データ汚染排除（`clean_training_data`）**:
+     - `ParserBase._put_th_td_pairs` / `_ingest_tr_specs` / `_ingest_dl_specs` は先勝ち（`if k not in specs:`）とし、ページ下部の「担当店舗情報」「営業所案内」等のテーブルにある店舗 `所在地`（`〒...ビル...階`）が物件概要の `所在地` を上書きすることを防止する。また `_split_address` は先頭の郵便番号表記（`〒NNN-NNNN`）を自動除去する。
+     - 公開終了等で正しい物件所在地が復元できない汚染レコード（郵便番号 `〒`＋ビル階数表記の営業所住所や、`prefecture` / `city` が空欄のレコード）は `clean_training_data` で機械的に除外し、空間ターゲットエンコーダおよびモデル学習への混入を100%遮断する。
+   - **法43条但書（再建築時許可要）・底地（地代徴収）・私道面積内訳のテキスト抽出強化**:
+     - 「建築基準法に定める道路に接していない」等の無接道・法43条但書表現を再建築不可（`is_saikenchiku_fuka`）として検出し、「月々徴収する地代」「借地権が設定されている土地」等の底地表現を特殊取引・底地（`rights_ratio=0.20`, `is_special_sale_share=1.0`）として検出し、さらに備考欄の「私道部分XXX平米」を有効敷地面積から控除する。
+
 
