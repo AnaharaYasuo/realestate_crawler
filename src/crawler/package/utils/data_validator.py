@@ -258,12 +258,12 @@ class PropertyDataValidator:
         return False
 
     @staticmethod
-    def _resolve_area_attrs(ptype: str) -> tuple[str, ...]:
+    def _resolve_area_attrs(ptype: str) -> list[str]:
         if ptype in ("mansion", "invest_mansion"):
-            return ("senyuMenseki",)
+            return ["senyuMenseki"]
         if ptype == "tochi":
-            return ("tochiMenseki",)
-        return ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+            return ["tochiMenseki"]
+        return ["senyuMenseki", "tatemonoMenseki", "tochiMenseki"]
 
     @staticmethod
     def _select_best_area(parsed: list[float]) -> float:
