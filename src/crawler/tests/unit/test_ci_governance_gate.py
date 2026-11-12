@@ -8,11 +8,10 @@ Verifies mechanical enforcement of:
 """
 
 import json
-from pathlib import Path
 
 import pytest
 
-from package.utils.ci_governance_gate import evaluate_pr_governance, run_cli
+from package.utils.ci_governance_gate import evaluate_pr_governance, run_stdio
 
 
 def _valid_payload(**overrides) -> dict:
@@ -220,12 +219,8 @@ def test_terraform_plus_7_domain_spec_passes_without_requiring_python_test():
     assert verdict["passed"] is True
 
 
-def test_cli_roundtrip_writes_verdict_and_returns_zero(tmp_path: Path):
-    in_file = tmp_path / "in.json"
-    out_file = tmp_path / "out.json"
-    in_file.write_text(json.dumps(_valid_payload()), encoding="utf-8")
-
-    rc = run_cli(str(in_file), str(out_file))
-    assert rc == 0
-    verdict = json.loads(out_file.read_text(encoding="utf-8"))
+def test_stdio_roundtrip_returns_verdict_json():
+    out_raw = run_stdio(json.dumps(_valid_payload()))
+    verdict = json.loads(out_raw)
     assert verdict["passed"] is True
+    assert verdict["issue_number"] == 1395

@@ -72,7 +72,7 @@ class StageResult:
    - `_check_issue_pr_and_push_guard(cmd)` にて、`--base production`（リリースPR）以外の `gh pr create` 実行時に `\[#\d+\]`（タイトル先頭タグ）および `(?:Closes|Fixes|Resolves)\s+#\d+`（本文クローズ宣言）の双方が含まれない場合、`decision: "deny"` で実行自体を遮断する。
    - `git push ... origin <branch>`（ブランチ削除 `--delete`/`-d` および `master` を除く）において、ブランチ名に数字（Issue番号）が含まれない場合も `decision: "deny"` で遮断する。
 2. **Layer 2: GitHub Actions 必須CIゲート (`.github/workflows/issue-gate.yml` + `src/crawler/package/utils/ci_governance_gate.py` / `enforce_admins: true`)**
-   - `.github/workflows/issue-gate.yml` が GitHub REST API（`issues.get`, `pulls.listFiles`）で収集した `{ pr, issue, files }` JSON を標準ライブラリ完結の `ci_governance_gate.py`（`evaluate_pr_governance()`）へ渡し、`dependabot[bot]` 以外の全 `master` 向け PR に対し以下の4段階検査を実行する：
+   - `.github/workflows/issue-gate.yml` が GitHub REST API（`issues.get`, `pulls.listFiles`）で収集した `{ pr, issue, files }` JSON を標準入出力（`stdin` ➔ `stdout`、外部ファイルパス引数なし）経由で標準ライブラリ完結の `ci_governance_gate.py`（`evaluate_pr_governance()`）へ渡し、`dependabot[bot]` 以外の全 `master` 向け PR に対し以下の4段階検査を実行する：
      - **Gate A (Issue-Driven 一貫性 ＆ 先行起票検査)**:
        - PR本文から `\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b` を抽出し、未記載・対象外（PR番号）・非OPEN（`issue.data.state !== 'open'`）の場合は理由コメント投稿後に `github.rest.pulls.update({ state: 'closed' })` でPRを自動クローズし、`core.setFailed` で失敗させる。
        - PRタイトル先頭 `^\[#(\d+)\]\s+` の番号および作業ブランチ名 `pr.head.ref` 内の独立数値トークンが本文の `issueNumber` と完全一致することを検証する。

@@ -1,7 +1,7 @@
 """CI Governance 4-Gate Evaluator (Issue #1395).
 
-Pure standard-library module executed by `.github/workflows/issue-gate.yml` (`Verify GitHub Issue Association`,
-enforced on `master` with `enforce_admins: true`) to mechanically prevent ANY deviation from:
+Pure standard-library module executed via stdin/stdout by `.github/workflows/issue-gate.yml`
+(`Verify GitHub Issue Association`, enforced on `master` with `enforce_admins: true`) to mechanically prevent ANY deviation from:
   - Gate A: Issue-Driven Development (Closes/Fixes/Resolves #N, [#N] title, branch N token, OPEN Issue, issue.created_at <= pr.created_at)
   - Gate B: Acceptance Criteria & PR Checklist Completion (total > 0 & 0 unchecked in Issue, 0 unchecked in PR body)
   - Gate C: Spec-Driven Development / SDD (7-domain docs/[1-7]_*/*.md required when code/infra/CI/.agents change)
@@ -14,14 +14,9 @@ import json
 import re
 import sys
 from datetime import datetime
-from pathlib import Path
 
 CLOSING_ISSUE_RE = re.compile(r"\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)\b", re.IGNORECASE)
 TITLE_PREFIX_RE = re.compile(r"^\[#(\d+)\]\s+\S")
-CHECKBOX_LINE_RE = re.compile(r"^[-*]\s*\[([ xX])\]\s*(.+)$")
-FENCE_LINE_RE = re.compile(r"^\s*(?:```|~~~)")
-DOMAIN_SPEC_RE = re.compile(r"^docs/[1-7]_[^/]+/.+\.md$")
-UNIT_TEST_FILE_RE = re.compile(r"^src/crawler/tests/.+\.py$")
 
 
 def _verdict(
@@ -57,7 +52,8 @@ def _strip_fenced_code_blocks(markdown_text: str) -> list[str]:
     in_fence = False
     kept: list[str] = []
     for line in markdown_text.splitlines():
-        if FENCE_LINE_RE.match(line):
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
             in_fence = not in_fence
             continue
         if not in_fence:
@@ -65,19 +61,49 @@ def _strip_fenced_code_blocks(markdown_text: str) -> list[str]:
     return kept
 
 
+def _parse_checkbox_line(raw_line: str) -> tuple[str, str] | None:
+    stripped = raw_line.strip()
+    if len(stripped) < 4 or stripped[0] not in ("-", "*"):
+        return None
+    rest = stripped[1:].lstrip()
+    if len(rest) < 3 or rest[0] != "[" or rest[2] != "]":
+        return None
+    marker = rest[1]
+    if marker not in (" ", "x", "X"):
+        return None
+    item = rest[3:].strip()
+    if not item:
+        return None
+    return marker, item
+
+
 def _extract_checkboxes(lines: list[str]) -> tuple[list[str], list[str]]:
     checked: list[str] = []
     unchecked: list[str] = []
     for raw_line in lines:
-        match = CHECKBOX_LINE_RE.match(raw_line.strip())
-        if not match:
+        parsed = _parse_checkbox_line(raw_line)
+        if parsed is None:
             continue
-        status, item = match.group(1), match.group(2).strip()
+        status, item = parsed
         if status.lower() == "x":
             checked.append(item)
         else:
             unchecked.append(item)
     return checked, unchecked
+
+
+def _is_seven_domain_spec(path: str) -> bool:
+    if not path.endswith(".md"):
+        return False
+    parts = path.split("/")
+    if len(parts) < 3 or parts[0] != "docs":
+        return False
+    domain = parts[1]
+    return len(domain) >= 3 and domain[0] in "1234567" and domain[1] == "_"
+
+
+def _is_unit_test_file(path: str) -> bool:
+    return path.startswith("src/crawler/tests/") and path.endswith(".py") and len(path) > len("src/crawler/tests/.py")
 
 
 def _check_pr_metadata_and_issue_link(pr: dict, owner: str, repo: str) -> tuple[int | None, dict | None]:
@@ -186,7 +212,7 @@ def _check_criteria_and_pr_checklist(pr: dict, issue: dict, issue_number: int) -
         )
 
     if unchecked:
-        items = "\n".join(f"* [ ] {item}" for item in unchecked)
+        items = "\n".join(f"- ☐ {item}" for item in unchecked)
         return _verdict(
             False,
             issue_number=issue_number,
@@ -204,7 +230,7 @@ def _check_criteria_and_pr_checklist(pr: dict, issue: dict, issue_number: int) -
             False,
             issue_number=issue_number,
             fail_reason=f"PR body contains {len(pr_unchecked)} unchecked checklist item(s).",
-            comment_body="⛔ **マージ不可 (PRチェックリスト未完了)**: PR 本文内に未完了の `- [ ]` が残っています。",
+            comment_body="⛔ **マージ不可 (PRチェックリスト未完了)**: PR 本文内に未完了チェックリスト項目が残っています。",
         )
 
     return None
@@ -227,7 +253,7 @@ def _requires_tdd_test(path: str) -> bool:
 def _check_sdd_and_tdd_files(files: list[str], issue_number: int) -> dict | None:
     norm_files = [f.replace("\\", "/").removeprefix("./") for f in files]
     needs_sdd = any(_requires_sdd_spec(f) for f in norm_files)
-    has_7_domain_spec = any(DOMAIN_SPEC_RE.match(f) for f in norm_files)
+    has_7_domain_spec = any(_is_seven_domain_spec(f) for f in norm_files)
     if needs_sdd and not has_7_domain_spec:
         msg = (
             "⛔ **マージ不可 (SDD / スペックドリブン違反)**: 実装コード・インフラ・CI・エージェント設定の変更が含まれていますが、"
@@ -241,7 +267,7 @@ def _check_sdd_and_tdd_files(files: list[str], issue_number: int) -> dict | None
         )
 
     needs_tdd = any(_requires_tdd_test(f) for f in norm_files)
-    has_unit_test = any(UNIT_TEST_FILE_RE.match(f) for f in norm_files)
+    has_unit_test = any(_is_unit_test_file(f) for f in norm_files)
     if needs_tdd and not has_unit_test:
         msg = (
             "⛔ **マージ不可 (TDD / テストドリブン違反)**: 実行コードまたは CI ワークフローの変更が含まれていますが、"
@@ -285,12 +311,11 @@ def evaluate_pr_governance(payload: dict) -> dict:
     return _verdict(True, issue_number=issue_number)
 
 
-def run_cli(input_path: str, output_path: str) -> int:
-    payload = json.loads(Path(input_path).read_text(encoding="utf-8"))
+def run_stdio(raw_json: str) -> str:
+    payload = json.loads(raw_json)
     verdict = evaluate_pr_governance(payload)
-    Path(output_path).write_text(json.dumps(verdict, ensure_ascii=False, indent=2), encoding="utf-8")
-    return 0
+    return json.dumps(verdict, ensure_ascii=False)
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(run_cli(sys.argv[1], sys.argv[2]))
+    sys.stdout.write(run_stdio(sys.stdin.read()))

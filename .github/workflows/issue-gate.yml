@@ -23,8 +23,6 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
             const { execFileSync } = require('child_process');
 
             const pr = context.payload.pull_request;
@@ -60,10 +58,6 @@ jobs:
               per_page: 100
             });
 
-            const tempDir = process.env.RUNNER_TEMP || '/tmp';
-            const inputPath = path.join(tempDir, 'governance_input.json');
-            const outputPath = path.join(tempDir, 'governance_verdict.json');
-
             const payload = {
               repo_owner: context.repo.owner,
               repo_name: context.repo.repo,
@@ -79,14 +73,13 @@ jobs:
               files: changedFiles.map(f => f.filename)
             };
 
-            fs.writeFileSync(inputPath, JSON.stringify(payload), 'utf8');
-            execFileSync(
+            const stdout = execFileSync(
               'python3',
-              ['src/crawler/package/utils/ci_governance_gate.py', inputPath, outputPath],
-              { stdio: 'inherit' }
+              ['src/crawler/package/utils/ci_governance_gate.py'],
+              { input: JSON.stringify(payload), encoding: 'utf8' }
             );
 
-            const verdict = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+            const verdict = JSON.parse(stdout);
             if (!verdict.passed) {
               if (verdict.comment_body) {
                 await github.rest.issues.createComment({
