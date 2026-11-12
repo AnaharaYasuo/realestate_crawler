@@ -10,8 +10,10 @@
 - 会社間は全社一斉に並行スタート可能
 """
 from package.utils.crawler_scheduler import (
+    calculate_job_priority,
     get_company_concurrency_limit,
     select_next_job,
+    sort_jobs_by_priority,
 )
 
 
@@ -81,3 +83,49 @@ def test_select_next_job_respects_limits():
     active_counts = {"mitsui": 5, "sekisui": 1, "homes": 5}
     res = select_next_job(job_queue, active_counts)
     assert res is None
+
+
+def test_sort_jobs_by_priority_portal_first():
+    """大規模ポータル (athome, homes) が最優先でソートされ、ロングテールが解消されることを検証 (Issue #1384)"""
+    jobs = [
+        ("sekisui", "mansion"),
+        ("mitsui", "kodate"),
+        ("athome", "mansion"),
+        ("homes", "mansion"),
+        ("nomura", "mansion"),
+        ("athome", "kodate"),
+        ("sumifu", "tochi"),
+    ]
+
+    sorted_jobs = sort_jobs_by_priority(jobs)
+
+    # 1. 大規模ポータル (athome, homes) が先頭グループに来ること
+    top_two = sorted_jobs[:3]
+    # athome-mansion, homes-mansion, athome-kodate の順に優先される
+    assert sorted_jobs[0] in [("athome", "mansion"), ("homes", "mansion")]
+    assert sorted_jobs[1] in [("athome", "mansion"), ("homes", "mansion")]
+    assert sorted_jobs[2] == ("athome", "kodate")
+
+    # 2. 次に主要仲介 (nomura-mansion, mitsui-kodate, sumifu-tochi) が続く
+    assert sorted_jobs[3] == ("nomura", "mansion")
+    assert sorted_jobs[4] == ("mitsui", "kodate")
+    assert sorted_jobs[5] == ("sumifu", "tochi")
+
+    # 3. 最後にその他一般系列 (sekisui-mansion) が続く
+    assert sorted_jobs[6] == ("sekisui", "mansion")
+
+
+def test_sort_jobs_by_priority_with_host_company():
+    """host_company が指定された場合、自タスク担当会社が最優先されることを検証"""
+    jobs = [
+        ("athome", "mansion"),
+        ("mitsui", "mansion"),
+        ("sumifu", "mansion"),
+    ]
+
+    # host_company="mitsui" の場合、mitsui が最優先
+    sorted_jobs = sort_jobs_by_priority(jobs, host_company="mitsui")
+    assert sorted_jobs[0] == ("mitsui", "mansion")
+    assert sorted_jobs[1] == ("athome", "mansion")
+    assert sorted_jobs[2] == ("sumifu", "mansion")
+

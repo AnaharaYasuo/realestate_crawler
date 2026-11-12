@@ -67,8 +67,14 @@ def select_next_job(
     return None
 
 
-# 優先度判定用の主要仲介グループ (Issue #985)
-# 最優先: 主要仲介大手 (mitsui, sumifu, tokyu, nomura, misawa) および 信託系 (smtrc, sumai1, mizuho), 大京 (daikyo)
+# 優先度判定用の会社グループ (Issue #985, #1384)
+# 最優先: 超大規模ポータル (athome, homes) - ロングテール解消のため序盤から並行スロットで先行消化
+PORTAL_COMPANIES: set[str] = {
+    "athome",
+    "homes",
+}
+
+# 次点: 主要仲介大手 (mitsui, sumifu, tokyu, nomura, misawa) および 信託系 (smtrc, sumai1, mizuho), 大京 (daikyo)
 MAJOR_BROKER_COMPANIES: set[str] = {
     "mitsui",
     "sumifu",
@@ -88,17 +94,22 @@ def calculate_job_priority(
     """
     ユーザー指定の優先度タプルを算出 (値が大きいほど優先):
     軸0 (自タスク主担当大手): host_company と一致する会社 -> 1, その他 -> 0 (最優先で全種別起動)
-    軸1 (主要仲介大手): 大手仲介 (大手5社 + 信託3社 + 大京) -> 1, その他 -> 0
+    軸1 (規模別先行優先): 超大規模ポータル (athome, homes) -> 2, 主要仲介大手 -> 1, その他 -> 0 (Issue #1384)
     軸2 (マンション優先): マンション (mansion) -> 1, その他種別 -> 0
     """
     c_lower = company.lower()
     p_lower = property_type.lower()
 
     is_host = 1 if host_company and c_lower == host_company.lower() else 0
-    is_major_broker = 1 if c_lower in MAJOR_BROKER_COMPANIES else 0
+    if c_lower in PORTAL_COMPANIES:
+        tier_score = 2
+    elif c_lower in MAJOR_BROKER_COMPANIES:
+        tier_score = 1
+    else:
+        tier_score = 0
     is_mansion = 1 if p_lower == "mansion" else 0
 
-    return (is_host, is_major_broker, is_mansion)
+    return (is_host, tier_score, is_mansion)
 
 
 def _job_sort_key(job: tuple[str, str], host_company: str | None = None):
