@@ -498,13 +498,20 @@ def _format_single_access(prop, index: int) -> str:
     if w == "-":
         w_num = getattr(prop, f"railwayWalkMinute{index}", None)
         w = str(w_num) if w_num else "-"
-    if s == "-":
+    bus_use = getattr(prop, f"busUse{index}", 0)
+    bus_min = clean_val(getattr(prop, f"busWalkMinute{index}Str", ""))
+    if bus_min == "-":
+        bus_min = clean_val(getattr(prop, f"busWalkMinute{index}", ""))
+    bus_stop = clean_val(getattr(prop, f"busStation{index}", ""))
+
+    if s == "-" and not (bus_use and bus_stop != "-"):
         return ""
 
     transit_parts = []
     if r != "-":
         transit_parts.append(r)
-    transit_parts.append(s)
+    if s != "-":
+        transit_parts.append(s)
 
     bus_use = getattr(prop, f"busUse{index}", 0)
     bus_min = clean_val(getattr(prop, f"busWalkMinute{index}Str", ""))
@@ -512,11 +519,14 @@ def _format_single_access(prop, index: int) -> str:
         bus_min = clean_val(getattr(prop, f"busWalkMinute{index}", ""))
     bus_stop = clean_val(getattr(prop, f"busStation{index}", ""))
 
-    if bus_use and bus_min != "-":
-        bus_desc = f"バス{bus_min}分"
-        if bus_stop != "-":
-            bus_desc += f"(停 {bus_stop})"
-        transit_parts.append(bus_desc)
+    if bus_use:
+        if bus_min != "-":
+            bus_desc = f"バス{bus_min}分"
+            if bus_stop != "-":
+                bus_desc += f"(停 {bus_stop})"
+            transit_parts.append(bus_desc)
+        elif bus_stop != "-":
+            transit_parts.append(f"バス(停 {bus_stop})")
 
     if w != "-":
         transit_parts.append(_format_walk_text(w))
