@@ -430,7 +430,13 @@ def extract_legal_and_furuya_features(
     estimated_fixed_asset_price: float | None = None,
 ) -> dict[str, float]:
     combined_text_lower = combined_text.lower()
-    is_saikenchiku_fuka = 1.0 if (_TERM_SAIKENCHIKU_FUKA in combined_text) else 0.0
+    unbuildable_keywords = (
+        _TERM_SAIKENCHIKU_FUKA,
+        "建築基準法に定める道路に接していない",
+        "再建築時には建築審査会の同意",
+        "建築審査会の同意を得て",
+    )
+    is_saikenchiku_fuka = 1.0 if any(k in combined_text for k in unbuildable_keywords) else 0.0
     chimoku_str = (
         str(_get_attr(property_obj, "chimoku", _get_attr(property_obj, "chimokuChisei", "")) or "")
         if property_obj is not None
@@ -457,8 +463,16 @@ def extract_legal_and_furuya_features(
         eff_land_mult,
     )
 
+    sokochi_keywords = (
+        "底地",
+        "貸地",
+        "借地権が設定されている土地",
+        "借地権（賃借権）が設定されている土地",
+        "借地権(賃借権)が設定されている土地",
+        "徴収する地代",
+    )
     rights_ratio = 1.0
-    if "底地" in combined_text_lower or "貸地" in combined_text_lower:
+    if any(k in combined_text_lower for k in sokochi_keywords):
         rights_ratio = 0.20
     elif "定期" in combined_text_lower or "定借" in combined_text_lower:
         remaining_ratio = max(0.20, (50 - chikunen) / 50.0) if chikunen > 0 else 0.50
