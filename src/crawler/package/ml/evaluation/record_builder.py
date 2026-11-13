@@ -32,29 +32,42 @@ def extract_land_rent_and_liability(item: Any) -> tuple[int | None, Decimal | No
     if chidai_val is None and getattr(item, "chidaiStr", None):
         chidai_val = parse_chidai(item.chidaiStr)
     monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
-    liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+    liability = (
+        Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+    )
     return monthly_rent, liability
 
 
 def populate_text_risks(evaluation_record: Any, item: Any) -> None:
     """物件テキストからプロ目線リスクフラグを抽出し評価レコードに反映する"""
-    full_text = " ".join(filter(None, [
-        getattr(item, "propertyName", ""),
-        getattr(item, "address", ""),
-        getattr(item, "traffic", ""),
-        getattr(item, "biko", ""),
-        getattr(item, "tochikenri", ""),
-        getattr(item, "genkyo", ""),
-        getattr(item, "torihiki", ""),
-        getattr(item, "setsubi", ""),
-    ]))
+    full_text = " ".join(
+        filter(
+            None,
+            [
+                getattr(item, "propertyName", ""),
+                getattr(item, "address", ""),
+                getattr(item, "traffic", ""),
+                getattr(item, "biko", ""),
+                getattr(item, "tochikenri", ""),
+                getattr(item, "genkyo", ""),
+                getattr(item, "torihiki", ""),
+                getattr(item, "setsubi", ""),
+            ],
+        )
+    )
     chikunengetsu = getattr(item, "chikunengetsu", None)
     if chikunengetsu:
-        chikunengetsu_str = chikunengetsu.strftime("%Y年%m月") if hasattr(chikunengetsu, "strftime") else str(chikunengetsu)
+        chikunengetsu_str = (
+            chikunengetsu.strftime("%Y年%m月")
+            if hasattr(chikunengetsu, "strftime")
+            else str(chikunengetsu)
+        )
     else:
         chikunengetsu_str = getattr(item, "chikunengetsuStr", None)
     kaisu_str = getattr(item, "kaisu", None) or getattr(item, "shozaikai", None)
-    total_floors = getattr(item, "chijoKaisu", None) or getattr(item, "totalFloors", None)
+    total_floors = getattr(item, "chijoKaisu", None) or getattr(
+        item, "totalFloors", None
+    )
     parsed_total_floors = None
     if total_floors is not None:
         try:
@@ -77,7 +90,9 @@ def _resolve_p10_and_uncertainty(
     if p10_stage1 is None or p10_stage1 <= 0.0 or price_stage1 <= 0.0:
         return None, None
     bounded = min(float(price_stage1), float(p10_stage1))
-    unc = round(max(0.0, min(0.9999, (float(price_stage1) - bounded) / float(price_stage1))), 4)
+    unc = round(
+        max(0.0, min(0.9999, (float(price_stage1) - bounded) / float(price_stage1))), 4
+    )
     return Decimal(round(bounded)), unc
 
 
@@ -89,6 +104,18 @@ def _extract_current_dup_id(rec: Any) -> Any:
         if dup_obj is not None and getattr(dup_obj, "id", None) is not None:
             return dup_obj.id
     return getattr(rec, "duplicate_of_id", None)
+
+
+def _check_first_stage_passed(
+    asking_price: float, price_stage1: float, p10_dec: Decimal | None
+) -> bool:
+    """Issue #1399: 下限予測価格P10での予測精度が高いため一次スクリーニング判定基準をP10基準に変更"""
+    benchmark_price = (
+        float(p10_dec) if p10_dec is not None and p10_dec > 0 else float(price_stage1)
+    )
+    return bool(
+        benchmark_price > 0 and asking_price > 0 and benchmark_price >= asking_price
+    )
 
 
 def build_or_update_eval_record(
@@ -103,11 +130,13 @@ def build_or_update_eval_record(
 ) -> tuple[Any, bool]:
     """単一物件の評価レコードを生成または更新する"""
     page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-    asking_price = (float(item.price) / 10000.0) if getattr(item, "price", None) else 0.0
-    is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
+    asking_price = (
+        (float(item.price) / 10000.0) if getattr(item, "price", None) else 0.0
+    )
 
     monthly_rent, liability = extract_land_rent_and_liability(item)
     p10_dec, unc_ratio = _resolve_p10_and_uncertainty(price_stage1, p10_stage1)
+    is_passed = _check_first_stage_passed(asking_price, price_stage1, p10_dec)
 
     prev_dup_id = None
     prev_identity = None
@@ -161,7 +190,9 @@ def build_or_update_eval_record(
 
     int_score = float(getattr(rec, "interior_score", None) or 3.0)
     lay_score = float(getattr(rec, "layout_score", None) or 3.0)
-    dcf_res = evaluate_dcf_and_yields(item, property_type, interior_score=int_score, layout_score=lay_score)
+    dcf_res = evaluate_dcf_and_yields(
+        item, property_type, interior_score=int_score, layout_score=lay_score
+    )
     rec.expected_gross_yield = Decimal(f"{dcf_res.expected_gross_yield:.2f}")
     rec.expected_net_yield = Decimal(f"{dcf_res.expected_net_yield:.2f}")
     rec.estimated_annual_rent = dcf_res.estimated_annual_rent
@@ -169,6 +200,8 @@ def build_or_update_eval_record(
 
     if not is_new:
         rec._duplicate_of_changed = bool(_extract_current_dup_id(rec) != prev_dup_id)
-        rec._identity_changed = bool((rec.company, rec.property_type, rec.property_id) != prev_identity)
+        rec._identity_changed = bool(
+            (rec.company, rec.property_type, rec.property_id) != prev_identity
+        )
 
     return rec, is_new
