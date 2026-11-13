@@ -1304,42 +1304,25 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
 
 class AthomeTochiParser(AthomeParser, TochiParserBase):
     @staticmethod
-    def _find_compound_value(specs: dict) -> str:
-        keys = (
-            "建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率",
-            "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"
-        )
-        for k in keys:
-            v = specs.get(k)
-            if v:
-                return str(v)
-        return ""
+    def _extract_ratios_from_text(comp: str) -> list[str]:
+        tokens = [t.rstrip('%％') for t in comp.replace('/', ' ').replace('・', ' ').split() if t.endswith(('%', '％'))]
+        return tokens or re.findall(r"\d+", comp)
 
-    def _parse_tochi_kenpei_youseki(self, specs: dict) -> tuple[str, str]:
-        kenpei = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
-        youseki = specs.get("容積率", "")
-        empty = ("", "-", "－", "―")
-        k_valid = str(kenpei).strip() not in empty
-        y_valid = str(youseki).strip() not in empty
-        if k_valid and y_valid:
-            return str(kenpei), str(youseki)
+    @classmethod
+    def _parse_tochi_kenpei_youseki(cls, specs: dict) -> tuple[str, str]:
+        empty = {"", "-", "－", "―"}
+        k = str(specs.get("建ぺい率", "") or specs.get("建蔽率", "")).strip()
+        y = str(specs.get("容積率", "")).strip()
+        if k not in empty and y not in empty:
+            return k, y
 
-        comp = self._find_compound_value(specs)
-        if not comp:
-            return str(kenpei) if k_valid else "", str(youseki) if y_valid else ""
+        keys = ("建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率", "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率")
+        comp = next((str(specs[key]) for key in keys if specs.get(key)), "")
+        ratios = cls._extract_ratios_from_text(comp) if comp else []
 
-        # Linear deterministic non-backtracking number extractor
-        ratios = [token.rstrip('%％') for token in comp.replace('/', ' ').replace('・', ' ').split() if token.endswith(('%', '％'))]
-        if not ratios:
-            ratios = re.findall(r"\d+", comp)
-
-        if len(ratios) >= 2:
-            kenpei = f"{ratios[0]}%" if not k_valid else kenpei
-            youseki = f"{ratios[1]}%" if not y_valid else youseki
-        elif len(ratios) == 1 and not k_valid:
-            kenpei = f"{ratios[0]}%"
-
-        return str(kenpei) if str(kenpei).strip() not in empty else "", str(youseki) if str(youseki).strip() not in empty else ""
+        final_k = k if k not in empty else (f"{ratios[0]}%" if len(ratios) >= 1 else "")
+        final_y = y if y not in empty else (f"{ratios[1]}%" if len(ratios) >= 2 else "")
+        return final_k, final_y
 
     def _parseHikiwatashi(self, response, specs=None):
         return super()._parseHikiwatashi(response, specs)
