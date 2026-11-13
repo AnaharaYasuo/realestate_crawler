@@ -112,3 +112,11 @@ def test_evaluate_single_model_streaming_orchestration(monkeypatch):
     assert evaluated_cnt == 2
     assert skipped_cnt == 0
     assert len(saved_calls) == 2  # 読み込みチャンクサイズ chunk_size=1 なので2回チャンク保存された
+
+
+
+def test_default_concurrency_is_bounded_for_oom_prevention():
+    """Issue #1405: 2GiBコンテナでのOOM防止のためDEFAULT_CONCURRENCYが2以下であることを保証する"""
+    from package.ml.evaluation.runner import DEFAULT_CONCURRENCY
+
+    assert DEFAULT_CONCURRENCY == 2
