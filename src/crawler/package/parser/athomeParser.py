@@ -1303,6 +1303,39 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
 
 
 class AthomeTochiParser(AthomeParser, TochiParserBase):
+    @staticmethod
+    def _extract_compound_ratios(val_str: str) -> list[str]:
+        # Use possessive/non-backtracking regex for SonarCloud
+        return [m.strip('%％ ') for m in re.findall(r"[0-9]+(?:\.[0-9]+)?[%％]", val_str)]
+
+    def _parse_tochi_kenpei_youseki(self, specs: dict) -> tuple[str, str]:
+        kenpei = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        youseki = specs.get("容積率", "")
+        empty = ("", "-", "－", "―")
+        if str(kenpei).strip() not in empty and str(youseki).strip() not in empty:
+            return str(kenpei), str(youseki)
+
+        compound_keys = (
+            "建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率",
+            "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"
+        )
+        for k in compound_keys:
+            comp_val = specs.get(k)
+            if not comp_val:
+                continue
+            ratios = self._extract_compound_ratios(str(comp_val))
+            if len(ratios) >= 2:
+                if str(kenpei).strip() in empty:
+                    kenpei = f"{ratios[0]}%"
+                if str(youseki).strip() in empty:
+                    youseki = f"{ratios[1]}%"
+                break
+            if len(ratios) == 1 and str(kenpei).strip() in empty:
+                kenpei = f"{ratios[0]}%"
+                break
+
+        return str(kenpei) if str(kenpei).strip() not in empty else "", str(youseki) if str(youseki).strip() not in empty else ""
+
     def _parseHikiwatashi(self, response, specs=None):
         return super()._parseHikiwatashi(response, specs)
 
@@ -1378,26 +1411,11 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
 
         # 用途地域・建容
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        kenpei_val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
-        youseki_val = specs.get("容積率", "")
-        if not kenpei_val or not youseki_val or str(kenpei_val).strip() in ("-", "－", "―") or str(youseki_val).strip() in ("-", "－", "―"):
-            for comp_key in ("建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率", "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"):
-                comp_val = specs.get(comp_key, "")
-                if comp_val:
-                    ratios = re.findall(r"(\d+(?:\.\d+)?)\s*[%％]", str(comp_val))
-                    if len(ratios) >= 2:
-                        if not kenpei_val or str(kenpei_val).strip() in ("-", "－", "―"):
-                            kenpei_val = f"{ratios[0]}%"
-                        if not youseki_val or str(youseki_val).strip() in ("-", "－", "―"):
-                            youseki_val = f"{ratios[1]}%"
-                        break
-                    elif len(ratios) == 1 and (not kenpei_val or str(kenpei_val).strip() in ("-", "－", "―")):
-                        kenpei_val = f"{ratios[0]}%"
-                        break
-        item.kenpeiStr = str(kenpei_val) if kenpei_val else ""
-        item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = str(youseki_val) if youseki_val else ""
-        item.youseki = converter.parse_ratio(item.yousekiStr)
+        k_val, y_val = self._parse_tochi_kenpei_youseki(specs)
+        item.kenpeiStr = k_val
+        item.kenpei = converter.parse_ratio(k_val)
+        item.yousekiStr = y_val
+        item.youseki = converter.parse_ratio(y_val)
 
         item.chimoku = self._parseChimoku(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
