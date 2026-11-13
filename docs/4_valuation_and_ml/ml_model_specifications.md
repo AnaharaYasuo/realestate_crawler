@@ -806,6 +806,9 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 3. **推論・DB永続化・お宝スクリーニング連携**:
    - `PropertyEvaluation` に `first_stage_p10_price`（下限10%理論価格・万円）および `prediction_uncertainty_ratio`（$( \hat{P} - \hat{P}_{10} ) / \hat{P}$）を永続化する。
    - `p10` 専用モデル未配置環境ではアンサンブル分散ベースの `compute_prediction_interval_p10` へ自動フォールバックし、後方互換性を100%維持する。
+   - **一次スクリーニング（`is_first_stage_passed`）のP10基準化 (Issue #1399)**:
+     - 一次合否判定において、有効な下限予測価格 $P_{10}$（`p10_stage1` / `first_stage_p10_price`）が存在する場合、売出価格との比較基準を $P_{10}$ とする（$P_{10} \ge P_{\text{asking}}$）。これにより、分散が大きく平均値が高く出ただけのノイズ物件（False Positive）を一次段階で遮断する。
+     - $P_{10}$ が未設定またはゼロ以下の環境では、従来通り平均予測値 $\hat{P}_{\text{stage1}} \ge P_{\text{asking}}$ へ安全にフォールバックする。
    - お宝スクリーニング（`send_recommendations.py` 等）では、保守的な下限予測値 $P_{10}$ でも売出価格を上回る（または僅差で下支えされる）低不確実性物件の優先度を引き上げ、不確実性が極端に高いノイズ物件を抑制する。
 
 ### 16.2 同一マンション相場 ＆ 半径500m近傍コンプス（`scipy.spatial.cKDTree` 空間 k-NN OOF 特徴量）
