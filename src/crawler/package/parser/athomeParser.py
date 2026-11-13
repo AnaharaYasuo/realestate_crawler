@@ -935,9 +935,15 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
             raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
 
     @staticmethod
-    def _ensure_mansion_located_floor(item, response: BeautifulSoup, page_url: str) -> None:
+    def _ensure_mansion_located_floor(item, response: BeautifulSoup, page_url: str, specs: dict | None = None) -> None:
         if PropertyDataValidator._has_located_floor(item.kaisuStr):
             return
+        specs = specs or {}
+        shumoku = str(specs.get("物件種目", ""))
+        if any(term in shumoku for term in ("タウンハウス", "テラスハウス")):
+            raise SkipPropertyException(
+                f"Athome mansion townhouse/terrace house without located floor skipped: {page_url} ({shumoku})"
+            )
         title_str = response.title.get_text() if response and response.title else ""
         search_txt = f"{getattr(item, 'propertyName', '')} {title_str}"
         floor_match = re.search(r"(?<!地上)(?:地下)?\d{1,3}階(?!建)", search_txt)
@@ -976,7 +982,7 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
             or specs.get("階数", "")
             or specs.get("階建", "")
         )
-        self._ensure_mansion_located_floor(item, response, page_url)
+        self._ensure_mansion_located_floor(item, response, page_url, specs=specs)
         if not item.senyuMenseki or float(item.senyuMenseki) <= 5.0:
             raise SkipPropertyException(f"Athome mansion invalid senyuMenseki ({item.senyuMenseki}) skipped: {page_url}")
         item.saikou = specs.get("主要採光面", "")
@@ -1297,6 +1303,33 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
 
 
 class AthomeTochiParser(AthomeParser, TochiParserBase):
+    @staticmethod
+    def _extract_ratios_from_text(comp: str) -> list[str]:
+        tokens = [t.rstrip('%％') for t in comp.replace('/', ' ').replace('・', ' ').split() if t.endswith(('%', '％'))]
+        return tokens or re.findall(r"\d+", comp)
+
+    @classmethod
+    def _parse_tochi_kenpei_youseki(cls, specs: dict) -> tuple[str, str]:
+        empty = {"", "-", "－", "―"}
+        k = str(specs.get("建ぺい率", "") or specs.get("建蔽率", "")).strip()
+        y = str(specs.get("容積率", "")).strip()
+        if k not in empty and y not in empty:
+            return k, y
+
+        keys = ("建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率", "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率")
+        comp = next((str(specs[key]) for key in keys if specs.get(key)), "")
+        ratios = cls._extract_ratios_from_text(comp) if comp else []
+
+        final_k = k
+        if final_k in empty and ratios:
+            final_k = f"{ratios[0]}%"
+
+        final_y = y
+        if final_y in empty and len(ratios) >= 2:
+            final_y = f"{ratios[1]}%"
+
+        return final_k, final_y
+
     def _parseHikiwatashi(self, response, specs=None):
         return super()._parseHikiwatashi(response, specs)
 
@@ -1372,10 +1405,11 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
 
         # 用途地域・建容
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
-        item.youseki = converter.parse_ratio(item.yousekiStr)
+        k_val, y_val = self._parse_tochi_kenpei_youseki(specs)
+        item.kenpeiStr = k_val
+        item.kenpei = converter.parse_ratio(k_val)
+        item.yousekiStr = y_val
+        item.youseki = converter.parse_ratio(y_val)
 
         item.chimoku = self._parseChimoku(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
