@@ -935,9 +935,15 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
             raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
 
     @staticmethod
-    def _ensure_mansion_located_floor(item, response: BeautifulSoup, page_url: str) -> None:
+    def _ensure_mansion_located_floor(item, response: BeautifulSoup, page_url: str, specs: dict | None = None) -> None:
         if PropertyDataValidator._has_located_floor(item.kaisuStr):
             return
+        specs = specs or {}
+        shumoku = str(specs.get("物件種目", ""))
+        if any(term in shumoku for term in ("タウンハウス", "テラスハウス")):
+            raise SkipPropertyException(
+                f"Athome mansion townhouse/terrace house without located floor skipped: {page_url} ({shumoku})"
+            )
         title_str = response.title.get_text() if response and response.title else ""
         search_txt = f"{getattr(item, 'propertyName', '')} {title_str}"
         floor_match = re.search(r"(?<!地上)(?:地下)?\d{1,3}階(?!建)", search_txt)
@@ -976,7 +982,7 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
             or specs.get("階数", "")
             or specs.get("階建", "")
         )
-        self._ensure_mansion_located_floor(item, response, page_url)
+        self._ensure_mansion_located_floor(item, response, page_url, specs=specs)
         if not item.senyuMenseki or float(item.senyuMenseki) <= 5.0:
             raise SkipPropertyException(f"Athome mansion invalid senyuMenseki ({item.senyuMenseki}) skipped: {page_url}")
         item.saikou = specs.get("主要採光面", "")
@@ -1372,9 +1378,25 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
 
         # 用途地域・建容
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        kenpei_val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        youseki_val = specs.get("容積率", "")
+        if not kenpei_val or not youseki_val or str(kenpei_val).strip() in ("-", "－", "―") or str(youseki_val).strip() in ("-", "－", "―"):
+            for comp_key in ("建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率", "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"):
+                comp_val = specs.get(comp_key, "")
+                if comp_val:
+                    ratios = re.findall(r"(\d+(?:\.\d+)?)\s*[%％]", str(comp_val))
+                    if len(ratios) >= 2:
+                        if not kenpei_val or str(kenpei_val).strip() in ("-", "－", "―"):
+                            kenpei_val = f"{ratios[0]}%"
+                        if not youseki_val or str(youseki_val).strip() in ("-", "－", "―"):
+                            youseki_val = f"{ratios[1]}%"
+                        break
+                    elif len(ratios) == 1 and (not kenpei_val or str(kenpei_val).strip() in ("-", "－", "―")):
+                        kenpei_val = f"{ratios[0]}%"
+                        break
+        item.kenpeiStr = str(kenpei_val) if kenpei_val else ""
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
+        item.yousekiStr = str(youseki_val) if youseki_val else ""
         item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.chimoku = self._parseChimoku(response, specs)
