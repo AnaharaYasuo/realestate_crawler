@@ -1320,8 +1320,14 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
         comp = next((str(specs[key]) for key in keys if specs.get(key)), "")
         ratios = cls._extract_ratios_from_text(comp) if comp else []
 
-        final_k = k if k not in empty else (f"{ratios[0]}%" if len(ratios) >= 1 else "")
-        final_y = y if y not in empty else (f"{ratios[1]}%" if len(ratios) >= 2 else "")
+        final_k = k
+        if final_k in empty and ratios:
+            final_k = f"{ratios[0]}%"
+
+        final_y = y
+        if final_y in empty and len(ratios) >= 2:
+            final_y = f"{ratios[1]}%"
+
         return final_k, final_y
 
     def _parseHikiwatashi(self, response, specs=None):
