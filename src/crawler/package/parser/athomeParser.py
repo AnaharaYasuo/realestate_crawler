@@ -1304,35 +1304,40 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
 
 class AthomeTochiParser(AthomeParser, TochiParserBase):
     @staticmethod
-    def _extract_compound_ratios(val_str: str) -> list[str]:
-        # Use possessive/non-backtracking regex for SonarCloud
-        return [m.strip('%％ ') for m in re.findall(r"[0-9]+(?:\.[0-9]+)?[%％]", val_str)]
+    def _find_compound_value(specs: dict) -> str:
+        keys = (
+            "建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率",
+            "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"
+        )
+        for k in keys:
+            v = specs.get(k)
+            if v:
+                return str(v)
+        return ""
 
     def _parse_tochi_kenpei_youseki(self, specs: dict) -> tuple[str, str]:
         kenpei = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         youseki = specs.get("容積率", "")
         empty = ("", "-", "－", "―")
-        if str(kenpei).strip() not in empty and str(youseki).strip() not in empty:
+        k_valid = str(kenpei).strip() not in empty
+        y_valid = str(youseki).strip() not in empty
+        if k_valid and y_valid:
             return str(kenpei), str(youseki)
 
-        compound_keys = (
-            "建蔽率/容積率", "建ぺい率/容積率", "建蔽率／容積率",
-            "建ぺい率／容積率", "建ぺい率・容積率", "建蔽率・容積率"
-        )
-        for k in compound_keys:
-            comp_val = specs.get(k)
-            if not comp_val:
-                continue
-            ratios = self._extract_compound_ratios(str(comp_val))
-            if len(ratios) >= 2:
-                if str(kenpei).strip() in empty:
-                    kenpei = f"{ratios[0]}%"
-                if str(youseki).strip() in empty:
-                    youseki = f"{ratios[1]}%"
-                break
-            if len(ratios) == 1 and str(kenpei).strip() in empty:
-                kenpei = f"{ratios[0]}%"
-                break
+        comp = self._find_compound_value(specs)
+        if not comp:
+            return str(kenpei) if k_valid else "", str(youseki) if y_valid else ""
+
+        # Linear deterministic non-backtracking number extractor
+        ratios = [token.rstrip('%％') for token in comp.replace('/', ' ').replace('・', ' ').split() if token.endswith(('%', '％'))]
+        if not ratios:
+            ratios = re.findall(r"\d+", comp)
+
+        if len(ratios) >= 2:
+            kenpei = f"{ratios[0]}%" if not k_valid else kenpei
+            youseki = f"{ratios[1]}%" if not y_valid else youseki
+        elif len(ratios) == 1 and not k_valid:
+            kenpei = f"{ratios[0]}%"
 
         return str(kenpei) if str(kenpei).strip() not in empty else "", str(youseki) if str(youseki).strip() not in empty else ""
 
