@@ -93,7 +93,7 @@ def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, 
         return True
 
     db_price = record.get("price")
-    # Use last_detail_fetched_at or inputDateTime so daily skip updates to updateDateTime never reset the 30-day detail TTL!
+    # Use last_detail_fetched_at or inputDateTime so daily skip updates to updateDateTime never reset the 14-day detail TTL!
     db_dt = record.get("last_detail_fetched_at") or record.get("inputDateTime") or record.get("updateDateTime")
 
     norm_item_price = _normalize_price_yen(item.price)
@@ -320,7 +320,7 @@ async def _process_differential_chunk(
 async def filter_differential_items(
     items: list[Any],
     model_class: Any,
-    ttl_days: int = 30,
+    ttl_days: int = 14,
     force_full: bool = False,
     enabled: bool = True,
     chunk_size: int = DIFFERENTIAL_CHUNK_SIZE,
