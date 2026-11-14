@@ -59,11 +59,12 @@ _EXCLUDED_HEAL_STATUSES = frozenset({
 def _is_blocked_for_ml_evaluation(existing_eval: Any) -> bool:
     if not existing_eval:
         return False
-    if not getattr(existing_eval, "is_published", True):
+    if getattr(existing_eval, "is_published", True) is False:
         return True
-    if getattr(existing_eval, "needs_recrawl", False) or getattr(existing_eval, "needs_parser_fix", False):
+    if getattr(existing_eval, "needs_recrawl", False) is True or getattr(existing_eval, "needs_parser_fix", False) is True:
         return True
-    return getattr(existing_eval, "heal_status", "healthy") in _EXCLUDED_HEAL_STATUSES
+    heal_status = getattr(existing_eval, "heal_status", "healthy")
+    return isinstance(heal_status, str) and heal_status in _EXCLUDED_HEAL_STATUSES
 
 
 def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = None) -> bool:
