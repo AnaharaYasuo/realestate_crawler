@@ -116,7 +116,7 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 
 | 時刻 (JST) | 実行基盤 | 処理内容 |
 | :--- | :--- | :--- |
-| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 50 --domain-concurrency 4 --playwright-concurrency 3 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。`proxysql-instance-prod` 起動確認・`127.0.0.1:6033` IAPトンネル確立・`SELECT 1` 疎通検証の後、14日TTL経過物件を全件直接URLクロールし、100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映。未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了し、IAPトンネル切断と `ensure_resources_stopped.py --skip-traffic-check` による `proxysql-instance-prod` 停止まで完了させる |
+| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 40 --domain-concurrency 3 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。`proxysql-instance-prod` 起動確認・`127.0.0.1:6033` IAPトンネル確立・`SELECT 1` 疎通検証の後、14日TTL経過物件を全件直接URLクロールし、100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映。未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了し、IAPトンネル切断と `ensure_resources_stopped.py --skip-traffic-check` による `proxysql-instance-prod` 停止まで完了させる |
 
 ### 手動確認・実行コマンド（ローカル本番実行）
 ```bash
@@ -127,7 +127,7 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --limit 20
 
 # 日次本番フル実行（最適並列条件・深夜 00:50 JST 自動停止＆ProxySQL停止付き）
-python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --concurrency 50 --domain-concurrency 4 --playwright-concurrency 3 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --concurrency 40 --domain-concurrency 3 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
 ```
 
 ---

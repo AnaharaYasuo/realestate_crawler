@@ -1085,9 +1085,9 @@ class TestIssue1427ConcurrencyDefaultsAndStopAtJst:
     def test_tuned_concurrency_defaults(self):
         parser = ttl_recrawl.build_arg_parser()
         args = parser.parse_args([])
-        assert args.concurrency == 50
-        assert args.domain_concurrency == 4
-        assert args.playwright_concurrency == 3
+        assert args.concurrency == 40
+        assert args.domain_concurrency == 3
+        assert args.playwright_concurrency == 2
         assert args.db_concurrency == 8
         assert args.db_batch_size == 100
         assert args.stop_at_jst is None
