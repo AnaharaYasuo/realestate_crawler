@@ -13,12 +13,12 @@ from scripts.ops import run_all_crawlers, run_pipeline
 from scripts import ensure_resources_stopped
 
 
-def test_differential_ttl_default_is_30_days():
-    """基準3: DIFFERENTIAL_TTL_DAYS のデフォルトが 30 日であること"""
+def test_differential_ttl_default_is_14_days():
+    """基準3 (Issue #1415で14日へ短縮): DIFFERENTIAL_TTL_DAYS のデフォルトが 14 日であること"""
     code = inspect.getsource(api_module.ParseMiddlePageAsyncBase._callApi)
-    assert '"30"' in code or "30" in code
+    assert '"14"' in code
     sig = inspect.signature(diff_module.filter_differential_items)
-    assert sig.parameters["ttl_days"].default == 30
+    assert sig.parameters["ttl_days"].default == 14
 
 
 def test_run_all_crawlers_default_parallel_is_safe():

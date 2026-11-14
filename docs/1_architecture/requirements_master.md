@@ -118,14 +118,32 @@
 - **タイムアウト・異常終了時の Slack 即時発報**:
   - `run_pipeline.py` において、制限時間超過 (`TimeoutError`) や未処理例外によりクローラーが強制終了された場合、未完走タスク番号、エラー内容、担当ジョブ一覧を Slack (`#property_alert` および `#dev-agent`) へ即座に通知すること。
 
-#### FR-CRAWL-692: 詳細取得非同期並行化・差分TTL30日・タイムアウト5時間枠・DB保護要件 (Issue #692)
+#### FR-CRAWL-692: 詳細取得非同期並行化・差分TTL・タイムアウト枠・DB保護要件 (Issue #692, #1415)
 - **詳細取得の非同期並行化（スループット向上と直列詰まり解消）**:
   - `_handle_local_execution` における `threading.Thread` 直列同期待機（`t.join(1.0)`）を解消し、`asyncio.to_thread` または非同期ワーカーを用いて `CLOUD_DETAIL_CONCURRENCY`（デフォルト 2）のセマフォ制御下で安全に並行処理すること。
   - DB コネクション過負荷を防止するため、過度な並行化（10〜20等）を禁止し、プロセス内並行度は最大 2〜3 に抑えること。
 - **プロセス並行度の抑制による Cloud SQL / ProxySQL 負荷保護**:
-  - `run_all_crawlers.py` のデフォルト並行度 `--parallel` を 35 から 6 へ引き下げ、全タスク（8タスクアレイ）合計の同時接続数が ProxySQL バックエンド上限（50）および Cloud SQL（db-f1-micro）の許容範囲内に収まるよう制御すること。
-- **差分クロール TTL の 30 日延長と一覧早期スキップ**:
-  - `DIFFERENTIAL_TTL_DAYS` のデフォルト値を 7 日から 30 日へ延長し、一覧カードから価格が取得でき、DB 価格と一致しかつ 30 日以内の物件は詳細ページアクセスを完全にスキップすること。
+  - `run_all_crawlers.py` のデフォルト並行度 `--parallel` を抑制し、全タスク合計の同時接続数が ProxySQL バックエンド上限（50）および Cloud SQL（db-f1-micro）の許容範囲内に収まるよう制御すること。
+- **差分クロール TTL 14 日設定と一覧早期スキップ (Issue #1415 で 30 日 ➔ 14 日へ短縮)**:
+  - `DIFFERENTIAL_TTL_DAYS` のデフォルト値を **14 日**とし、一覧カードから価格が取得でき、DB 価格と一致しかつ最終詳細取得日時（`last_detail_fetched_at`）から 14 日以内の物件は詳細ページアクセスを完全にスキップすること。
+
+#### FR-CRAWL-1415: TTL経過物件の全件直接URLクロール＆掲載終了フラグ更新・ローカル日次スケジュール実行要件 (Issue #1415)
+- **物件詳細差分 TTL の 14 日短縮**:
+  - `ParseMiddlePageAsyncBase._callApi` の `DIFFERENTIAL_TTL_DAYS` 既定値および `filter_differential_items` の `ttl_days` 既定値を `30` 日から **`14` 日**に短縮すること。
+- **TTL（14日）経過公開中物件の全件直接 URL クロールと掲載終了フラグ更新**:
+  - 一覧ページから消滅した成約・取下げ物件は一覧起点クロールでは再訪されないため、全登録物件モデル（`SiteRegistry.get_all_property_model_entries`）および `PropertyEvaluation(is_published=True)` を横断し、詳細取得日時（`PropertyEvaluation.last_detail_fetched_at`、未設定または未評価レコードの場合は物件テーブルの `inputDateTime` / `updateDateTime`）が 14 日を超過した公開中物件 URL を漏れなく抽出すること。
+  - 抽出した全対象 URL を直接開いてクロール（`ParseDetailPageAsyncBase` / `UrlRouter` 経由）し、以下のとおり処理すること：
+    1. **掲載終了検知時**（`ListingEndedException` / HTTP 404・410 等）: `PropertyEvaluation.is_published=False` かつ `delisted_at=now` を永続化する。
+    2. **掲載継続時**: 通常クロールと同一パイプラインで物件詳細スペック・価格改定履歴（`PropertyPriceHistory`）・整合性検証・`last_detail_fetched_at=now`（`is_published=True`）を更新・保存する。
+    3. **誤掲載終了防止ガード**: メンテナンス画面・WAF/アクセス遮断（403/429）・5xx・一時通信タイムアウト時は `is_published=False` への変更を絶対に行わず公開中ステータスを維持する。
+- **ローカル本番実行定義（原則 1.1）に基づく毎日 08:30 JST 自動実行**:
+  - 実行端末はローカル端末とし、`AGENTS.md` 原則 1.1（ローカル本番実行・インフラ接続厳守原則）および原則 1（完全ヘッドレス原則）に従うこと：
+    1. Docker コンテナを使用せず、ホスト上の Python（`EXECUTION_ENV=host` / `PYTHON_PATH`）で直接実行する。
+    2. 実行前に GCE インスタンス `proxysql-instance-prod`（zone: `asia-northeast1-a`, project: `sumifu`）の稼働状態を確認し、停止中であれば自動起動して受付可能になるまで待機する。
+    3. `127.0.0.1:6033` への IAP トンネル（`gcloud.cmd compute start-iap-tunnel`）が未確立の場合はバックグラウンド（非表示ウィンドウ）で自動開設する。
+    4. クロール開始前に必ず本番 DB への疎通確認（`SELECT 1`）を実行し、未接続・エラー時は放置せず即座に異常終了（Fail-Fast）する。
+    5. 終了時は自身が起動した IAP トンネルプロセスを確実にクリーンアップし、共有インフラ保護原則（`ensure_resources_stopped.py`）に従って他ジョブ非稼働時のみ安全に ProxySQL 停止判定を行う。
+  - 毎日 **08:30 JST** にローカル端末のヘッドレス定期スケジューラから自動実行すること。
 - **クローラータイムアウト 5 時間 (18000s) への延長とインフラ整合性保証**:
   - `CRAWL_TIMEOUT_SEC`（1ジョブ上限）および Terraform `crawler_timeout`（Cloud Run Job タスク全体上限）を 18000s (5時間) に延長すること。
   - Safety-Net のハング判定閾値 `DEFAULT_HUNG_THRESHOLD_SEC` を 18600s (18000s + 600s) に更新すること。
