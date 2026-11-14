@@ -63,7 +63,7 @@ class ReguideInvestmentParser(InvestmentParser):
                 data = await async_fetch_html_or_data(
                     session=session,
                     url=url,
-                    timeout=timeout,
+                    timeout_duration=timeout,
                     raise_on_non_html=False,
                 )
                 if data:

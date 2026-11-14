@@ -2760,7 +2760,7 @@ class ParserBase(metaclass=ABCMeta):
                 data = await async_fetch_html_or_data(
                     session=session,
                     url=url,
-                    timeout=client_timeout,
+                    timeout_duration=client_timeout,
                     raise_on_non_html=False,
                     status_validator=self._validate_http_status,
                 )

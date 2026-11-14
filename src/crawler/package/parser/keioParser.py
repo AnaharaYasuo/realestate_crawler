@@ -98,7 +98,7 @@ class KeioParser(ParserBase):
                     session=session,
                     url=url,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=20, connect=5, sock_read=15),
+                    timeout_duration=aiohttp.ClientTimeout(total=20, connect=5, sock_read=15),
                 )
                 data = json.loads(body.decode("utf-8")) if body else {}
                 html = data.get("html", "") if isinstance(data, dict) else ""
