@@ -186,15 +186,15 @@ jobs:
             --update-env-vars=APP_GIT_SHA=${{ github.sha }} \
             --region=asia-northeast1
 
-      - name: Trigger Anomaly Recrawl Workflow on Parser Changes
+      - name: Trigger Anomaly Recrawl Workflow on Parser or Selector Changes
         run: |
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
-          if echo "$CHANGED_FILES" | grep -q "^src/crawler/package/parser/"; then
-            echo "Parser changes detected in production deploy; triggering realestate-recrawl-anomalies-pipeline-prod..."
+          if echo "$CHANGED_FILES" | grep -Eq "^(src/crawler/package/parser/|config/selectors/)"; then
+            echo "Parser or selector changes detected in production deploy; triggering realestate-recrawl-anomalies-pipeline-prod..."
             gcloud workflows run realestate-recrawl-anomalies-pipeline-prod \
               --location=asia-northeast1 || echo "::warning::Failed to trigger anomaly recrawl workflow (non-blocking)"
           else
-            echo "No parser changes in HEAD~1..HEAD; skipping immediate anomaly recrawl trigger."
+            echo "No parser or selector changes in HEAD~1..HEAD; skipping immediate anomaly recrawl trigger."
           fi
 
       - name: Prune old images (Keep latest 3 versions)
