@@ -1340,6 +1340,15 @@ class TestIssue1430SiteSpecificConcurrencyLimits:
         args = parser.parse_args(["--exclude-company", "ietan"])
         assert args.exclude_company == "ietan"
 
+    def test_shared_session_default_headers_match_http_client_optimized_headers(self):
+        from package.utils.http_client import DEFAULT_HEADERS
+
+        assert ttl_recrawl.DEFAULT_HTTP_HEADERS == DEFAULT_HEADERS
+        assert "Accept" in ttl_recrawl.DEFAULT_HTTP_HEADERS
+        assert "Accept-Language" in ttl_recrawl.DEFAULT_HTTP_HEADERS
+        assert "Chrome/124.0.0.0" in ttl_recrawl.DEFAULT_HTTP_HEADERS["User-Agent"]
+
+
 
 
 
