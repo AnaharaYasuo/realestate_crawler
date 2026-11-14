@@ -4,7 +4,9 @@ import asyncio
 import re
 import logging
 import urllib.parse
-import requests
+import json
+import aiohttp
+from package.utils.http_client import async_fetch_html_or_data
 from bs4 import BeautifulSoup
 
 from package.models.keio import KeioMansion, KeioKodate, KeioTochi
@@ -92,8 +94,13 @@ class KeioParser(ParserBase):
         if "get_search_result_sale" in url:
             headers = self._get_request_headers()
             try:
-                resp = await asyncio.to_thread(requests.get, url, headers=headers, timeout=20)
-                data = resp.json()
+                body = await async_fetch_html_or_data(
+                    session=session,
+                    url=url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20, connect=5, sock_read=15),
+                )
+                data = json.loads(body.decode("utf-8")) if body else {}
                 html = data.get("html", "") if isinstance(data, dict) else ""
                 return BeautifulSoup(html, "html.parser")
             except Exception as e:

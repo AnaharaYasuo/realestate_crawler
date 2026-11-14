@@ -19,6 +19,12 @@ from package.utils import logging_config  # noqa: F401
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 from package.utils.failure_reporter import FailureReporter
+from package.utils.http_client import (
+    async_fetch_html_or_data,
+    FastAbortNonHtmlException,
+    MaxPayloadExceededException,
+    DEFAULT_HEADERS,
+)
 from package.api.differential import ListItem
 
 HTML_PARSER = "html.parser"
@@ -2744,24 +2750,22 @@ class ParserBase(metaclass=ABCMeta):
         raise LoadPropertyPageException(f"HTTP Status {status}: {url}")
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         req_timeout = getattr(self, "REQUEST_TIMEOUT_SEC", 15)
+        client_timeout = aiohttp.ClientTimeout(
+            total=req_timeout, connect=5, sock_read=10
+        )
         for attempt in range(max_timeouts):
             try:
-                async with session.get(
-                    url,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(
-                        total=req_timeout, connect=5, sock_read=10
-                    ),
-                ) as response:
-                    if response.status in (200, 202):
-                        self.consecutive_timeouts = 0
-                        return await response.read()
-                    self._validate_http_status(response.status, url)
+                data = await async_fetch_html_or_data(
+                    session=session,
+                    url=url,
+                    timeout=client_timeout,
+                    raise_on_non_html=False,
+                    status_validator=self._validate_http_status,
+                )
+                self.consecutive_timeouts = 0
+                return data
             except (TimeoutError, aiohttp.ClientError) as e:
                 if attempt == max_timeouts - 1:
                     cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
@@ -2774,6 +2778,9 @@ class ParserBase(metaclass=ABCMeta):
                         f"Timeout after {attempt + 1} attempts for URL: {url}"
                     ) from e
                 await asyncio.sleep(1 * (attempt + 1))
+            except MaxPayloadExceededException as e:
+                logging.warning(f"Payload limit exceeded for {url}: {e}")
+                return b""
         return b""
 
 

@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 from package.models.evaluation import PropertyEvaluation
 from package.utils.gemini_rate_limiter import get_gemini_flash_limiter
+from package.utils.http_client import fetch_image_bytes
 from package.utils.opencv_image_analyzer import analyze_pil_images_with_opencv
 from package.utils.plot_shape_analyzer import calculate_nta_irregular_discount
 from PIL import Image
@@ -235,9 +236,9 @@ def analyze_property_images_with_gemini(cleaned_images):
     for item in sorted_images[:5]:
         url = item.get("url")
         try:
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200 and verify_image_bytes(resp.content):
-                img = Image.open(io.BytesIO(resp.content))
+            raw_bytes = fetch_image_bytes(url, timeout=10)
+            if raw_bytes and verify_image_bytes(raw_bytes):
+                img = Image.open(io.BytesIO(raw_bytes))
                 images_to_send.append(img)
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Failed to load image for Gemini: {e}")
@@ -341,9 +342,9 @@ def _open_valid_pil_image(image_bytes: bytes, category: str) -> Image.Image | No
 
 def _fetch_single_pil_image(url: str, cat: str) -> Image.Image | None:
     try:
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            return _open_valid_pil_image(resp.content, cat)
+        raw_bytes = fetch_image_bytes(url, timeout=10)
+        if raw_bytes:
+            return _open_valid_pil_image(raw_bytes, cat)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Failed to download image for hybrid analysis: %s", exc)
     return None

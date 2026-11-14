@@ -8,6 +8,7 @@ from package.api.differential import ListItem
 from package.models.reguide import ReguideInvestment
 from package.parser.baseParser import AccessBlockedException, ListingEndedException, SkipPropertyException
 from package.parser.investmentParser import InvestmentParser
+from package.utils.http_client import async_fetch_html_or_data
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -53,21 +54,20 @@ class ReguideInvestmentParser(InvestmentParser):
         return None
 
     async def _getContent(self, session, url: str) -> bytes:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        }
         max_attempts = 3
         import asyncio
         import aiohttp
         for attempt in range(max_attempts):
             try:
                 timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT_SEC, connect=10, sock_read=20)
-                async with session.get(url, headers=headers, timeout=timeout) as resp:
-                    data = await self._handle_response_data(resp, url, attempt, max_attempts)
-                    if data is not None:
-                        return data
+                data = await async_fetch_html_or_data(
+                    session=session,
+                    url=url,
+                    timeout=timeout,
+                    raise_on_non_html=False,
+                )
+                if data:
+                    return data
             except (ListingEndedException, AccessBlockedException):
                 raise
             except Exception as e:

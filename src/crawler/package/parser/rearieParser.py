@@ -6,6 +6,8 @@ import logging
 import urllib.parse
 from bs4 import BeautifulSoup
 
+import json
+from package.utils.http_client import async_fetch_html_or_data
 from package.models.rearie import RearieMansion, RearieKodate, RearieTochi
 from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
 from package.utils import converter
@@ -92,11 +94,11 @@ class RearieParser(ParserBase):
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         if "phfudousan.repros.jp" in url:
-            async with session.get(url, headers=self.REPROS_HEADERS) as resp:
-                data = await resp.json()
-                soup = BeautifulSoup("<html><body></body></html>", "html.parser")
-                soup._json_data = data.get("data", data)
-                return soup
+            body = await async_fetch_html_or_data(session, url, headers=self.REPROS_HEADERS)
+            data = json.loads(body.decode("utf-8")) if body else {}
+            soup = BeautifulSoup("<html><body></body></html>", "html.parser")
+            soup._json_data = data.get("data", data)
+            return soup
         return await super().getResponseBs(session, url, charset)
 
     async def parseNextPageJson(self, json_data: dict) -> str:
@@ -286,15 +288,15 @@ class RearieParser(ParserBase):
         if "phfudousan.repros.jp" in url:
             item = self.createEntity()
             item.pageUrl = url
-            async with session.get(url, headers=self.REPROS_HEADERS) as resp:
-                if resp.status != 200:
-                    raise RuntimeError(f"Failed to fetch Rearie API {url}: {resp.status}")
-                res_json = await resp.json()
-                data = res_json.get("data", res_json)
-                item = self._parsePropertyDetailJson(item, data)
-                item = self.clean_parsed_item(item)
-                self.validate_required_fields(item)
-                return item
+            body = await async_fetch_html_or_data(session, url, headers=self.REPROS_HEADERS)
+            if not body:
+                raise RuntimeError(f"Failed to fetch Rearie API {url}: empty body")
+            res_json = json.loads(body.decode("utf-8"))
+            data = res_json.get("data", res_json)
+            item = self._parsePropertyDetailJson(item, data)
+            item = self.clean_parsed_item(item)
+            self.validate_required_fields(item)
+            return item
         item = await super().parsePropertyDetailPage(session, url)
         if item is not None and (not item.pageUrl or "detail.html" in url):
             item.pageUrl = url
