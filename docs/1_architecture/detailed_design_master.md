@@ -1028,10 +1028,13 @@ stateDiagram-v2
    - GCE `proxysql-instance-prod` の `metadata_startup_script`（`terraform/proxysql.tf`）はインスタンス起動終盤に `systemctl restart proxysql` を実行するため、初回テーブル全件走査中に一時的な MySQL 接続切断（`OperationalError` / `InterfaceError` コード `2002` / `2006` / `2013`）が発生し得る。
    - `_fetch_target_snapshots_with_retry` により、これらの一時的接続リセットを検知した際は `connection.close()` で壊れたコネクションを破棄して待機後に最大 4 回まで自動リトライし、コールドブート 1 回目でも確実に全件抽出を完遂する。
 
-### 8.3 直接URLクロール ＆ ステータス遷移・固定ワーカープール (`crawl_ttl_expired_targets_async`)
+### 8.3 直接URLクロール ＆ ステータス遷移・固定ワーカープール (`crawl_ttl_expired_recrawl` / `crawl_ttl_expired_targets_async`)
 - **固定サイズ非同期ワーカープール ＆ 共有 `aiohttp.ClientSession` 再利用 (Issue #1421)**:
-  - 15万件超のバックログ対象に対しても全件分のコルーチンフレームを一括生成せず、`deque(targets)` から `min(len(targets), max(1, concurrency))` 個の固定ワーカータスクが順次ポップして処理する構造とし、メモリ消費量を $O(\text{concurrency})$ の定数オーダーに制限する。
-  - ワーカープール全体で単一の共有 `aiohttp.ClientSession`（Keep-Alive 接続プール付き `TCPConnector`）を再利用し、URL 毎の TLS コンテキスト・コネクタ生成破棄による CPU 負荷と Windows エフェメラルポート枯渇を防止する（Playwright 利用サイトは各パーサーの既存非同期経路を透過維持し、GC 回収は 250 件毎の間欠実行に抑制する）。
+  - 15万件超のバックログ対象に対しても全件分のコルーチンフレームを一括生成せず、`deque(targets)` から固定ワーカータスクが順次ポップして処理する構造とし、メモリ消費量を定数オーダーに制限する。
+  - ワーカープール全体で単一の共有 `aiohttp.ClientSession`（Keep-Alive 接続プール付き `TCPConnector`）を再利用し、URL 毎の TLS コンテキスト・コネクタ生成破棄による CPU 負荷と Windows エフェメラルポート枯渇を防止する（GC 回収は 250 件毎の間欠実行に抑制する）。
+- **Static HTTP / Playwright 分離ワーカープール ＆ 100件バッチDB永続化フラッシュ機構 (Issue #1424)**:
+  - **独立2系統キュー＆ワーカープール分離**: Chromium 描画・WAF 回避を伴う企業（`PLAYWRIGHT_HEAVY_COMPANIES = {"athome", "mizuho", "sekisui", "smtrc", "kenbiya"}`）と通常の軽量 HTTP サイトをそれぞれ独立した `deque` とワーカープールに分離する（Static HTTP プール: `--concurrency` 既定 `36` / `--domain-concurrency` 既定 `3`、Playwright プール: `--playwright-concurrency` 既定 `2`）。これにより、10〜15秒を要する Playwright フェッチやドメインセマフォ待機が Static HTTP ワーカーの Head-of-Line Blocking を引き起こす事象を完全に排除する。
+  - **100件バッチ DB 一括書き込み (`--db-batch-size 100` / `_TtlDbBatchBuffer`) ＆ マルチスレッド DB 実行 (`_BoundedDbExecutor`)**: 各ワーカーは詳細フェッチ・パース結果（掲載継続アイテム・掲載終了・パース例外）を単件ごとに DB 往復させず、メモリバッファに蓄積して **`db_batch_size`（既定 `100` 件）到達時および全ワーカー完了時**に専用の固定サイズ `ThreadPoolExecutor`（`--db-concurrency` 既定 `8`）へフラッシュする。100件分の `PropertyEvaluation` を `property_url__in` で一括照会して PK 昇順ソートの `bulk_update(..., batch_size=100)` / `bulk_create(..., batch_size=100)` で反映し、各社物件モデルもモデルクラス別に既存行一括照会・上書き保護判定・`PropertyPriceHistory.objects.bulk_create`・`bulk_update` / `bulk_create` を実行することで、IAP トンネル越しの RTT を約 1/100 に圧縮する。バッチ終了時には全ワーカースレッドのスレッドローカル接続（`connections.close_all()`）を確実に解放する。
 - 各対象 URL に対し `UrlRouter.create_parser(url)` でパーサーを解決し、`ParseDetailPageAsyncBase` サブクラスを実行する：
   - **掲載終了検知**（`ListingEndedException` / HTTP 404・410）: `_handle_skipped_property` ➔ `_sync_persist_delisted` により `PropertyEvaluation.is_published = False`、`delisted_at = now_utc`、`needs_recrawl = False` を保存する（結果区分: `delisted`）。
   - **掲載継続・正常パース**: `_handle_saved_property` ➔ `_save_property_and_price_history` ➔ `tag_property_integrity` により物件スペック更新・価格改定履歴（`PropertyPriceHistory`）記録・`PropertyEvaluation.last_detail_fetched_at = now` 更新・`is_published = True` 維持を一貫実行する（結果区分: `refreshed` / バリデーションNG時は `invalid_saved`）。

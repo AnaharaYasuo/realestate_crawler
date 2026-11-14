@@ -751,4 +751,337 @@ class TestIssue1421ColdBootAndWorkerPool:
         assert len({id(s) for s in received_sessions}) == 1
 
 
+class TestIssue1424SplitPoolsAndParallelDb:
+    @pytest.mark.asyncio
+    async def test_split_targets_isolates_playwright_and_static_pools_without_head_of_line_blocking(self):
+        import asyncio
+        import time
+
+        # Put slow Playwright targets FIRST so a shared single pool of size 4 would stall behind athome!
+        pw_targets = [
+            ttl_recrawl.TtlTarget(
+                property_url=f"https://www.athome.co.jp/mansion/{i}",
+                company="athome",
+                property_type="mansion",
+            )
+            for i in range(6)
+        ]
+        static_targets = [
+            ttl_recrawl.TtlTarget(
+                property_url=f"https://www.rehouse.co.jp/buy/mansion/{i}",
+                company=f"static_{i % 6}",
+                property_type="mansion",
+            )
+            for i in range(24)
+        ]
+        all_targets = pw_targets + static_targets
+
+        static_done_mono: float = 0.0
+        static_completed = 0
+        pw_in_flight = 0
+        peak_pw_in_flight = 0
+        started = time.monotonic()
+
+        async def fake_single(target, timeout_sec=60, session=None, db_runner=None, domain_concurrency=3):
+            nonlocal static_done_mono, static_completed, pw_in_flight, peak_pw_in_flight
+            if target.company in ttl_recrawl.PLAYWRIGHT_HEAVY_COMPANIES:
+                pw_in_flight += 1
+                peak_pw_in_flight = max(peak_pw_in_flight, pw_in_flight)
+                await asyncio.sleep(0.06)
+                pw_in_flight -= 1
+                return "delisted"
+
+            await asyncio.sleep(0.003)
+            static_completed += 1
+            if static_completed == len(static_targets):
+                static_done_mono = time.monotonic() - started
+            return "refreshed"
+
+        with (
+            patch.object(ttl_recrawl, "crawl_single_ttl_target", side_effect=fake_single),
+            patch.object(ttl_recrawl, "close_old_connections"),
+        ):
+            stats = await ttl_recrawl.crawl_ttl_expired_targets_async(
+                targets=all_targets,
+                concurrency=8,
+                domain_concurrency=2,
+                playwright_concurrency=1,
+                db_concurrency=4,
+            )
+
+        assert stats == {"refreshed": 24, "delisted": 6}
+        assert peak_pw_in_flight == 1
+        # 6 athome targets at 0.06s with playwright_concurrency=1 take >=0.36s total,
+        # whereas all 24 static targets finish well under 0.15s because pools are isolated!
+        assert 0.0 < static_done_mono < 0.18
+
+    @pytest.mark.asyncio
+    async def test_bounded_db_executor_runs_concurrently_off_main_thread_and_closes_connections(self):
+        import asyncio
+        import threading
+        import time
+
+        main_tid = threading.get_ident()
+        lock = threading.Lock()
+        in_flight = 0
+        peak_in_flight = 0
+        worker_tids: set[int] = set()
+        closed_tids: set[int] = set()
+
+        def slow_db_op(idx: int) -> int:
+            nonlocal in_flight, peak_in_flight
+            tid = threading.get_ident()
+            with lock:
+                worker_tids.add(tid)
+                in_flight += 1
+                peak_in_flight = max(peak_in_flight, in_flight)
+            time.sleep(0.04)
+            with lock:
+                in_flight -= 1
+            return idx * 2
+
+        def fake_conn_close_all() -> None:
+            with lock:
+                closed_tids.add(threading.get_ident())
+
+        with patch.object(ttl_recrawl.connections, "close_all", side_effect=fake_conn_close_all):
+            db_runner = ttl_recrawl._BoundedDbExecutor(max_workers=4)
+            results = await asyncio.gather(*(db_runner.run(slow_db_op, i) for i in range(8)))
+            await db_runner.aclose()
+
+        assert results == [i * 2 for i in range(8)]
+        assert main_tid not in worker_tids
+        assert peak_in_flight >= 2
+        assert peak_in_flight <= 4
+        # Every DB worker thread that touched Django ORM had connections.close_all() invoked on shutdown
+        assert worker_tids.issubset(closed_tids)
+
+    @pytest.mark.asyncio
+    async def test_ttl_direct_detail_proc_persists_active_item_via_db_runner_with_price_revision(self):
+        class _FakePropertyModel:
+            objects = MagicMock()
+
+            def __init__(self, page_url: str) -> None:
+                self.id = None
+                self.pageUrl = page_url
+                self.propertyName = "DB並列マンション"
+                self.price = 62000000
+                self.inputDate = None
+                self.inputDateTime = None
+                self.updateDateTime = None
+                self._state = SimpleNamespace(adding=True)
+
+        target = ttl_recrawl.TtlTarget(
+            property_url="https://www.rehouse.co.jp/buy/mansion/bkdetail/DB1/",
+            company="mitsui",
+            property_type="mansion",
+            property_id=101,
+        )
+        fake_item = _FakePropertyModel(target.property_url)
+        existing_rec = SimpleNamespace(
+            id=101,
+            price=65000000,
+            inputDate=datetime.date(2026, 10, 1),
+            inputDateTime=datetime.datetime(2026, 10, 1, 9, 0),
+        )
+        db_runner = ttl_recrawl._BoundedDbExecutor(max_workers=2)
+        proc = ttl_recrawl.TtlDirectDetailProc(
+            target=target,
+            resolved_parser=MagicMock(),
+            timeout_sec=15,
+            db_runner=db_runner,
+            domain_concurrency=3,
+        )
+        saved_mock = MagicMock()
+        tagged_mock = MagicMock()
+        price_rev_mock = MagicMock()
+
+        try:
+            with (
+                patch.object(ttl_recrawl.UrlMatcher, "find_match_in_queryset", return_value=existing_rec),
+                patch.object(proc, "_should_preserve_existing_valid_record", return_value=(False, [])),
+                patch.object(proc, "_save_item_record_with_duplicate_fallback", saved_mock),
+                patch.object(proc, "_tag_integrity_sync", tagged_mock),
+                patch.object(ttl_recrawl.PropertyPriceHistory.objects, "create", price_rev_mock),
+                patch.object(ttl_recrawl.connections, "close_all"),
+            ):
+                await proc._save_property_and_price_history(fake_item)
+        finally:
+            await db_runner.aclose()
+
+        assert fake_item.id == 101
+        price_rev_mock.assert_called_once()
+        saved_mock.assert_called_once()
+        tagged_mock.assert_called_once_with(fake_item)
+
+    @pytest.mark.asyncio
+    async def test_ttl_db_batch_buffer_flushes_at_100_items_and_flushes_remainder(self):
+        import asyncio
+        import time
+
+        flushed_sizes: list[int] = []
+
+        def fake_flush(chunk, batch_size=100):
+            flushed_sizes.append(len(chunk))
+            return ["delisted" if e.kind == "delisted" else "refreshed" for e in chunk]
+
+        stats_lock = asyncio.Lock()
+        state = ttl_recrawl._BatchRunState(
+            total=235,
+            max_consecutive_failures=25,
+            started_mono=time.monotonic(),
+            stats={},
+        )
+        db_runner = ttl_recrawl._BoundedDbExecutor(max_workers=2)
+        buf = ttl_recrawl._TtlDbBatchBuffer(
+            db_runner=db_runner,
+            stats_lock=stats_lock,
+            state=state,
+            batch_size=100,
+        )
+
+        try:
+            with (
+                patch.object(ttl_recrawl, "_flush_fetched_batch_with_retry", side_effect=fake_flush),
+                patch.object(ttl_recrawl.connections, "close_all"),
+            ):
+                for idx in range(235):
+                    t = ttl_recrawl.TtlTarget(
+                        property_url=f"https://example.com/item/{idx}",
+                        company="mitsui",
+                        property_type="mansion",
+                    )
+                    kind = "delisted" if idx % 5 == 0 else "active"
+                    await buf.add(ttl_recrawl._FetchedOutcomeItem(target=t, kind=kind))
+                await buf.flush_remaining()
+        finally:
+            await db_runner.aclose()
+
+        assert flushed_sizes == [100, 100, 35]
+        assert state.completed == 235
+        assert state.stats["delisted"] == 47
+        assert state.stats["refreshed"] == 188
+
+    def test_flush_fetched_batch_sync_once_bulk_updates_delisted_and_active_records(self):
+        class _DummyModel:
+            objects = MagicMock()
+            _meta = SimpleNamespace(
+                concrete_fields=[
+                    SimpleNamespace(name="id", primary_key=True),
+                    SimpleNamespace(name="pageUrl", primary_key=False),
+                    SimpleNamespace(name="price", primary_key=False),
+                ]
+            )
+
+        existing_prop = _DummyModel()
+        existing_prop.id = 10
+        existing_prop.pk = 10
+        existing_prop.pageUrl = "https://www.rehouse.co.jp/buy/mansion/bkdetail/ACT1/"
+        existing_prop.price = 55000000
+        existing_prop.inputDate = datetime.date(2026, 9, 1)
+        existing_prop.inputDateTime = datetime.datetime(2026, 9, 1, 9, 0)
+        _DummyModel.objects.filter.return_value = [existing_prop]
+
+        new_prop = _DummyModel()
+        new_prop.id = None
+        new_prop.pageUrl = existing_prop.pageUrl
+        new_prop.propertyName = "一括更新マンション"
+        new_prop.price = 52000000
+        new_prop.address = "東京都港区六本木1-1-1"
+        new_prop.traffic = "東京メトロ日比谷線 六本木駅 徒歩4分"
+        new_prop.senyuMenseki = 65.0
+        new_prop.kaisuStr = "5階"
+        new_prop.madori = "2LDK"
+        new_prop.chikunengetsuStr = "2015年3月"
+        new_prop._state = SimpleNamespace(adding=True)
+
+        eval_active = SimpleNamespace(
+            pk=501,
+            property_url=existing_prop.pageUrl,
+            company="mitsui",
+            property_type="mansion",
+            property_id=10,
+            is_published=True,
+            delisted_at=None,
+            needs_parser_fix=False,
+            needs_recrawl=False,
+            data_quality_issue="",
+            heal_status="healthy",
+            failed_git_sha="",
+            recrawl_attempts=0,
+            last_detail_fetched_at=None,
+            first_stage_predicted_price=5400,
+            second_stage_predicted_price=None,
+            dcf_theoretical_price=5300,
+            is_first_stage_passed=True,
+        )
+        eval_delisted = SimpleNamespace(
+            pk=502,
+            property_url="https://www.rehouse.co.jp/buy/mansion/bkdetail/DEL1/",
+            company="mitsui",
+            property_type="mansion",
+            property_id=11,
+            is_published=True,
+            delisted_at=None,
+            needs_parser_fix=False,
+            needs_recrawl=True,
+            data_quality_issue="",
+            heal_status="healthy",
+            failed_git_sha="",
+            recrawl_attempts=0,
+            last_detail_fetched_at=None,
+            first_stage_predicted_price=None,
+            second_stage_predicted_price=None,
+            dcf_theoretical_price=None,
+            is_first_stage_passed=False,
+        )
+
+        batch = [
+            ttl_recrawl._FetchedOutcomeItem(
+                target=ttl_recrawl.TtlTarget(
+                    property_url=existing_prop.pageUrl,
+                    company="mitsui",
+                    property_type="mansion",
+                    property_id=10,
+                ),
+                kind="active",
+                item=new_prop,
+            ),
+            ttl_recrawl._FetchedOutcomeItem(
+                target=ttl_recrawl.TtlTarget(
+                    property_url=eval_delisted.property_url,
+                    company="mitsui",
+                    property_type="mansion",
+                    property_id=11,
+                ),
+                kind="delisted",
+            ),
+        ]
+
+        with (
+            patch.object(
+                ttl_recrawl.PropertyEvaluation.objects,
+                "filter",
+                return_value=[eval_active, eval_delisted],
+            ),
+            patch.object(ttl_recrawl.PropertyEvaluation.objects, "bulk_update") as eval_bulk_upd,
+            patch.object(ttl_recrawl.PropertyEvaluation.objects, "bulk_create"),
+            patch.object(ttl_recrawl.PropertyPriceHistory.objects, "bulk_create") as hist_bulk_create,
+            patch.object(ttl_recrawl.ParseDetailPageAsyncBase, "_detect_company_name", return_value="mitsui"),
+            patch.object(ttl_recrawl.PropertyTypeDetector, "detect_from_object", return_value="mansion"),
+        ):
+            outcomes = ttl_recrawl._flush_fetched_batch_sync_once(batch, batch_size=100)
+
+        assert outcomes == ["refreshed", "delisted"]
+        _DummyModel.objects.bulk_update.assert_called_once()
+        hist_bulk_create.assert_called_once()
+        eval_bulk_upd.assert_called_once()
+        assert eval_delisted.is_published is False
+        assert eval_delisted.delisted_at is not None
+        assert eval_active.last_detail_fetched_at is not None
+
+
+
+
+
 
