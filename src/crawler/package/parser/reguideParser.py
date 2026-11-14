@@ -1,8 +1,9 @@
 import logging
 from decimal import Decimal
 import re
+from typing import Any
 import urllib.parse
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from package.api.differential import ListItem
 from package.models.reguide import ReguideInvestment
 from package.parser.baseParser import AccessBlockedException, ListingEndedException, SkipPropertyException
@@ -125,7 +126,7 @@ class ReguideInvestmentParser(InvestmentParser):
         return ""
 
     @staticmethod
-    def _extract_price_text_from_table(price_table: BeautifulSoup) -> str:
+    def _extract_price_text_from_table(price_table: BeautifulSoup | Tag) -> str:
         ths = [th.get_text(strip=True) for th in price_table.select("th")]
         tds = price_table.select("td")
         for th, td in zip(ths, tds):
@@ -133,11 +134,14 @@ class ReguideInvestmentParser(InvestmentParser):
                 return td.get_text(strip=True)
         return ""
 
-    def _extract_card_price(self, card: BeautifulSoup) -> int | None:
+    @classmethod
+    def _extract_card_price(
+        cls, card: BeautifulSoup | Tag | Any, cache: dict[Any, Any] | None = None
+    ) -> int | None:
         """一覧カードから価格を抽出し、整数円またはNoneを返す"""
         price_table = card.select_one("table.price")
         if price_table:
-            price_text = self._extract_price_text_from_table(price_table)
+            price_text = cls._extract_price_text_from_table(price_table)
         else:
             price_el = card.select_one(".price, [class*='price']")
             price_text = price_el.get_text(strip=True) if price_el else ""
@@ -154,7 +158,7 @@ class ReguideInvestmentParser(InvestmentParser):
         except (ValueError, TypeError):
             return None
 
-    def _extract_detail_url_from_card(self, card: BeautifulSoup) -> str | None:
+    def _extract_detail_url_from_card(self, card: BeautifulSoup | Tag) -> str | None:
         """一覧カードから投資用物件の詳細URLを抽出して検証する"""
         a_tag = card.select_one("a[href*='/investment/']")
         if a_tag is None:
@@ -200,6 +204,23 @@ class ReguideInvestmentParser(InvestmentParser):
         """
         return ReguideInvestment()
 
+    @staticmethod
+    def _derive_annual_rent_from_yield(item) -> None:
+        if getattr(item, "annualRent", None) or not item.grossYield or not getattr(item, "price", None):
+            return
+        try:
+            gy = Decimal(str(item.grossYield))
+            price = Decimal(str(item.price))
+            if gy <= 0 or price <= 0:
+                return
+            rent_val = int(price * gy / Decimal(100))
+            if rent_val > 0:
+                item.annualRent = rent_val
+                if not getattr(item, "monthlyRent", None):
+                    item.monthlyRent = rent_val // 12
+        except Exception as err:
+            logger.debug("RE-Guide yield->rent derive skipped: %s", err)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._get_specs(response)
         price = self._parsePrice(response, specs)
@@ -214,6 +235,7 @@ class ReguideInvestmentParser(InvestmentParser):
         item.grossYield = self._parseGrossYield(response, specs)
         item.annualRent = self._parseAnnualRent(response, specs)
         item.monthlyRent = self._parseMonthlyRent(response, specs)
+        self._derive_annual_rent_from_yield(item)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
         item.kouzou = self._parseKouzou(response, specs)
@@ -249,12 +271,12 @@ class ReguideInvestmentParser(InvestmentParser):
             if key and val and key not in specs:
                 specs[key] = val
 
-    def _get_specs(self, response: BeautifulSoup) -> dict:
+    def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         """
         詳細ページのスペックテーブル (th / td) を辞書化する。
         同一行に複数の th/td ペアが存在するテーブルレイアウトに対応。
         """
-        specs = {}
+        specs: dict[str, str] = {}
         for table in response.find_all("table"):
             for tr in table.find_all("tr"):
                 self._extract_row_specs(tr, specs)
@@ -395,10 +417,12 @@ class ReguideInvestmentParser(InvestmentParser):
             if isinstance(html_content, BeautifulSoup)
             else BeautifulSoup(html_content, "html.parser")
         )
-        urls = set()
+        urls: set[str] = set()
         container = soup.select_one("ul#result_list") or soup
         for a_tag in container.find_all("a", href=True):
-            href = a_tag["href"]
+            href = a_tag.get("href")
+            if not isinstance(href, str) or not href:
+                continue
             abs_url = urllib.parse.urljoin(self.BASE_URL, href)
             parsed = urllib.parse.urlparse(abs_url)
             if (
