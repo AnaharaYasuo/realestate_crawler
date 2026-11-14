@@ -79,6 +79,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TTL_DAYS = 14
 DEFAULT_CONCURRENCY = 40
 DEFAULT_DOMAIN_CONCURRENCY = 3
+DEFAULT_WEAK_DOMAIN_CONCURRENCY = 2
 DEFAULT_PLAYWRIGHT_CONCURRENCY = 2
 DEFAULT_DB_CONCURRENCY = 8
 DEFAULT_DB_BATCH_SIZE = 100
@@ -90,6 +91,27 @@ JST = datetime.timezone(datetime.timedelta(hours=9), name="JST")
 PLAYWRIGHT_HEAVY_COMPANIES: frozenset[str] = frozenset(
     {"athome", "mizuho", "sekisui", "smtrc", "kenbiya"}
 )
+STRONG_STATIC_COMPANIES: frozenset[str] = frozenset(
+    {"homes", "mitsui", "sumifu", "tokyu", "nomura"}
+)
+
+
+def resolve_company_domain_concurrency(
+    company: str | None,
+    domain_concurrency: int = DEFAULT_DOMAIN_CONCURRENCY,
+    weak_domain_concurrency: int = DEFAULT_WEAK_DOMAIN_CONCURRENCY,
+    playwright_concurrency: int = DEFAULT_PLAYWRIGHT_CONCURRENCY,
+) -> int:
+    """Resolve per-company concurrency cap (strong servers: 3, weak/Playwright servers: 2)."""
+    strong_limit = max(1, domain_concurrency)
+    weak_limit = max(1, min(strong_limit, max(1, weak_domain_concurrency)))
+    pw_limit = max(1, min(strong_limit, max(1, playwright_concurrency)))
+    comp = (company or "").strip().lower()
+    if comp in PLAYWRIGHT_HEAVY_COMPANIES:
+        return pw_limit
+    if comp in STRONG_STATIC_COMPANIES:
+        return strong_limit
+    return weak_limit
 _TRANSIENT_DB_ERROR_TOKENS = (
     "2002",
     "2003",
@@ -1787,12 +1809,13 @@ async def _should_skip_before_fetch(
 async def _consume_target_deque(
     pending: deque[TtlTarget],
     domain_sems: dict[str, asyncio.Semaphore],
+    domain_limits: dict[str, int],
     stats_lock: asyncio.Lock,
     state: _BatchRunState,
     timeout_sec: int,
     shared_session: aiohttp.ClientSession,
     db_runner: _BoundedDbExecutor,
-    domain_concurrency: int,
+    default_domain_limit: int,
     db_batch_buffer: _TtlDbBatchBuffer | None = None,
 ) -> None:
     while True:
@@ -1803,7 +1826,9 @@ async def _consume_target_deque(
         if await _should_skip_before_fetch(stats_lock, state, pending):
             continue
 
-        comp_sem = domain_sems[target.company or "unknown"]
+        comp_key = (target.company or "unknown").lower()
+        comp_limit = domain_limits.get(comp_key, default_domain_limit)
+        comp_sem = domain_sems[comp_key]
         async with comp_sem:
             if await _should_skip_before_fetch(stats_lock, state, pending):
                 continue
@@ -1813,7 +1838,7 @@ async def _consume_target_deque(
                     timeout_sec,
                     shared_session,
                     db_runner,
-                    domain_concurrency,
+                    comp_limit,
                     db_batch_buffer,
                 )
             except Exception:
@@ -1825,10 +1850,35 @@ async def _consume_target_deque(
                     state.record_outcome(outcome)
 
 
+def _build_company_semaphores(
+    targets: deque[TtlTarget],
+    domain_concurrency: int,
+    weak_domain_concurrency: int,
+    playwright_concurrency: int,
+    fallback_limit: int,
+) -> tuple[dict[str, asyncio.Semaphore], dict[str, int]]:
+    sems: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(fallback_limit))
+    limits: dict[str, int] = {}
+    for t in targets:
+        comp_key = (t.company or "unknown").lower()
+        if comp_key in limits:
+            continue
+        lim = resolve_company_domain_concurrency(
+            comp_key,
+            domain_concurrency=domain_concurrency,
+            weak_domain_concurrency=weak_domain_concurrency,
+            playwright_concurrency=playwright_concurrency,
+        )
+        limits[comp_key] = lim
+        sems[comp_key] = asyncio.Semaphore(lim)
+    return sems, limits
+
+
 async def crawl_ttl_expired_targets_async(
     targets: list[TtlTarget],
     concurrency: int = DEFAULT_CONCURRENCY,
     domain_concurrency: int = DEFAULT_DOMAIN_CONCURRENCY,
+    weak_domain_concurrency: int = DEFAULT_WEAK_DOMAIN_CONCURRENCY,
     playwright_concurrency: int = DEFAULT_PLAYWRIGHT_CONCURRENCY,
     db_concurrency: int = DEFAULT_DB_CONCURRENCY,
     db_batch_size: int = DEFAULT_DB_BATCH_SIZE,
@@ -1845,12 +1895,21 @@ async def crawl_ttl_expired_targets_async(
     pw_workers = min(len(pw_pending), max(1, playwright_concurrency)) if pw_pending else 0
 
     static_dom_limit = max(1, domain_concurrency)
+    weak_dom_limit = max(1, min(static_dom_limit, max(1, weak_domain_concurrency)))
     pw_dom_limit = max(1, min(static_dom_limit, max(1, playwright_concurrency)))
-    static_domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
-        lambda: asyncio.Semaphore(static_dom_limit)
+    static_domain_sems, static_domain_limits = _build_company_semaphores(
+        static_pending,
+        domain_concurrency=static_dom_limit,
+        weak_domain_concurrency=weak_dom_limit,
+        playwright_concurrency=pw_dom_limit,
+        fallback_limit=weak_dom_limit,
     )
-    pw_domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
-        lambda: asyncio.Semaphore(pw_dom_limit)
+    pw_domain_sems, pw_domain_limits = _build_company_semaphores(
+        pw_pending,
+        domain_concurrency=static_dom_limit,
+        weak_domain_concurrency=weak_dom_limit,
+        playwright_concurrency=pw_dom_limit,
+        fallback_limit=pw_dom_limit,
     )
 
     stats_lock = asyncio.Lock()
@@ -1880,11 +1939,12 @@ async def crawl_ttl_expired_targets_async(
     client_timeout = aiohttp.ClientTimeout(total=timeout_sec)
 
     logger.info(
-        "[TTLRecrawl] Starting split pools: static_targets=%d (workers=%d, dom=%d), "
+        "[TTLRecrawl] Starting split pools: static_targets=%d (workers=%d, dom_strong=%d, dom_weak=%d), "
         "playwright_targets=%d (workers=%d, dom=%d), db_threads=%d, db_batch_size=%d.",
         len(static_pending),
         static_workers,
         static_dom_limit,
+        weak_dom_limit,
         len(pw_pending),
         pw_workers,
         pw_dom_limit,
@@ -1903,12 +1963,13 @@ async def crawl_ttl_expired_targets_async(
                     _consume_target_deque(
                         static_pending,
                         static_domain_sems,
+                        static_domain_limits,
                         stats_lock,
                         state,
                         timeout_sec,
                         shared_session,
                         db_runner,
-                        static_dom_limit,
+                        weak_dom_limit,
                         batch_buffer,
                     )
                 )
@@ -1919,6 +1980,7 @@ async def crawl_ttl_expired_targets_async(
                     _consume_target_deque(
                         pw_pending,
                         pw_domain_sems,
+                        pw_domain_limits,
                         stats_lock,
                         state,
                         timeout_sec,
@@ -1979,7 +2041,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--domain-concurrency",
         type=int,
         default=DEFAULT_DOMAIN_CONCURRENCY,
-        help=f"Per-company concurrent URL workers (default: {DEFAULT_DOMAIN_CONCURRENCY}).",
+        help=f"Per-company concurrent URL workers for high-capacity servers (default: {DEFAULT_DOMAIN_CONCURRENCY}).",
+    )
+    parser.add_argument(
+        "--weak-domain-concurrency",
+        type=int,
+        default=DEFAULT_WEAK_DOMAIN_CONCURRENCY,
+        help=f"Per-company concurrent URL workers for weaker/mid-tier servers (default: {DEFAULT_WEAK_DOMAIN_CONCURRENCY}).",
     )
     parser.add_argument(
         "--playwright-concurrency",
@@ -2083,10 +2151,12 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
         "db_batch_size": args.db_batch_size,
         "timeout_sec": args.timeout_sec,
     }
-    if deadline_utc is not None and "deadline_utc" in _accepted_optional_kwargs(
-        crawl_ttl_expired_targets_async, {"deadline_utc": deadline_utc}
-    ):
-        crawl_kwargs["deadline_utc"] = deadline_utc
+    optional_candidates: dict[str, Any] = {
+        "weak_domain_concurrency": getattr(args, "weak_domain_concurrency", DEFAULT_WEAK_DOMAIN_CONCURRENCY),
+    }
+    if deadline_utc is not None:
+        optional_candidates["deadline_utc"] = deadline_utc
+    crawl_kwargs.update(_accepted_optional_kwargs(crawl_ttl_expired_targets_async, optional_candidates))
     stats = asyncio.run(crawl_ttl_expired_targets_async(**crawl_kwargs))
     elapsed_sec = round((datetime.datetime.now(datetime.UTC) - started_at).total_seconds(), 1)
     return {
