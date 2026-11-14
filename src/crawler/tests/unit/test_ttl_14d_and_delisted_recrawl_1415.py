@@ -1198,7 +1198,7 @@ class TestIssue1430SiteSpecificConcurrencyLimits:
             )
 
         # Weak / slower servers -> 2
-        for weak in ("sotetsu", "odakyu", "sumai1", "sumirin", "misawa", "ietan", "reguide", "daiwa", "toho"):
+        for weak in ("sotetsu", "odakyu", "sumai1", "sumirin", "misawa", "reguide", "daiwa", "toho"):
             assert (
                 ttl_recrawl.resolve_company_domain_concurrency(
                     weak,
@@ -1208,6 +1208,17 @@ class TestIssue1430SiteSpecificConcurrencyLimits:
                 )
                 == 2
             )
+
+        # Single-concurrency fragile servers (Issue #1435: ietan) -> 1
+        assert (
+            ttl_recrawl.resolve_company_domain_concurrency(
+                "ietan",
+                domain_concurrency=3,
+                weak_domain_concurrency=2,
+                playwright_concurrency=2,
+            )
+            == 1
+        )
 
         # Playwright sites -> capped by playwright_concurrency (2)
         for pw in ("athome", "mizuho", "sekisui", "smtrc", "kenbiya"):
@@ -1278,6 +1289,57 @@ class TestIssue1430SiteSpecificConcurrencyLimits:
         assert peak["sotetsu"] == 2
         assert seen_proc_limits["mitsui"] == {3}
         assert seen_proc_limits["sotetsu"] == {2}
+
+    def test_exclude_company_filters_evaluations_and_unevaluated_models(self):
+        now = datetime.datetime(2026, 11, 14, 12, 0, tzinfo=datetime.UTC)
+        old_dt = now - datetime.timedelta(days=20)
+        eval_rows = [
+            {
+                "id": 1,
+                "property_url": "https://www.ietan.jp/mansion/detail/IE1",
+                "company": "ietan",
+                "property_type": "mansion",
+                "property_id": 10,
+                "is_published": True,
+                "last_detail_fetched_at": old_dt,
+            },
+            {
+                "id": 2,
+                "property_url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/M1/",
+                "company": "mitsui",
+                "property_type": "mansion",
+                "property_id": 20,
+                "is_published": True,
+                "last_detail_fetched_at": old_dt,
+            },
+        ]
+        model_rows = [
+            (
+                "ietan",
+                "mansion",
+                [{"id": 11, "pageUrl": "https://www.ietan.jp/mansion/detail/IE2", "inputDateTime": old_dt, "updateDateTime": old_dt}],
+            ),
+            (
+                "sumifu",
+                "mansion",
+                [{"id": 21, "pageUrl": "https://www.stepon.co.jp/mansion/detail_S1/", "inputDateTime": old_dt, "updateDateTime": old_dt}],
+            ),
+        ]
+        targets = ttl_recrawl.build_ttl_expired_targets_from_snapshots(
+            eval_rows=eval_rows,
+            model_rows_by_entry=model_rows,
+            now=now,
+            ttl_days=14,
+            exclude_companies={"ietan"},
+        )
+        companies = [t.company for t in targets]
+        assert "ietan" not in companies
+        assert set(companies) == {"mitsui", "sumifu"}
+
+        parser = ttl_recrawl.build_arg_parser()
+        args = parser.parse_args(["--exclude-company", "ietan"])
+        assert args.exclude_company == "ietan"
+
 
 
 
