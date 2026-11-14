@@ -110,13 +110,13 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 
 ---
 
-## 6. 14日TTL経過物件の全件直接URLクロール＆掲載終了フラグ更新運用手順（Issue #1415, #1424, #1427, #1430）
+## 6. 14日TTL経過物件の全件直接URLクロール＆掲載終了フラグ更新運用手順（Issue #1415, #1424, #1427, #1430, #1435）
 
 一覧ページから消えた成約・取下げ物件の掲載終了フラグ（`PropertyEvaluation.is_published=False` / `delisted_at`）更新および 14日TTL経過物件の詳細スペック最新化は、**ローカル端末でのローカル本番実行（`AGENTS.md` 原則 1.1）**として毎日 **08:30 JST** に自動実行され、深夜 **01:00 JST** の Cloud Run 定期クローリング開始前に **00:50 JST** で自動停止＆ProxySQL安全停止を行います。
 
 | 時刻 (JST) | 実行基盤 | 処理内容 |
 | :--- | :--- | :--- |
-| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2` に自動制限してタイムアウトを抑止。100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
+| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2`、`ietan` はドメイン並列 `1` に自動制限してタイムアウトを抑止（一時障害サイトがある場合は `--exclude-company` で一時除外可能）。100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
 
 ### 手動確認・実行コマンド（ローカル本番実行）
 ```bash

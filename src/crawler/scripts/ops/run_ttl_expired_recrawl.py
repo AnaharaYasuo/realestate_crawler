@@ -94,6 +94,9 @@ PLAYWRIGHT_HEAVY_COMPANIES: frozenset[str] = frozenset(
 STRONG_STATIC_COMPANIES: frozenset[str] = frozenset(
     {"homes", "mitsui", "sumifu", "tokyu", "nomura"}
 )
+SINGLE_CONCURRENCY_COMPANIES: frozenset[str] = frozenset(
+    {"ietan"}
+)
 
 
 def resolve_company_domain_concurrency(
@@ -102,11 +105,13 @@ def resolve_company_domain_concurrency(
     weak_domain_concurrency: int = DEFAULT_WEAK_DOMAIN_CONCURRENCY,
     playwright_concurrency: int = DEFAULT_PLAYWRIGHT_CONCURRENCY,
 ) -> int:
-    """Resolve per-company concurrency cap (strong servers: 3, weak/Playwright servers: 2)."""
+    """Resolve per-company concurrency cap (strong: 3, weak/Playwright: 2, fragile/ietan: 1)."""
     strong_limit = max(1, domain_concurrency)
     weak_limit = max(1, min(strong_limit, max(1, weak_domain_concurrency)))
     pw_limit = max(1, min(strong_limit, max(1, playwright_concurrency)))
     comp = (company or "").strip().lower()
+    if comp in SINGLE_CONCURRENCY_COMPANIES:
+        return 1
     if comp in PLAYWRIGHT_HEAVY_COMPANIES:
         return pw_limit
     if comp in STRONG_STATIC_COMPANIES:
@@ -621,12 +626,23 @@ def interleave_targets_by_company(targets: list[TtlTarget]) -> list[TtlTarget]:
     return interleaved
 
 
+def _is_company_allowed(
+    comp: str,
+    company_filter: set[str] | None,
+    exclude_companies: set[str] | None,
+) -> bool:
+    if company_filter and comp not in company_filter:
+        return False
+    return not (exclude_companies and comp in exclude_companies)
+
+
 def _extract_expired_from_evaluations(
     eval_rows: list[dict[str, Any]],
     model_meta_by_key: dict[str, dict[str, Any]],
     now: Any,
     ttl_days: int,
     company_filter: set[str] | None,
+    exclude_companies: set[str] | None = None,
 ) -> tuple[list[TtlTarget], set[str], set[str]]:
     seen_eval_keys: set[str] = set()
     queued_keys: set[str] = set()
@@ -640,7 +656,7 @@ def _extract_expired_from_evaluations(
         seen_eval_keys.add(key)
 
         comp = str(ev.get("company") or "unknown").lower()
-        if not ev.get("is_published", True) or (company_filter and comp not in company_filter):
+        if not ev.get("is_published", True) or not _is_company_allowed(comp, company_filter, exclude_companies):
             continue
         if key in queued_keys or not _should_queue_published_eval(ev, model_meta_by_key.get(key), now, ttl_days):
             continue
@@ -665,13 +681,14 @@ def _extract_expired_unevaluated_models(
     now: Any,
     ttl_days: int,
     company_filter: set[str] | None,
+    exclude_companies: set[str] | None = None,
 ) -> list[TtlTarget]:
     unevaluated_targets: list[TtlTarget] = []
     for key, meta in model_meta_by_key.items():
         if key in seen_eval_keys or key in queued_keys:
             continue
         comp = str(meta["company"]).lower()
-        if company_filter and comp not in company_filter:
+        if not _is_company_allowed(comp, company_filter, exclude_companies):
             continue
         base_dt = meta.get("base_dt")
         if base_dt is None or _is_ttl_expired(base_dt, now, ttl_days):
@@ -694,6 +711,7 @@ def build_ttl_expired_targets_from_snapshots(
     now: Any,
     ttl_days: int = DEFAULT_TTL_DAYS,
     company_filter: set[str] | None = None,
+    exclude_companies: set[str] | None = None,
 ) -> list[TtlTarget]:
     """Pure target selection logic across PropertyEvaluation and concrete property tables."""
     model_meta_by_key = _index_model_timestamps(model_rows_by_entry)
@@ -703,6 +721,7 @@ def build_ttl_expired_targets_from_snapshots(
         now=now,
         ttl_days=ttl_days,
         company_filter=company_filter,
+        exclude_companies=exclude_companies,
     )
     targets.extend(
         _extract_expired_unevaluated_models(
@@ -712,6 +731,7 @@ def build_ttl_expired_targets_from_snapshots(
             now=now,
             ttl_days=ttl_days,
             company_filter=company_filter,
+            exclude_companies=exclude_companies,
         )
     )
     return interleave_targets_by_company(targets)
@@ -720,10 +740,13 @@ def build_ttl_expired_targets_from_snapshots(
 def _fetch_target_snapshots_once(
     company_filter: set[str] | None,
     skip_portals: bool,
+    exclude_companies: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str, list[dict[str, Any]]]]]:
     eval_qs = PropertyEvaluation.objects.all()
     if company_filter:
         eval_qs = eval_qs.filter(company__in=company_filter)
+    if exclude_companies:
+        eval_qs = eval_qs.exclude(company__in=exclude_companies)
     eval_rows = list(
         eval_qs.values(
             "id",
@@ -742,7 +765,7 @@ def _fetch_target_snapshots_once(
     )
     model_rows_by_entry: list[tuple[str, str, list[dict[str, Any]]]] = []
     for model_cls, comp, ptype in entries:
-        if company_filter and comp.lower() not in company_filter:
+        if not _is_company_allowed(comp.lower(), company_filter, exclude_companies):
             continue
         rows = list(
             model_cls.objects.values(
@@ -760,10 +783,15 @@ def _fetch_target_snapshots_with_retry(
     company_filter: set[str] | None,
     skip_portals: bool,
     max_attempts: int = 4,
+    exclude_companies: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str, list[dict[str, Any]]]]]:
     for attempt in range(max_attempts):
         try:
-            return _fetch_target_snapshots_once(company_filter, skip_portals)
+            return _fetch_target_snapshots_once(
+                company_filter,
+                skip_portals,
+                exclude_companies=exclude_companies,
+            )
         except Exception as exc:
             if not _is_transient_db_disconnect(exc) or attempt >= max_attempts - 1:
                 raise
@@ -781,22 +809,28 @@ def _fetch_target_snapshots_with_retry(
     raise RuntimeError("Unreachable target snapshot retry exhaustion")
 
 
+def _parse_csv_company_set(raw: str | None) -> set[str] | None:
+    if not raw:
+        return None
+    parsed = {c.strip().lower() for c in raw.split(",") if c.strip()}
+    return parsed or None
+
+
 def collect_ttl_expired_targets(
     ttl_days: int = DEFAULT_TTL_DAYS,
     company: str | None = None,
+    exclude_company: str | None = None,
     skip_portals: bool = False,
     limit: int | None = None,
 ) -> list[TtlTarget]:
     """Query production/configured DB for all 14-day TTL-expired published property URLs."""
-    company_filter = (
-        {c.strip().lower() for c in company.split(",") if c.strip()}
-        if company
-        else None
-    )
+    company_filter = _parse_csv_company_set(company)
+    exclude_companies = _parse_csv_company_set(exclude_company)
     now = timezone.now()
     eval_rows, model_rows_by_entry = _fetch_target_snapshots_with_retry(
         company_filter=company_filter,
         skip_portals=skip_portals,
+        exclude_companies=exclude_companies,
     )
     targets = build_ttl_expired_targets_from_snapshots(
         eval_rows=eval_rows,
@@ -804,6 +838,7 @@ def collect_ttl_expired_targets(
         now=now,
         ttl_days=ttl_days,
         company_filter=company_filter,
+        exclude_companies=exclude_companies,
     )
     if limit is not None and limit > 0:
         return targets[:limit]
@@ -2020,6 +2055,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional comma-separated company filter (e.g. mitsui,sumifu).",
     )
     parser.add_argument(
+        "--exclude-company",
+        type=str,
+        default=None,
+        help="Optional comma-separated company exclusion list (e.g. ietan).",
+    )
+    parser.add_argument(
         "--skip-portals",
         action="store_true",
         default=False,
@@ -2114,12 +2155,20 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
             deadline_utc.astimezone(JST).strftime("%Y-%m-%d %H:%M:%S"),
             deadline_utc.strftime("%Y-%m-%d %H:%M:%S"),
         )
-    targets = collect_ttl_expired_targets(
-        ttl_days=args.ttl_days,
-        company=args.company,
-        skip_portals=args.skip_portals,
-        limit=args.limit,
-    )
+    collect_kwargs: dict[str, Any] = {
+        "ttl_days": args.ttl_days,
+        "company": args.company,
+        "skip_portals": args.skip_portals,
+        "limit": args.limit,
+    }
+    if getattr(args, "exclude_company", None):
+        collect_kwargs.update(
+            _accepted_optional_kwargs(
+                collect_ttl_expired_targets,
+                {"exclude_company": args.exclude_company},
+            )
+        )
+    targets = collect_ttl_expired_targets(**collect_kwargs)
     by_company: dict[str, int] = defaultdict(int)
     for t in targets:
         by_company[t.company] += 1
