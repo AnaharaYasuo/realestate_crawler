@@ -8,6 +8,7 @@ from package.api.differential import ListItem
 from package.models.reguide import ReguideInvestment
 from package.parser.baseParser import AccessBlockedException, ListingEndedException, SkipPropertyException
 from package.parser.investmentParser import InvestmentParser
+from package.utils.http_client import DEFAULT_HEADERS, is_allowed_content_type
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -53,11 +54,7 @@ class ReguideInvestmentParser(InvestmentParser):
         return None
 
     async def _getContent(self, session, url: str) -> bytes:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        }
+        headers = dict(DEFAULT_HEADERS)
         max_attempts = 3
         import asyncio
         import aiohttp

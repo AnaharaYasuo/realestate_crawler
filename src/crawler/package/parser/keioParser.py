@@ -4,7 +4,9 @@ import asyncio
 import re
 import logging
 import urllib.parse
+import json
 import requests
+from package.utils.http_client import DEFAULT_HEADERS
 from bs4 import BeautifulSoup
 
 from package.models.keio import KeioMansion, KeioKodate, KeioTochi
@@ -90,10 +92,11 @@ class KeioParser(ParserBase):
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         self.current_base_url = url
         if "get_search_result_sale" in url:
-            headers = self._get_request_headers()
+            headers = dict(DEFAULT_HEADERS)
+            headers.update(self._get_request_headers())
             try:
                 resp = await asyncio.to_thread(requests.get, url, headers=headers, timeout=20)
-                data = resp.json()
+                data = resp.json() if hasattr(resp, "json") and callable(resp.json) else {}
                 html = data.get("html", "") if isinstance(data, dict) else ""
                 return BeautifulSoup(html, "html.parser")
             except Exception as e:
