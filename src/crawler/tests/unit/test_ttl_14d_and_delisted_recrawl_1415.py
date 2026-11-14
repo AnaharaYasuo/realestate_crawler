@@ -1179,6 +1179,108 @@ class TestIssue1427ConcurrencyDefaultsAndStopAtJst:
         stop_inst_mock.assert_called_once_with("sumifu", "asia-northeast1-a", "proxysql-instance-prod")
 
 
+class TestIssue1430SiteSpecificConcurrencyLimits:
+    def test_weak_domain_concurrency_default_and_resolution(self):
+        parser = ttl_recrawl.build_arg_parser()
+        args = parser.parse_args([])
+        assert args.weak_domain_concurrency == 2
+
+        # High-capacity portal / top-4 major brokers -> 3
+        for strong in ("homes", "mitsui", "sumifu", "tokyu", "nomura"):
+            assert (
+                ttl_recrawl.resolve_company_domain_concurrency(
+                    strong,
+                    domain_concurrency=3,
+                    weak_domain_concurrency=2,
+                    playwright_concurrency=2,
+                )
+                == 3
+            )
+
+        # Weak / slower servers -> 2
+        for weak in ("sotetsu", "odakyu", "sumai1", "sumirin", "misawa", "ietan", "reguide", "daiwa", "toho"):
+            assert (
+                ttl_recrawl.resolve_company_domain_concurrency(
+                    weak,
+                    domain_concurrency=3,
+                    weak_domain_concurrency=2,
+                    playwright_concurrency=2,
+                )
+                == 2
+            )
+
+        # Playwright sites -> capped by playwright_concurrency (2)
+        for pw in ("athome", "mizuho", "sekisui", "smtrc", "kenbiya"):
+            assert (
+                ttl_recrawl.resolve_company_domain_concurrency(
+                    pw,
+                    domain_concurrency=3,
+                    weak_domain_concurrency=2,
+                    playwright_concurrency=2,
+                )
+                == 2
+            )
+
+    @pytest.mark.asyncio
+    async def test_crawl_caps_weak_server_at_2_while_allowing_strong_server_at_3(self):
+        import asyncio
+
+        targets = [
+            *(
+                ttl_recrawl.TtlTarget(
+                    property_url=f"https://www.rehouse.co.jp/buy/mansion/bkdetail/M{i}/",
+                    company="mitsui",
+                    property_type="mansion",
+                )
+                for i in range(6)
+            ),
+            *(
+                ttl_recrawl.TtlTarget(
+                    property_url=f"https://www.sotetsu-re.co.jp/buy/detail/S{i}/",
+                    company="sotetsu",
+                    property_type="mansion",
+                )
+                for i in range(6)
+            ),
+        ]
+        in_flight: dict[str, int] = {"mitsui": 0, "sotetsu": 0}
+        peak: dict[str, int] = {"mitsui": 0, "sotetsu": 0}
+        seen_proc_limits: dict[str, set[int]] = {"mitsui": set(), "sotetsu": set()}
+
+        async def _fake_crawl_single(
+            target,
+            timeout_sec=60,
+            session=None,
+            db_runner=None,
+            domain_concurrency=3,
+        ):
+            comp = target.company
+            seen_proc_limits[comp].add(domain_concurrency)
+            in_flight[comp] += 1
+            peak[comp] = max(peak[comp], in_flight[comp])
+            await asyncio.sleep(0.05)
+            in_flight[comp] -= 1
+            return "refreshed"
+
+        with patch.object(ttl_recrawl, "crawl_single_ttl_target", side_effect=_fake_crawl_single):
+            stats = await ttl_recrawl.crawl_ttl_expired_targets_async(
+                targets=targets,
+                concurrency=12,
+                domain_concurrency=3,
+                weak_domain_concurrency=2,
+                playwright_concurrency=2,
+                db_batch_size=1,
+            )
+
+        assert stats["refreshed"] == 12
+        assert peak["mitsui"] == 3
+        assert peak["sotetsu"] <= 2
+        assert peak["sotetsu"] == 2
+        assert seen_proc_limits["mitsui"] == {3}
+        assert seen_proc_limits["sotetsu"] == {2}
+
+
+
 
 
 
