@@ -88,6 +88,28 @@ python src/crawler/scripts/ops/run_bulk_ml_evaluation.py --force --no-skip-porta
 
 ---
 
-**最終更新**: 2026年11月12日  
-**バージョン**: 1.3 (P10コンフォーマル予測・空間kNN・OpenCV×Gemini2.5Flash低速制御・16並列PK昇順更新手順追記)
+## 5. GitHub Issue ドリブン自動修復パイプライン運用手順（Issue #1412）
+
+日次パイプラインにおけるパーサー不整合の検知からコード修正・再クロールまでの自動連鎖は以下のスケジュールで稼働します：
+
+| 時刻 (JST) | 実行基盤 | 処理内容 | トークン消費 |
+| :--- | :--- | :--- | :--- |
+| **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・`auto_heal_parsers.py` による GCS `auto_heal/latest_instruction.json` 更新 | Gemini Flash 要約のみ |
+| **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) により `auto-heal` ラベル付き Issue を自動起票・重複排除・解決時自動クローズ | **ゼロ** |
+| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を確認し、対象あり時のみ Worktree でパーサー修正・テスト・PR作成・Auto-merge 設定 | **Antigravity 定額枠**（対象0件時は即終了） |
+| **PRマージ後** | GitHub Actions (`auto-release-pr` ➔ `deploy-production`) | `production` 自動昇格・Cloud Run 更新・`realestate-recrawl-anomalies-pipeline-prod` 即時起動による異常データ再取得 | **ゼロ** |
+
+### 手動運用コマンド
+```bash
+# アクション可能な auto-heal Issue 一覧の JSON 確認
+python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable
+
+# GCS 最新指示書からの Issue 同期ドライラン
+python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-run
+```
+
+---
+
+**最終更新**: 2026年11月14日  
+**バージョン**: 1.4 (Issue #1412: GitHub Issue ドリブン × Antigravity Scheduled Automation 自動修復手順追記)
 

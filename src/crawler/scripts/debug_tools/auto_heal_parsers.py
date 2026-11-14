@@ -2,8 +2,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 
 # Django初期化設定
 sys.path.append(
@@ -188,7 +187,7 @@ def summarize_errors_with_gemini(
         return default_summary
 
     consecutive_timeouts, cooldown_until = _load_cb_state()
-    now = datetime.now(dt_timezone.utc)
+    now = datetime.now(UTC)
     if cooldown_until and now < cooldown_until:
         logger.warning(
             "Gemini API circuit-breaker active until %s due to consecutive timeouts. Returning default summary.",
@@ -466,7 +465,7 @@ def upload_instruction_to_gcs(instruction: dict) -> bool:
         return False
     try:
         payload = json.dumps(instruction, ensure_ascii=False, indent=2).encode("utf-8")
-        today_str = datetime.now(dt_timezone.utc).strftime("%Y-%m-%d")
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
         sm = get_storage_manager()
         sm.upload_bytes(payload, AUTO_HEAL_GCS_LATEST_KEY, content_type="application/json")
         sm.upload_bytes(
@@ -520,8 +519,8 @@ def _mark_eval_heal_requested(ev) -> None:
         try:
             ev.heal_status = "heal_requested"
             ev.save(update_fields=["heal_status"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not persist heal_requested status: %s", exc)
 
 
 def _extract_fallback_reason_from_prop(prop) -> str:
@@ -534,7 +533,35 @@ def _extract_fallback_reason_from_prop(prop) -> str:
     return ""
 
 
+def _is_source_data_invalid(ev) -> bool:
+    if getattr(ev, "heal_status", "") == "source_data_invalid":
+        return True
+    issue_text = str(getattr(ev, "data_quality_issue", "") or "")
+    return "[source_data_invalid]" in issue_text
+
+
+def _clear_stale_instruction_and_sync_zero(temp_dir: str) -> None:
+    logger.info("No scraping anomalies or pipeline failures found for AI healing.")
+    inst_path = os.path.join(temp_dir, "auto_heal_instruction.json")
+    if os.path.exists(inst_path):
+        os.remove(inst_path)
+        logger.info("Removed stale auto_heal_instruction.json")
+    upload_instruction_to_gcs(
+        {
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "total_anomalies_detected": 0,
+            "failed_pipeline_steps": [],
+            "ai_summary": "",
+            "targets": [],
+            "action_required": "",
+        }
+    )
+
+
 def _build_target_from_eval_anomaly(ev) -> dict | None:
+    if _is_source_data_invalid(ev):
+        return None
+
     model = MODEL_MAP.get((ev.company, ev.property_type)) or SiteRegistry.resolve_model_class(
         ev.company, ev.property_type
     )
@@ -637,11 +664,7 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
     temp_dir = os.path.join(project_root, "Temp")
 
     if not heal_targets and not failed_steps:
-        logger.info("No scraping anomalies or pipeline failures found for AI healing.")
-        inst_path = os.path.join(temp_dir, "auto_heal_instruction.json")
-        if os.path.exists(inst_path):
-            os.remove(inst_path)
-            logger.info("Removed stale auto_heal_instruction.json")
+        _clear_stale_instruction_and_sync_zero(temp_dir)
         return
 
     # 発生頻度順（Top 50）に優先順位付け
@@ -656,12 +679,17 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
     ).replace("\\", "/")
 
     instruction = {
-        "generated_at": datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "total_anomalies_detected": len(heal_targets),
         "failed_pipeline_steps": failed_steps or [],
         "ai_summary": ai_summary,
         "targets": top_targets,
-        "action_required": f"Please inspect the target URLs in prioritized order (Top-50 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, resolve any pipeline failures, run verification tests, and commit/push/merge changes to master.",
+        "action_required": (
+            f"Please inspect the target URLs in prioritized order (Top-50 frequency first), analyze why their data parsed incorrectly, "
+            f"fix the corresponding parser inside {parser_rel_dir}/ in an isolated git worktree with SDD doc + TDD test updates, "
+            f"run verification tests, merge the PR to master, promote and merge the Release PR into production, "
+            f"and verify that the Deploy Production workflow succeeds on Cloud Run (stopping at PR creation or master merge is strictly prohibited)."
+        ),
     }
 
     os.makedirs(temp_dir, exist_ok=True)
@@ -706,6 +734,6 @@ if __name__ == "__main__":
     if args.failed_steps:
         try:
             failed_steps_list = json.loads(args.failed_steps)
-        except Exception:
+        except json.JSONDecodeError:
             failed_steps_list = [args.failed_steps]
     scan_anomalies_and_generate_instructions(failed_steps=failed_steps_list)
