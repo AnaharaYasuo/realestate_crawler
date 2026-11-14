@@ -33,9 +33,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from types import TracebackType
-from typing import Any, Self
+from typing import IO, Any, Self
 
 # Resolve src/crawler path dynamically without hardcoding /app/
 _CUR_FILE = Path(__file__).resolve()
@@ -125,6 +126,7 @@ def _spawn_iap_tunnel_process(
     instance_name: str,
     local_host: str,
     local_port: int,
+    stderr_stream: IO[str] | int = subprocess.DEVNULL,
 ) -> subprocess.Popen[str]:
     cmd = [
         gcloud_bin,
@@ -141,7 +143,7 @@ def _spawn_iap_tunnel_process(
         cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=stderr_stream,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -197,6 +199,8 @@ class LocalProdInfraContext:
         self.started_proxysql = False
         self.started_tunnel = False
         self._tunnel_proc: subprocess.Popen[str] | None = None
+        self._tunnel_err_fp: IO[str] | None = None
+        self._tunnel_err_path: Path | None = None
 
     def _get_proxysql_status(self) -> str:
         res = _run_headless_cmd(
@@ -261,6 +265,39 @@ class LocalProdInfraContext:
             time.sleep(1)
         return False
 
+    def _open_tunnel_stderr_tempfile(self) -> IO[str]:
+        fd, raw_path = tempfile.mkstemp(prefix="iap_tunnel_", suffix=".err.log")
+        self._tunnel_err_path = Path(raw_path)
+        self._tunnel_err_fp = os.fdopen(fd, "w", encoding="utf-8", errors="replace")
+        return self._tunnel_err_fp
+
+    def _read_tunnel_stderr_tail(self) -> str:
+        if self._tunnel_err_fp is not None:
+            try:
+                self._tunnel_err_fp.flush()
+            except Exception:  # noqa: BLE001
+                logger.debug("Ignored error flushing IAP tunnel stderr tempfile.")
+        if self._tunnel_err_path is None or not self._tunnel_err_path.exists():
+            return ""
+        try:
+            return self._tunnel_err_path.read_text(encoding="utf-8", errors="replace")[-400:].strip()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _cleanup_tunnel_stderr_tempfile(self) -> None:
+        if self._tunnel_err_fp is not None:
+            try:
+                self._tunnel_err_fp.close()
+            except Exception:  # noqa: BLE001
+                logger.debug("Ignored error closing IAP tunnel stderr tempfile.")
+            self._tunnel_err_fp = None
+        if self._tunnel_err_path is not None:
+            try:
+                self._tunnel_err_path.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                logger.debug("Ignored error unlinking IAP tunnel stderr tempfile.")
+            self._tunnel_err_path = None
+
     def _ensure_iap_tunnel(self) -> None:
         if _is_tcp_port_open(self.local_host, self.local_port):
             logger.info("[LocalProdInfra] Reusing existing tunnel at %s:%d", self.local_host, self.local_port)
@@ -276,6 +313,7 @@ class LocalProdInfraContext:
                 attempt + 1,
                 max_tunnel_attempts,
             )
+            err_fp = self._open_tunnel_stderr_tempfile()
             self._tunnel_proc = _spawn_iap_tunnel_process(
                 gcloud_bin=self.gcloud_bin,
                 project_id=self.project_id,
@@ -283,18 +321,15 @@ class LocalProdInfraContext:
                 instance_name=self.instance_name,
                 local_host=self.local_host,
                 local_port=self.local_port,
+                stderr_stream=err_fp,
             )
             self.started_tunnel = True
             if self._wait_until_local_tunnel_ready():
                 return
 
             rc = self._tunnel_proc.returncode if self._tunnel_proc else None
-            err_out = (
-                self._tunnel_proc.stderr.read()
-                if (self._tunnel_proc and self._tunnel_proc.stderr and rc is not None)
-                else ""
-            )
-            last_err_msg = f"rc={rc}: {err_out.strip()}" if rc is not None else "timed out waiting for local port"
+            err_out = self._read_tunnel_stderr_tail() if rc is not None else ""
+            last_err_msg = f"rc={rc}: {err_out}" if rc is not None else "timed out waiting for local port"
             self._terminate_tunnel()
             if attempt < max_tunnel_attempts - 1:
                 logger.info("[LocalProdInfra] Waiting for ProxySQL port 6033 warmup (%s)...", last_err_msg[:120])
@@ -321,19 +356,19 @@ class LocalProdInfraContext:
         raise RuntimeError("DB SELECT 1 returned unexpected result.")
 
     def _terminate_tunnel(self) -> None:
-        if self._tunnel_proc is None:
-            return
-        try:
-            if self._tunnel_proc.poll() is None:
-                self._tunnel_proc.terminate()
-                self._tunnel_proc.wait(timeout=5)
-        except Exception:  # noqa: BLE001
+        if self._tunnel_proc is not None:
             try:
-                self._tunnel_proc.kill()
+                if self._tunnel_proc.poll() is None:
+                    self._tunnel_proc.terminate()
+                    self._tunnel_proc.wait(timeout=5)
             except Exception:  # noqa: BLE001
-                logger.debug("Ignored error killing IAP tunnel process.")
-        finally:
-            self._tunnel_proc = None
+                try:
+                    self._tunnel_proc.kill()
+                except Exception:  # noqa: BLE001
+                    logger.debug("Ignored error killing IAP tunnel process.")
+            finally:
+                self._tunnel_proc = None
+        self._cleanup_tunnel_stderr_tempfile()
 
     def __enter__(self) -> Self:
         try:
