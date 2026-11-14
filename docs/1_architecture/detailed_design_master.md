@@ -1024,18 +1024,25 @@ stateDiagram-v2
    - `SiteRegistry.get_all_property_model_entries(skip_portals=skip_portals, skip_uncrawled=True)` で全登録物件モデルを走査し、`PropertyEvaluation` が未作成かつ `inputDateTime < cutoff`（`inputDateTime IS NULL` 時は `updateDateTime < cutoff`）の物件 URL も漏れなく対象に含める（既に `is_published=False` と判定済みの正規化 URL は除外）。
 3. **正規化 URL 重複排除 ＆ ドメインインターリーブ**:
    - `UrlMatcher.normalize(url)` で一意化した上で、同一サイトへのバーストアクセスを避けるため会社（ドメイン）単位のラウンドロビン順（インターリーブ）に整列する。
+4. **コールドブート直後の ProxySQL 再起動競合に対する自動再接続リトライ (Issue #1421)**:
+   - GCE `proxysql-instance-prod` の `metadata_startup_script`（`terraform/proxysql.tf`）はインスタンス起動終盤に `systemctl restart proxysql` を実行するため、初回テーブル全件走査中に一時的な MySQL 接続切断（`OperationalError` / `InterfaceError` コード `2002` / `2006` / `2013`）が発生し得る。
+   - `_fetch_target_snapshots_with_retry` により、これらの一時的接続リセットを検知した際は `connection.close()` で壊れたコネクションを破棄して待機後に最大 4 回まで自動リトライし、コールドブート 1 回目でも確実に全件抽出を完遂する。
 
-### 8.3 直接URLクロール ＆ ステータス遷移 (`crawl_ttl_expired_targets_async`)
+### 8.3 直接URLクロール ＆ ステータス遷移・固定ワーカープール (`crawl_ttl_expired_targets_async`)
+- **固定サイズ非同期ワーカープール ＆ 共有 `aiohttp.ClientSession` 再利用 (Issue #1421)**:
+  - 15万件超のバックログ対象に対しても全件分のコルーチンフレームを一括生成せず、`deque(targets)` から `min(len(targets), max(1, concurrency))` 個の固定ワーカータスクが順次ポップして処理する構造とし、メモリ消費量を $O(\text{concurrency})$ の定数オーダーに制限する。
+  - ワーカープール全体で単一の共有 `aiohttp.ClientSession`（Keep-Alive 接続プール付き `TCPConnector`）を再利用し、URL 毎の TLS コンテキスト・コネクタ生成破棄による CPU 負荷と Windows エフェメラルポート枯渇を防止する（Playwright 利用サイトは各パーサーの既存非同期経路を透過維持し、GC 回収は 250 件毎の間欠実行に抑制する）。
 - 各対象 URL に対し `UrlRouter.create_parser(url)` でパーサーを解決し、`ParseDetailPageAsyncBase` サブクラスを実行する：
   - **掲載終了検知**（`ListingEndedException` / HTTP 404・410）: `_handle_skipped_property` ➔ `_sync_persist_delisted` により `PropertyEvaluation.is_published = False`、`delisted_at = now_utc`、`needs_recrawl = False` を保存する（結果区分: `delisted`）。
   - **掲載継続・正常パース**: `_handle_saved_property` ➔ `_save_property_and_price_history` ➔ `tag_property_integrity` により物件スペック更新・価格改定履歴（`PropertyPriceHistory`）記録・`PropertyEvaluation.last_detail_fetched_at = now` 更新・`is_published = True` 維持を一貫実行する（結果区分: `refreshed` / バリデーションNG時は `invalid_saved`）。
   - **一時障害・メンテ・アクセス遮断保護**: `SiteMaintenanceException` / `AccessBlockedException` / `ServerBusyException` / タイムアウト発生時は `_classify_fetch_exception` が `is_listing_ended=False` を返すため、`is_published=True` が厳格に維持され誤掲載終了は発生しない（結果区分: `transient_skipped`）。
 
 ### 8.4 ローカル本番実行インフラ制御 (`LocalProdInfraContext` - 原則 1.1 & 原則 1 準拠)
-- `--ensure-local-prod-infra` 指定時、クロール本体実行前に以下の事前準備と事後クリーンアップを完全ヘッドレス（`CREATE_NO_WINDOW`）で行う：
-  1. GCE `proxysql-instance-prod`（`asia-northeast1-a`, project `sumifu`）の状態を `gcloud.cmd compute instances describe` で確認し、`RUNNING` 以外の場合は `gcloud.cmd compute instances start` を実行して `RUNNING` 到達＋ProxySQL 起動待機を行う。
-  2. ローカル `127.0.0.1:6033` への TCP 接続を確認し、未開放の場合は `gcloud.cmd compute start-iap-tunnel proxysql-instance-prod 6033 --local-host-port=127.0.0.1:6033 --zone=asia-northeast1-a --project=sumifu` をコンソール非表示（`CREATE_NO_WINDOW`）で起動し、ポート開放までポーリング待機する。この際、長時間クロールや大量テーブル走査で OS パイプバッファ詰まりによるデッドロック（`OperationalError: 2013`）を起こさないよう、`stderr` には `subprocess.PIPE` ではなく管理された一時ログファイル（既定 `DEVNULL`）を渡し、トンネル終了時に一時ファイルを自動クリーンアップする（Issue #1418）。
-  3. Django DB コネクションで `SELECT 1` を実行し、失敗時は放置・空転させず即座に例外送出（Fail-Fast）する。
-  4. `finally` ブロックで、自身が起動した IAP トンネルプロセスのみを安全に終了し、`ensure_resources_stopped.py`（共有インフラ保護原則準拠）を呼び出して他 Cloud Run ジョブ・通信がない場合のみ ProxySQL を安全停止する。
+- `--ensure-local-prod-infra` 指定時、クロール本体実行前に以下の事前準備・稼働中監視・事後クリーンアップを完全ヘッドレス（`CREATE_NO_WINDOW`）で行う：
+  1. ローカル Docker（MinIO `localhost:9000`）未起動環境でもエラー HTML 等を本番クラウドへ安全退避できるよう、`STORAGE_BACKEND` 未指定時は自動的に `gcs`（`GCS_BUCKET_NAME=realestate-images-sumifu-prod`）を既定設定する。
+  2. GCE `proxysql-instance-prod`（`asia-northeast1-a`, project `sumifu`）の状態を `gcloud.cmd compute instances describe` で確認し、`RUNNING` 以外の場合は `gcloud.cmd compute instances start` を実行して `RUNNING` 到達後に `metadata_startup_script` の `systemctl restart proxysql` 完了を見込む安定化待機（`POST_START_SETTLE_SEC = 25s`）を行う（Issue #1421）。
+  3. ローカル `127.0.0.1:6033` への TCP 接続を確認し、未開放の場合は `gcloud.cmd compute start-iap-tunnel proxysql-instance-prod 6033 --local-host-port=127.0.0.1:6033 --zone=asia-northeast1-a --project=sumifu` をコンソール非表示（`CREATE_NO_WINDOW`）で起動し、ポート開放までポーリング待機する。`stderr` には `subprocess.PIPE` ではなく管理された一時ログファイル（既定 `DEVNULL`）を渡してパイプ詰まりデッドロックを防止し、さらに数時間に及ぶ大規模実行中の IAP WebSocket セッション切断に備えてバックグラウンド監視スレッド（`ensure_tunnel_alive`）が自己起動トンネルの異常終了を検知・自動再起動する（Issue #1418, #1421）。
+  4. Django DB コネクションで `SELECT 1` を実行し、失敗時は放置・空転させず即座に例外送出（Fail-Fast）する。またクロール中の単発保存・掲載終了更新・結果照会においても一時的な DB 接続リセット（`2002` / `2006` / `2013`）時は `close_old_connections()` の上で自動再試行する。
+  5. `finally` ブロックで、監視スレッドを停止して自身が起動した IAP トンネルプロセスのみを安全に終了し、`ensure_resources_stopped.py`（共有インフラ保護原則準拠）を呼び出して他 Cloud Run ジョブ・通信がない場合のみ ProxySQL を安全停止する。
 
 
