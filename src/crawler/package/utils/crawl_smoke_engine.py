@@ -507,6 +507,7 @@ def _looks_like_detail(url: str) -> bool:
     list_markers = (
         _LIST_PATH,
         "/search/",
+        "/req/",
 
         "/select-area",
         "/area-",
@@ -558,6 +559,8 @@ def _looks_like_detail(url: str) -> bool:
     if re.search(r"/buy/(house|kodate|mansion|land)/[a-z0-9_-]*\d[a-z0-9_-]*/?", lowered):
         return True
     if re.search(r"/(mansion|kodate|tochi|toushi|bldg|building|buy_other)/\d{6,}/?", lowered):
+        return True
+    if re.search(r"/investment/\d{5,}/?", lowered):
         return True
     # Alphanumeric site IDs (tokyu C… / totate NFD…), not area/list hubs.
     return bool(

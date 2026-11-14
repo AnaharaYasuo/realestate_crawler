@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from package.utils.crawler_diagnostics import record_thread_activity
 from package.utils.crawler_watchdog import touch_crawler_progress
+from package.utils.git_version import get_current_git_sha
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,28 @@ def _normalize_price_yen(p: int | float | None) -> int | None:
     return val
 
 
+def _should_refetch_anomaly(record: dict[str, Any]) -> bool:
+    if record.get("heal_status") == "source_data_invalid":
+        return False
+    if not (record.get("needs_recrawl") or record.get("needs_parser_fix")):
+        return False
+    failed_sha = (record.get("failed_git_sha") or "").strip()
+    cur_sha = (get_current_git_sha() or "").strip()
+    if not failed_sha or not cur_sha:
+        return True
+    return failed_sha != cur_sha
+
+
 def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, ttl_days: int) -> bool:
     if not record:
         return True
+    if _should_refetch_anomaly(record):
+        logger.info("[Differential Crawl] Refetching anomalous item on updated parser SHA: %s", item.url)
+        return True
+
     db_price = record.get("price")
-    db_dt = record.get("updateDateTime") or record.get("inputDateTime")
+    # Use last_detail_fetched_at or inputDateTime so daily skip updates to updateDateTime never reset the 30-day detail TTL!
+    db_dt = record.get("last_detail_fetched_at") or record.get("inputDateTime") or record.get("updateDateTime")
 
     norm_item_price = _normalize_price_yen(item.price)
     norm_db_price = _normalize_price_yen(db_price)
@@ -113,18 +131,11 @@ def _detect_company_and_type_from_model(model_class):
     """Djangoモデルクラス名から会社名と物件種別を逆引き判定する"""
     if model_class is None:
         return None, None
+    from package.site_registry import SiteRegistry
+
     name = getattr(model_class, "__name__", "").lower()
-    companies = [
-        "mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho",
-        "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu",
-        "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio",
-        "adcast", "toho", "ietan", "haseko", "kenbiya", "reguide"
-    ]
-    comp = None
-    for c in sorted(companies, key=len, reverse=True):
-        if name.startswith(c):
-            comp = c
-            break
+    detected_comp = SiteRegistry.detect_company_from_model(model_class)
+    comp = None if detected_comp == "unknown" else detected_comp
 
     ptype_pairs = [
         ("investment_apartment", "invest_apartment"),
@@ -185,7 +196,32 @@ def _build_lookup_urls(chunk_urls: list[str]) -> list[str]:
     return list(lookup_url_set)
 
 
+def _enrich_records_with_evaluations(res_map: dict[str, dict[str, Any]], urls: list[str]) -> None:
+    from package.models.evaluation import PropertyEvaluation
+    from package.utils.url_matcher import UrlMatcher
+
+    eval_rows = PropertyEvaluation.objects.filter(property_url__in=urls).values(
+        "property_url",
+        "needs_recrawl",
+        "needs_parser_fix",
+        "heal_status",
+        "failed_git_sha",
+        "last_detail_fetched_at",
+    )
+    for ev in eval_rows:
+        ev_url = ev["property_url"]
+        norm_ev = UrlMatcher.normalize(ev_url).rstrip("/")
+        target = res_map.get(ev_url) or (res_map.get(norm_ev) if norm_ev else None)
+        if target is not None:
+            target["needs_recrawl"] = ev["needs_recrawl"]
+            target["needs_parser_fix"] = ev["needs_parser_fix"]
+            target["heal_status"] = ev["heal_status"]
+            target["failed_git_sha"] = ev["failed_git_sha"]
+            target["last_detail_fetched_at"] = ev["last_detail_fetched_at"]
+
+
 def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str, dict[str, Any]]:
+    from django.db import models as dj_models
     from package.utils.url_matcher import UrlMatcher
 
     qs = model_class.objects.filter(pageUrl__in=urls).values(
@@ -193,11 +229,16 @@ def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str,
     )
     res_map: dict[str, dict[str, Any]] = {}
     for row in qs:
-        p_url = row["pageUrl"]
-        res_map[p_url] = row
+        row_dict = dict(row)
+        p_url = row_dict["pageUrl"]
+        res_map[p_url] = row_dict
         norm_key = UrlMatcher.normalize(p_url).rstrip("/")
         if norm_key and norm_key not in res_map:
-            res_map[norm_key] = row
+            res_map[norm_key] = row_dict
+
+    if res_map and isinstance(model_class, type) and issubclass(model_class, dj_models.Model):
+        _enrich_records_with_evaluations(res_map, urls)
+
     return res_map
 
 

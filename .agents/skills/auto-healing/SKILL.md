@@ -19,14 +19,14 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 * **Slackエラー＆低件数異常の自動インジェスト (Slack Telemetry Integration)**:
   - `auto_heal_parsers.py` が `SLACK_BOT_TOKEN` を用いてSlackのアラートチャンネル（`#alerts-*`、`#property_alert`、`#dev-agent`）から直近のエラーログ（0件取得警告、パース例外、大規模サイトの極小件数異常）を自動取得し、DBのデータ不整合スキャン結果と統合して指示書（`Temp/auto_heal_instruction.json`）を生成する。
   - 人手による個別チャンネル確認や無差別巡回を不要とし、Slack上の障害検知を唯一の集約指示書として直接AI自己修復の起点にする。
-* **単一軽量サブエージェント規約**:
-  - 調査・探索フェーズでサブエージェントを呼ぶ場合は**必ず1台のみ**起動し、モデルには安価な `flash` または `flash_lite` を指定する。
-  - サブエージェント側で取得ログやエラーHTMLを構造化・要約（caveman形式等）し、コンテキストを圧縮した抽出情報のみをメインエージェントに返却する。
+* **メインエージェント直接実行規約（サブエージェント使用禁止）**:
+  - グローバルルールに従い、サブエージェント（`invoke_subagent` / `define_subagent`）はいかなる場合も起動しない。
+  - メインエージェント自身が Gemini 要約済み指示書（`Temp/auto_heal_instruction.json` または GCS `auto_heal/latest_instruction.json`）および `ErrorPageReplayer` を用いて最小トークンで調査・修正・検証を完遂する。
 
 ## 実行ステップ
 
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
-* `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成。DB不整合＋Slackエラー＋低件数異常を一括集計）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
+* まず `python src/crawler/scripts/debug_tools/auto_heal_parsers.py --pull-from-gcs` でクラウド最新の `Temp/auto_heal_instruction.json` を同期する（ローカルDB接続済みの場合は引数なしで直接再集計も可能）。指示書に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
 * 大規模ポータル（athome, homes等）で0件警告や極小件数が記録されている場合、一覧URL抽出セレクター、ページネーション、あるいはアクセス遮断を最優先で調査・修復。
 * 同一サイト＆種別で大量（数十〜200件等）の失敗が発生している場合は、`python src/crawler/scripts/debug_tools/bulk_auto_heal_diagnose.py --site <site> --type <type>` を実行し、全失敗サンプルを圧縮して Gemini Flash へ1リクエスト投入することで、包括的修正マニフェスト（`Temp/auto_heal_bulk_fix_manifest.json`）を生成して一括原因究明を行う。
 * ローカルへのログファイルの引き出し・読み込みは行わず、指示書の要約情報および対象URL・パーサーを直接確認。

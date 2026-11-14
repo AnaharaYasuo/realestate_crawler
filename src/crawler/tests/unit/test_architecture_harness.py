@@ -143,11 +143,20 @@ class TestArchitectureHarness:
         detail_api._save_item_with_retry.assert_not_called()
 
     def test_gate3_unified_site_registry_completeness(self):
-        """Gate 3: All registered sites and crawl jobs pass 10-point wiring verification."""
+        """Gate 3: All registered sites and crawl jobs pass 10-point wiring verification and dynamic model resolution."""
+        from package.site_registry import SiteRegistry
+
         report = verify_all_registered_sites()
         assert report["missing"] == [], f"SiteRegistry wiring errors: {report['missing']}"
         assert report["total_sites"] >= 30
         assert report["total_jobs"] >= 104
+
+        unresolved = [
+            (comp, ptype)
+            for comp, ptype in SiteRegistry.get_all_jobs()
+            if SiteRegistry.resolve_model_class(comp, ptype) is None
+        ]
+        assert unresolved == [], f"SiteRegistry.resolve_model_class failed for jobs: {unresolved}"
 
     def test_gate4_property_type_defense_and_ml_invariants(self):
         """Gate 4: 4-Layer PropertyTypeDetector defense and ML P10 / 50k cap invariants hold."""

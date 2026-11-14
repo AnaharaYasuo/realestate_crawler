@@ -848,3 +848,8 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 
 
 
+
+
+## バルクML評価の並列実行数（OOM防止）
+- `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
+- `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。

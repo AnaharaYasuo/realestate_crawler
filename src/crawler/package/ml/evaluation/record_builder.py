@@ -157,6 +157,7 @@ def build_or_update_eval_record(
         rec.is_first_stage_passed = is_passed
         rec.analysis_status = "pending"
         rec.analyzed_at = timezone.now()
+        rec.heal_status = "healthy"
         rec.monthly_land_rent = monthly_rent
         rec.land_rent_liability = liability
         populate_text_risks(rec, item)
@@ -173,6 +174,7 @@ def build_or_update_eval_record(
             is_first_stage_passed=is_passed,
             analysis_status="pending",
             analyzed_at=timezone.now(),
+            heal_status="healthy",
             monthly_land_rent=monthly_rent,
             land_rent_liability=liability,
         )

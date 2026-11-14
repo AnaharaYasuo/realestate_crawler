@@ -19,7 +19,7 @@ from package.models.evaluation import PropertyEvaluation
 BASE_UPDATE_FIELDS = (
     "company", "property_type", "property_id", "first_stage_predicted_price",
     "first_stage_p10_price", "prediction_uncertainty_ratio",
-    "is_first_stage_passed", "analysis_status", "analyzed_at", "duplicate_of", "is_slack_notified",
+    "is_first_stage_passed", "analysis_status", "analyzed_at", "heal_status", "duplicate_of", "is_slack_notified",
     "estimated_sekisan_price", "monthly_land_rent", "land_rent_liability",
     "expected_gross_yield", "expected_net_yield", "estimated_annual_rent", "dcf_theoretical_price",
     "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
@@ -32,7 +32,7 @@ INVESTMENT_UPDATE_FIELDS = (
     "dscr", "total_investment_score",
 )
 EVAL_MAP_FIELDS = (
-    "id", "property_url", "second_stage_predicted_price", "is_published", "needs_recrawl",
+    "id", "property_url", "second_stage_predicted_price", "is_published", "needs_recrawl", "needs_parser_fix",
 ) + BASE_UPDATE_FIELDS + INVESTMENT_UPDATE_FIELDS
 
 IMMUTABLE_IDENTITY_FIELDS = ("company", "property_type", "property_id")

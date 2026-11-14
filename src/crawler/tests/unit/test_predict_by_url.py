@@ -918,5 +918,37 @@ def test_predict_by_url_normalizes_tracking_url_for_live_crawl(client, monkeypat
     assert received_urls[0] == "https://www.kenbiya.com/pp2/s/tokyo/setagaya-ku/re_4721854dw3/"
 
 
+def test_predict_by_url_recovers_when_default_event_loop_is_closed(client):
+    """先行処理でスレッドのデフォルトイベントループが close 済みでも、再生成して 200 OK を返すこと"""
+    stale_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(stale_loop)
+    stale_loop.close()
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_mitsui:
+        mock_eval = MagicMock()
+        mock_eval.property_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/CLOSEDLOOP01/"
+        mock_eval.first_stage_predicted_price = 52000000
+        mock_eval.second_stage_predicted_price = 53500000
+        mock_eval.company = "mitsui"
+        mock_eval.property_type = "mansion"
+        mock_filter.return_value.first.return_value = mock_eval
+        mock_mitsui.return_value.first.return_value = None
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({
+                "url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/CLOSEDLOOP01/"
+            }),
+            content_type='application/json'
+        )
+
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert data["data_source"] == "evaluation_cache"
+
+
+
 
 

@@ -274,10 +274,47 @@ class PropertyEvaluation(models.Model):
     is_published = models.BooleanField(default=True, db_index=True, verbose_name="公開中フラグ")
     delisted_at = models.DateTimeField(null=True, blank=True, verbose_name="掲載終了検知日時")
 
-    # Auto-Heal・パーサー改修 ＆ 再クローリング連携フラグ (Issue #665)
+    # Auto-Heal・パーサー改修 ＆ 再クローリング連携フラグ (Issue #665, #1410)
+    HEAL_STATUS_CHOICES = (
+        ("healthy", "正常"),
+        ("detected", "異常検知・修復待ち"),
+        ("heal_requested", "Auto-Heal指示発報済み"),
+        ("ready_for_recrawl", "パーサー修正デプロイ済み・再取得待ち"),
+        ("recrawled_pending_ml", "再取得完了・ML再推論待ち"),
+        ("source_data_invalid", "元サイト掲載情報不備（パーサー正常）"),
+    )
     needs_parser_fix = models.BooleanField(default=False, db_index=True, verbose_name="パーサー改修必要フラグ")
     needs_recrawl = models.BooleanField(default=False, db_index=True, verbose_name="再クローリング対象フラグ")
     data_quality_issue = models.TextField(blank=True, default="", verbose_name="データ不正・欠損理由")
+    heal_status = models.CharField(
+        max_length=30,
+        default="healthy",
+        choices=HEAL_STATUS_CHOICES,
+        db_index=True,
+        verbose_name="自律治癒ステータス",
+    )
+    failed_git_sha = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="異常検知時Git SHA",
+    )
+    recrawl_attempts = models.IntegerField(
+        default=0,
+        verbose_name="再クローリング試行回数",
+    )
+    last_recrawled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="最終再クローリング日時",
+    )
+    last_detail_fetched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="詳細ページ最終取得日時",
+    )
 
     # プロフェッショナル鑑定 ＆ 狼旅団団長RAG定性評価 (Issue #1175, #1197)
     ai_evaluation_summary = models.TextField(blank=True, default="", verbose_name="AI総合査定サマリー")
