@@ -32,7 +32,8 @@
 | **土地面積** | `tochiMenseki` | `converter.parse_menseki` |
 | **建物面積** | `tatemonoMenseki` | `converter.parse_menseki` |
 | **築年月** | `chikunengetsu` | `converter.parse_chikunengetsu` (和暦「平成15年4月」対応) |
-| **構造・階建て** | `kouzou`, `kaisu` | 文字列分割 |
+| **構造・階建て** | `kouzou`, `kaisu` | 文字列分割 (または `構造` / `所在階数` / `所在階`) |
+| **所在階数・所在階** | `kaisu` | 「所在階数」「所在階」「構造・階建て」から階数を抽出 |
 | **権利形態** | `tochikenri` | 所有権等 |
 
 ### 掲載終了検知
