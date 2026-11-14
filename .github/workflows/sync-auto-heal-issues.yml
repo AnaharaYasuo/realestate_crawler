@@ -1,0 +1,55 @@
+name: Sync Auto-Heal Issues
+
+on:
+  schedule:
+    - cron: '15 21 * * *'  # 06:15 JST daily (after 05:10 JST Cloud Run ML & auto_heal_parsers.py job)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (do not create/update/close GitHub Issues)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-auto-heal-issues
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  id-token: write
+
+jobs:
+  sync-issues:
+    name: Sync GCS Auto-Heal Telemetry to GitHub Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal GCS client
+        run: pip install --quiet google-cloud-storage
+
+      - name: Sync GCS Auto-Heal Instructions to GitHub Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GCS_BUCKET_NAME: realestate-images-sumifu-prod
+        run: |
+          ARGS="--pull-from-gcs"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python src/crawler/scripts/ops/sync_auto_heal_issues.py $ARGS

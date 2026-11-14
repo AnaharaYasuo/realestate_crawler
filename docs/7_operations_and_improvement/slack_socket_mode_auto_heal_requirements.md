@@ -48,6 +48,12 @@
 * **NFR-004: 全登録サイト網羅 ＆ 閉ループ自動治癒 (Closed-Loop Self-Healing, Issue #1410)**
   - `SiteRegistry` を通じて全登録サイト・全物件種別（`invest_kodate` エイリアスや初回パース例外 `property_id=0` レコードを含む）を漏れなく検証・指示書抽出対象とすること。
   - 異常検知からパーサー修正デプロイ後の再クローリング（`recrawl_anomalies.py` 自動実行＋差分クロール新SHAバイパス）、ML再推論（`recrawled_pending_ml` ➔ `healthy`）、およびお宝物件通知候補への復帰（`is_slack_notified` 非汚染）までが人手介入なしで自律完結すること。
+* **NFR-005: GitHub Issue ドリブン × Antigravity Scheduled Automation 自律パーサー修復 (Issue #1412)**
+  - ローカル常駐デーモン（`slack_agent_host.js`）への単一障害点依存を解消し、GitHub Issue（`auto-heal` ラベル）を修復キューの単一真実（SSOT）とすること。
+  - 日次パイプライン（05:10 JST）完了後、GitHub Actions（`sync-auto-heal-issues.yml`, 毎日 06:15 JST）が GCP OIDC 連携＋`GITHUB_TOKEN` のみ（AIトークン消費ゼロ）で GCS `auto_heal/latest_instruction.json` を読み取り、`(company, property_type)` 単位で重複排除された `auto-heal` Issue を自動起票・最新化・解決時自動クローズすること。
+  - 異常が0件となった日次実行時には `auto_heal/latest_instruction.json` をゼロ件状態で上書き更新し、過去の異常指示書の再発火（Stale Replay）および `source_data_invalid`（掲載元データ不備）起因の誤起票を防止すること。
+  - パーサーコード修正は個人の **Antigravity 定額トークン枠（Scheduled Automation: 毎日 07:00 JST）** に割り当て、`sync_auto_heal_issues.py --list-actionable` が0件の日は即時終了（トークン消費極小化）、対象ありの日は独立 Worktree 上で SDD/TDD/Parser 修正・検証・PR作成・Auto-merge 設定まで自律完遂すること。
+  - 同一 Issue に対する自動修復試行が上限（既定2回）を超過または自動解決不能と判定された場合は、`auto-heal` ラベルを外して `auto-heal:needs-human` ラベルへ昇格させるサーキットブレーカーにより無限リトライを遮断すること。
 
 ## 5. アクセプタンスクライテリア (受入基準)
 * [ ] 【基準1】`auto_heal_parsers.py` で自己修復指示書が生成された際、Slack の `#dev-agent` 宛てに `[AUTO_HEAL_REQ]` タグ付き自律修復トリガーメッセージを発報できること。
