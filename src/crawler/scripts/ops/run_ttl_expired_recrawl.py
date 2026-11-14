@@ -61,7 +61,7 @@ from django.db import DatabaseError, InterfaceError, OperationalError, close_old
 from django.utils import timezone  # noqa: E402
 
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController  # noqa: E402
-from package.api.api import ParseDetailPageAsyncBase, header as DEFAULT_HTTP_HEADERS  # noqa: E402
+from package.api.api import ParseDetailPageAsyncBase  # noqa: E402
 from package.api.differential import _is_ttl_expired  # noqa: E402
 from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory  # noqa: E402
 from package.parser.baseParser import SkipPropertyException  # noqa: E402
@@ -69,6 +69,7 @@ from package.site_registry import SiteRegistry  # noqa: E402
 from package.utils.crawler_diagnostics import record_thread_activity  # noqa: E402
 from package.utils.data_validator import PropertyDataValidator, apply_integrity_transition  # noqa: E402
 from package.utils.git_version import get_current_git_sha  # noqa: E402
+from package.utils.http_client import DEFAULT_HEADERS as DEFAULT_HTTP_HEADERS  # noqa: E402
 from package.utils.property_type_detector import PropertyTypeDetector  # noqa: E402
 from package.utils.report import CrawlerReporter  # noqa: E402
 from package.utils.url_matcher import UrlMatcher  # noqa: E402

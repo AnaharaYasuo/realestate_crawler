@@ -59,6 +59,7 @@
 | `package.parser.mizuhoParser.MizuhoParser` | 独自 `session.get` | `async_fetch_html_or_data` を呼出 |
 | `package.parser.kenbiyaParser.KenbiyaParser` | 独自 `session.get` | `async_fetch_html_or_data` を呼出 |
 | `package.utils.image_handler._fetch_single_pil_image` | 独自 `requests.get` | `fetch_image_bytes` を呼出 |
+| `scripts.ops.run_ttl_expired_recrawl.crawl_ttl_expired_targets_async` | 共有 `ClientSession` に旧 `api.header` (UAのみ) | `http_client.DEFAULT_HEADERS` を共有セッション標準ヘッダーに統一 (#1439) |
 
 ---
 
