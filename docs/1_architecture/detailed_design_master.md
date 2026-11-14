@@ -1034,7 +1034,7 @@ stateDiagram-v2
 ### 8.4 ローカル本番実行インフラ制御 (`LocalProdInfraContext` - 原則 1.1 & 原則 1 準拠)
 - `--ensure-local-prod-infra` 指定時、クロール本体実行前に以下の事前準備と事後クリーンアップを完全ヘッドレス（`CREATE_NO_WINDOW`）で行う：
   1. GCE `proxysql-instance-prod`（`asia-northeast1-a`, project `sumifu`）の状態を `gcloud.cmd compute instances describe` で確認し、`RUNNING` 以外の場合は `gcloud.cmd compute instances start` を実行して `RUNNING` 到達＋ProxySQL 起動待機を行う。
-  2. ローカル `127.0.0.1:6033` への TCP 接続を確認し、未開放の場合は `gcloud.cmd compute start-iap-tunnel proxysql-instance-prod 6033 --local-host-port=127.0.0.1:6033 --zone=asia-northeast1-a --project=sumifu` をコンソール非表示（`CREATE_NO_WINDOW`）で起動し、ポート開放までポーリング待機する。
+  2. ローカル `127.0.0.1:6033` への TCP 接続を確認し、未開放の場合は `gcloud.cmd compute start-iap-tunnel proxysql-instance-prod 6033 --local-host-port=127.0.0.1:6033 --zone=asia-northeast1-a --project=sumifu` をコンソール非表示（`CREATE_NO_WINDOW`）で起動し、ポート開放までポーリング待機する。この際、長時間クロールや大量テーブル走査で OS パイプバッファ詰まりによるデッドロック（`OperationalError: 2013`）を起こさないよう、`stderr` には `subprocess.PIPE` ではなく管理された一時ログファイル（既定 `DEVNULL`）を渡し、トンネル終了時に一時ファイルを自動クリーンアップする（Issue #1418）。
   3. Django DB コネクションで `SELECT 1` を実行し、失敗時は放置・空転させず即座に例外送出（Fail-Fast）する。
   4. `finally` ブロックで、自身が起動した IAP トンネルプロセスのみを安全に終了し、`ensure_resources_stopped.py`（共有インフラ保護原則準拠）を呼び出して他 Cloud Run ジョブ・通信がない場合のみ ProxySQL を安全停止する。
 

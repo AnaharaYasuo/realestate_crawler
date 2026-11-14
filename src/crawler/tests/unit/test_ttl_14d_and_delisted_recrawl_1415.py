@@ -359,6 +359,8 @@ class TestLocalProdInfraContext:
 
         assert any("start" in c for c in run_calls)
         spawn_mock.assert_called_once()
+        assert ctx._tunnel_err_fp is None
+        assert ctx._tunnel_err_path is None
         db_verify_mock.assert_called_once()
         fake_tunnel_proc.terminate.assert_called_once()
         safe_stop_mock.assert_called_once()
@@ -602,6 +604,8 @@ class TestBatchConcurrencyAndCliMain:
                 "gcloud.cmd", "sumifu", "asia-northeast1-a", "proxysql-instance-prod", "127.0.0.1", 6033
             )
             popen_mock.assert_called_once()
+            popen_kwargs = popen_mock.call_args.kwargs
+            assert popen_kwargs.get("stderr") is not ttl_recrawl.subprocess.PIPE
 
         with (
             patch.object(ttl_recrawl, "close_old_connections"),
