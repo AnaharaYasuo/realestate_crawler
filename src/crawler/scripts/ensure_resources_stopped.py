@@ -24,40 +24,40 @@ while True:
         break
     _cur = _parent
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
 try:
     from asgiref.sync import async_to_sync
 except ImportError:
-    async_to_sync = None
+    async_to_sync = None  # type: ignore[assignment]
 
 try:
     from google.cloud import compute_v1
 except ImportError:
-    compute_v1 = None
+    compute_v1 = None  # type: ignore[assignment]
 
 try:
     from google.cloud import run_v2
 except ImportError:
-    run_v2 = None
+    run_v2 = None  # type: ignore[assignment]
 
 try:
     from google.cloud import monitoring_v3
 except ImportError:
-    monitoring_v3 = None
+    monitoring_v3 = None  # type: ignore[assignment]
 
 try:
     import google.auth
     import google.auth.transport.requests
 except ImportError:
-    google = None
+    google = None  # type: ignore[assignment]
 
 try:
     from package.utils.slack import send_slack_message
 except ImportError:
-    send_slack_message = None
+    send_slack_message = None  # type: ignore[assignment]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -283,8 +283,8 @@ def _parse_timestamp_to_seconds_ago(timestamp_str: str | None) -> float | None:
         ts = str(timestamp_str).replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         return max(0.0, (now - dt).total_seconds())
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
@@ -746,7 +746,7 @@ def _get_instance_network_received_bytes(
     window_sec: float = DEFAULT_TRAFFIC_WINDOW_SEC,
 ) -> tuple[int | None, str]:
     """Retrieve total received bytes count for a GCE instance over the past window_sec via Cloud Monitoring."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start_time = now.timestamp() - window_sec
     last_err = ""
 
@@ -793,7 +793,7 @@ def _get_instance_network_received_bytes(
     try:
         url = f"https://monitoring.googleapis.com/v3/projects/{project_id}/timeSeries"
         end_rfc = now.isoformat()
-        start_rfc = datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat()
+        start_rfc = datetime.fromtimestamp(start_time, tz=UTC).isoformat()
         params = {
             "filter": (
                 'metric.type = "compute.googleapis.com/instance/network/received_bytes_count" '
@@ -855,6 +855,7 @@ def check_and_stop_proxysql_instance(
     max_uptime_sec: float = DEFAULT_MAX_UPTIME_SEC,
     traffic_threshold_bytes: int = DEFAULT_TRAFFIC_THRESHOLD_BYTES,
     traffic_window_sec: float = DEFAULT_TRAFFIC_WINDOW_SEC,
+    skip_traffic_check: bool = False,
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
     """
@@ -1053,51 +1054,57 @@ def check_and_stop_proxysql_instance(
             details=stop_err or ("; ".join(cancel_errors)),
         )
 
-    # 3. No active Cloud Run jobs: Check active network traffic before stopping
-    traffic_bytes, traffic_err = _get_instance_network_received_bytes(
-        project_id, zone, instance_name, window_sec=traffic_window_sec
-    )
-    if traffic_bytes is None:
-        logger.warning(
-            f"Could not determine traffic for ProxySQL instance '{instance_name}': {traffic_err}. "
-            "Deferring stop to prevent terminating active instance."
+    # 3. No active Cloud Run jobs: Check active network traffic before stopping (unless explicitly skipped after local prod teardown)
+    if not skip_traffic_check:
+        traffic_bytes, traffic_err = _get_instance_network_received_bytes(
+            project_id, zone, instance_name, window_sec=traffic_window_sec
         )
-        return ResourceInspectionResult(
-            was_leaked=False,
-            forced_stop=False,
-            leaked_size=1,
-            skipped_reason="traffic_unknown",
-            details=traffic_err,
-        )
+        if traffic_bytes is None:
+            logger.warning(
+                f"Could not determine traffic for ProxySQL instance '{instance_name}': {traffic_err}. "
+                "Deferring stop to prevent terminating active instance."
+            )
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=1,
+                skipped_reason="traffic_unknown",
+                details=traffic_err,
+            )
 
-    if traffic_bytes >= traffic_threshold_bytes:
-        traffic_mb = traffic_bytes / (1024 * 1024)
-        info_msg = (
-            f":information_source: *【Safety-Net】アクティブな外部クエリ通信を検知したためProxySQLの起動を継続しました*\n"
+        if traffic_bytes >= traffic_threshold_bytes:
+            traffic_mb = traffic_bytes / (1024 * 1024)
+            info_msg = (
+                f":information_source: *【Safety-Net】アクティブな外部クエリ通信を検知したためProxySQLの起動を継続しました*\n"
+                f"・プロジェクト: `{project_id}`\n"
+                f"・ProxySQL: `{instance_name}` (RUNNING)\n"
+                f"・直近{int(traffic_window_sec/60)}分間受信量: {traffic_mb:.2f} MB (閾値: {traffic_threshold_bytes/(1024*1024):.1f} MB)"
+            )
+            logger.info(info_msg)
+            send_slack_info(info_msg)
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=1,
+                skipped_reason="active_traffic",
+            )
+
+    # 4. No active jobs and traffic below threshold (or local prod teardown requested stop)
+    if skip_traffic_check:
+        logger.info(
+            f"Stopping ProxySQL instance '{instance_name}' after local production job teardown (no active Cloud Run jobs)."
+        )
+    else:
+        warning_msg = (
+            f":warning: *【ゾンビ課金アラート】ProxySQL停止漏れ検知*\n"
             f"・プロジェクト: `{project_id}`\n"
-            f"・ProxySQL: `{instance_name}` (RUNNING)\n"
-            f"・直近{int(traffic_window_sec/60)}分間受信量: {traffic_mb:.2f} MB (閾値: {traffic_threshold_bytes/(1024*1024):.1f} MB)"
+            f"・ゾーン: `{zone}`\n"
+            f"・インスタンス名: `{instance_name}`\n"
+            f"・検知時状態: `{status}`\n"
+            f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else '自動強制停止を実行しました。'}"
         )
-        logger.info(info_msg)
-        send_slack_info(info_msg)
-        return ResourceInspectionResult(
-            was_leaked=False,
-            forced_stop=False,
-            leaked_size=1,
-            skipped_reason="active_traffic",
-        )
-
-    # 4. No active jobs and traffic below threshold (orphaned ProxySQL instance)
-    warning_msg = (
-        f":warning: *【ゾンビ課金アラート】ProxySQL停止漏れ検知*\n"
-        f"・プロジェクト: `{project_id}`\n"
-        f"・ゾーン: `{zone}`\n"
-        f"・インスタンス名: `{instance_name}`\n"
-        f"・検知時状態: `{status}`\n"
-        f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else '自動強制停止を実行しました。'}"
-    )
-    logger.warning(warning_msg)
-    send_slack_alert(warning_msg)
+        logger.warning(warning_msg)
+        send_slack_alert(warning_msg)
 
     if dry_run:
         return ResourceInspectionResult(
@@ -1137,6 +1144,7 @@ def check_and_stop_proxysql_mig(
     timeout_threshold_sec: float = DEFAULT_HUNG_THRESHOLD_SEC,
     dry_run: bool = False,
     fallback_to_instance: bool = False,
+    skip_traffic_check: bool = False,
 ) -> ResourceInspectionResult:
     """
     Checks if ProxySQL MIG target_size > 0.
@@ -1166,6 +1174,7 @@ def check_and_stop_proxysql_mig(
                 job_prefixes=job_prefixes,
                 grace_period_sec=grace_period_sec,
                 timeout_threshold_sec=timeout_threshold_sec,
+                skip_traffic_check=skip_traffic_check,
                 dry_run=dry_run,
             )
 
@@ -1430,6 +1439,11 @@ def main() -> int:
         help="ProxySQL Compute Engine Instance Zone",
     )
     parser.add_argument(
+        "--skip-traffic-check",
+        action="store_true",
+        help="Skip 10-minute network traffic check when stopping after local production job teardown (still enforces active Cloud Run job guard)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Check only without resizing",
@@ -1448,6 +1462,7 @@ def main() -> int:
             job_prefixes=prefixes,
             grace_period_sec=args.grace_period_sec,
             timeout_threshold_sec=args.timeout_threshold_sec,
+            skip_traffic_check=args.skip_traffic_check,
             dry_run=args.dry_run,
         )
     else:
@@ -1460,6 +1475,7 @@ def main() -> int:
             timeout_threshold_sec=args.timeout_threshold_sec,
             dry_run=args.dry_run,
             fallback_to_instance=True,
+            skip_traffic_check=args.skip_traffic_check,
         )
 
     if result.was_leaked:

@@ -169,3 +169,28 @@ def test_reguide_investment_parser_missing_price_skips():
         parser._parsePropertyDetailPage(entity, empty_soup)
 
 
+def test_reguide_investment_parser_derives_annual_rent_when_dash():
+    parser = ReguideInvestmentParser()
+    entity = parser.createEntity()
+    html = """
+    <html><body>
+      <h1>レジデンス新着テスト</h1>
+      <table>
+        <tr><th>価格(税込)</th><td>1億4,800万円</td><th>利回り</th><td>6.64%</td></tr>
+        <tr><th>満室想定年間収入</th><td>-</td><th>満室想定表面利回り</th><td>6.64%</td></tr>
+        <tr><th>所在地</th><td>東京都世田谷区三軒茶屋1-2-3</td><th>交通</th><td>東急田園都市線 三軒茶屋駅 徒歩5分</td></tr>
+        <tr><th>築年月</th><td>2018年3月</td><th>構造</th><td>RC造</td></tr>
+        <tr><th>土地面積</th><td>120.50m2</td><th>建物面積</th><td>240.80m2</td></tr>
+      </table>
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    item = parser._parsePropertyDetailPage(entity, soup)
+    assert item.price == 148000000
+    assert item.grossYield == Decimal("6.64")
+    assert item.annualRent == 9827200
+    assert item.monthlyRent == 9827200 // 12
+    assert parser.validate_extracted_fields(item) == []
+
+
+

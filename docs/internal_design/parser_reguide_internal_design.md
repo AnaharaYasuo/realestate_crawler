@@ -18,6 +18,7 @@
 5. `_parseTransport1(response, specs=None)` -> str
 6. `_parseGrossYield(response, specs=None)` -> float / Decimal
 7. `_parseAnnualRent(response, specs=None)` -> int / Decimal
+   - `満室想定年間収入` / `年間予定賃料収入` が `"-"` または未記載であっても、`価格(税込)`（`price > 0`）と `満室想定表面利回り` / `利回り`（`grossYield > 0`）が公開されている場合は、RE-Guide掲載定義（`利回り＝年間想定賃料収入÷物件購入価格×100`）に基づき `_derive_annual_rent_from_yield(item)` で `annualRent = int(Decimal(str(price)) * Decimal(str(grossYield)) / Decimal(100))`（および `monthlyRent = annualRent // 12`）を導出補完する。
 8. `_parseChikunengetsu(response, specs=None)` -> date / str
 9. `_parseKouzou(response, specs=None)` -> str
 10. `_parseTochiMenseki(response, specs=None)` -> Decimal / None
