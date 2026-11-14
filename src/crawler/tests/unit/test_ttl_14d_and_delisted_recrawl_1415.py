@@ -617,3 +617,138 @@ class TestBatchConcurrencyAndCliMain:
             assert ttl_recrawl.verify_db_select_one() is True
 
 
+class TestIssue1421ColdBootAndWorkerPool:
+    def test_collect_ttl_expired_targets_retries_on_transient_lost_connection_2013(self):
+        now = datetime.datetime(2026, 11, 14, 12, 0, tzinfo=datetime.UTC)
+        attempts = {"count": 0}
+
+        def flaky_eval_iterator(*args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise OperationalError(2013, "Lost connection to server during query")
+            return iter(
+                [
+                    {
+                        "id": 10,
+                        "property_url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/RETRY2013/",
+                        "company": "mitsui",
+                        "property_type": "mansion",
+                        "property_id": 99,
+                        "is_published": True,
+                        "last_detail_fetched_at": now - datetime.timedelta(days=20),
+                    }
+                ]
+            )
+
+        fake_eval_qs = MagicMock()
+        fake_eval_qs.filter.return_value = fake_eval_qs
+        fake_eval_qs.values.return_value.iterator.side_effect = flaky_eval_iterator
+
+        fake_model_cls = MagicMock()
+        fake_model_cls.objects.values.return_value.iterator.return_value = iter([])
+
+        with (
+            patch("django.utils.timezone.now", return_value=now),
+            patch.object(ttl_recrawl.PropertyEvaluation.objects, "all", return_value=fake_eval_qs),
+            patch.object(
+                ttl_recrawl.SiteRegistry,
+                "get_all_property_model_entries",
+                return_value=[(fake_model_cls, "mitsui", "mansion")],
+            ),
+            patch.object(ttl_recrawl, "connection") as conn_mock,
+            patch("time.sleep") as sleep_mock,
+        ):
+            targets = ttl_recrawl.collect_ttl_expired_targets(ttl_days=14, company="mitsui")
+
+        assert attempts["count"] == 2
+        conn_mock.close.assert_called()
+        sleep_mock.assert_called_once()
+        assert len(targets) == 1
+        assert targets[0].property_url == "https://www.rehouse.co.jp/buy/mansion/bkdetail/RETRY2013/"
+
+    def test_local_prod_infra_restarts_dropped_iap_tunnel_and_sets_gcs_defaults(self, monkeypatch):
+        monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+        monkeypatch.delenv("GCS_BUCKET_NAME", raising=False)
+
+        first_proc = MagicMock()
+        # Alive during startup, then exited (rc=1) when watchdog checks
+        first_proc.poll.side_effect = [None, 1, 1]
+        first_proc.returncode = 1
+
+        second_proc = MagicMock()
+        second_proc.poll.return_value = None
+
+        port_checks = iter([False, True, False, True])
+
+        with (
+            patch.object(
+                ttl_recrawl,
+                "_run_headless_cmd",
+                return_value=SimpleNamespace(returncode=0, stdout="RUNNING", stderr=""),
+            ),
+            patch.object(ttl_recrawl, "_is_tcp_port_open", side_effect=lambda *a, **kw: next(port_checks)),
+            patch.object(
+                ttl_recrawl,
+                "_spawn_iap_tunnel_process",
+                side_effect=[first_proc, second_proc],
+            ) as spawn_mock,
+            patch.object(ttl_recrawl, "verify_db_select_one", return_value=True),
+            patch("time.sleep"),
+        ):
+            with ttl_recrawl.LocalProdInfraContext(
+                gcloud_bin="gcloud.cmd",
+                stop_if_idle_on_exit=False,
+                enable_tunnel_watchdog=False,
+            ) as ctx:
+                import os
+
+                assert os.environ.get("STORAGE_BACKEND") == "gcs"
+                assert os.environ.get("GCS_BUCKET_NAME") == "realestate-images-sumifu-prod"
+                restarted = ctx.ensure_tunnel_alive()
+                assert restarted is True
+
+        assert spawn_mock.call_count == 2
+        second_proc.terminate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_crawl_ttl_expired_targets_async_uses_bounded_worker_pool_and_shared_session(self):
+        import asyncio
+
+        targets = [
+            ttl_recrawl.TtlTarget(
+                property_url=f"https://example.com/{i}",
+                company=f"comp_{i % 5}",
+                property_type="mansion",
+            )
+            for i in range(40)
+        ]
+        active_workers = 0
+        peak_active_workers = 0
+        received_sessions: list[object] = []
+
+        async def fake_single(target, timeout_sec=60, session=None):
+            nonlocal active_workers, peak_active_workers
+            active_workers += 1
+            peak_active_workers = max(peak_active_workers, active_workers)
+            received_sessions.append(session)
+            await asyncio.sleep(0.002)
+            active_workers -= 1
+            return "refreshed"
+
+        with (
+            patch.object(ttl_recrawl, "crawl_single_ttl_target", side_effect=fake_single),
+            patch.object(ttl_recrawl, "close_old_connections"),
+        ):
+            stats = await ttl_recrawl.crawl_ttl_expired_targets_async(
+                targets=targets,
+                concurrency=4,
+                domain_concurrency=2,
+            )
+
+        assert stats == {"refreshed": 40}
+        assert 1 <= peak_active_workers <= 4
+        assert all(s is not None for s in received_sessions)
+        assert len({id(s) for s in received_sessions}) == 1
+
+
+
