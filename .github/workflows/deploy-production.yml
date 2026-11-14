@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
 
       - name: Run Trivy vulnerability scanner in IaC mode
         uses: aquasecurity/trivy-action@master
@@ -43,6 +45,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -71,6 +75,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -117,7 +123,7 @@ jobs:
             --cpu=1 \
             --memory=3Gi \
             --task-timeout=${CRAWLER_TIMEOUT_SEC}s \
-            --update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC},CRAWLER_HANG_THRESHOLD_SEC=600 \
+            --update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC},CRAWLER_HANG_THRESHOLD_SEC=600,APP_GIT_SHA=${{ github.sha }} \
             --region=asia-northeast1
 
       - name: Update Cloud Run Service Image
@@ -158,6 +164,7 @@ jobs:
             --cpu=2 \
             --memory=2Gi \
             --task-timeout=7200s \
+            --update-env-vars=APP_GIT_SHA=${{ github.sha }} \
             --region=asia-northeast1
 
       - name: Update Safety Net Job Image
@@ -173,9 +180,22 @@ jobs:
           gcloud run jobs update realestate-recrawl-anomalies-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/maintenance/recrawl_anomalies.py \
+            --args=--include-needs-recrawl,--skip-same-sha \
             --cpu=2 \
             --memory=2Gi \
+            --update-env-vars=APP_GIT_SHA=${{ github.sha }} \
             --region=asia-northeast1
+
+      - name: Trigger Anomaly Recrawl Workflow on Parser or Selector Changes
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+          if echo "$CHANGED_FILES" | grep -Eq "^(src/crawler/package/parser/|config/selectors/)"; then
+            echo "Parser or selector changes detected in production deploy; triggering realestate-recrawl-anomalies-pipeline-prod..."
+            gcloud workflows run realestate-recrawl-anomalies-pipeline-prod \
+              --location=asia-northeast1 || echo "::warning::Failed to trigger anomaly recrawl workflow (non-blocking)"
+          else
+            echo "No parser or selector changes in HEAD~1..HEAD; skipping immediate anomaly recrawl trigger."
+          fi
 
       - name: Prune old images (Keep latest 3 versions)
         # Executed only after all jobs and services have successfully updated their image references

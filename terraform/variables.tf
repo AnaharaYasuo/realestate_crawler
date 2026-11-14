@@ -181,4 +181,16 @@ variable "github_actions_sa_email" {
   default     = "github-actions-crawler@sumifu.iam.gserviceaccount.com"
 }
 
+variable "slack_allowed_users" {
+  type        = string
+  description = "Comma-separated Slack user IDs authorized to trigger auto-heal / operational commands"
+  default     = ""
+}
+
+variable "slack_allowed_bot_ids" {
+  type        = string
+  description = "Comma-separated Slack bot IDs authorized to emit [AUTO_HEAL_REQ] messages"
+  default     = ""
+}
+
 

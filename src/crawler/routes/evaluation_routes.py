@@ -1135,9 +1135,11 @@ def predict_by_url():
     if property_type:
         property_type = str(property_type).strip().lower()
 
-    # Singleflight で同一URLの並行処理合流
+    # Singleflight で同一URLの並行処理合流（閉じたイベントループが残存している場合は再生成）
     try:
         loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Event loop is closed")
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

@@ -1958,11 +1958,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     @staticmethod
     def _detect_company_name(item) -> str:
-        model_name = item.__class__.__name__
-        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
-            if model_name.lower().startswith(c):
-                return c
-        return "unknown"
+        from package.site_registry import SiteRegistry
+
+        return SiteRegistry.detect_company_from_model(item)
 
     SITE_DOWNLOAD_DELAYS: ClassVar[dict[str, float]] = {
         "nomura": 0.5,
@@ -2102,6 +2100,23 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             else:
                 raise
 
+    @classmethod
+    def _should_preserve_existing_valid_record(cls, existing_record, new_item) -> tuple[bool, list[str]]:
+        """Protect an already-valid DB property row from being overwritten by a newly broken parse (Issue #1410)."""
+        from django.db import models as dj_models
+        from package.utils.data_validator import PropertyDataValidator
+
+        if not isinstance(existing_record, dj_models.Model):
+            return False, []
+        ptype = PropertyTypeDetector.detect_from_object(new_item)
+        if not ptype or ptype == "unknown":
+            return False, []
+        new_ok, new_reasons = PropertyDataValidator.validate_property(new_item, ptype)
+        if new_ok:
+            return False, []
+        old_ok, _ = PropertyDataValidator.validate_property(existing_record, ptype)
+        return old_ok, new_reasons
+
     async def _save_property_and_price_history(self, item):
         current_time = datetime.datetime.now()
         current_day = datetime.date.today()
@@ -2122,6 +2137,18 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return
 
         if existing_record:
+            preserve_old, broken_reasons = self._should_preserve_existing_valid_record(existing_record, item)
+            if preserve_old:
+                item.id = existing_record.id
+                logger.warning(
+                    "[Overwrite Protection] Preserving existing valid DB record for %s; new parse failed validation: %s",
+                    item.pageUrl,
+                    "; ".join(broken_reasons),
+                )
+                self._save_error_html_record(item, broken_reasons)
+                await self._validate_and_tag_property_integrity(item)
+                return
+
             item.id = existing_record.id
             item._state.adding = False
             item.inputDate = existing_record.inputDate or current_day
@@ -2560,6 +2587,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             eval_rec.delisted_at = now_utc
             eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
             eval_rec.needs_recrawl = False
+            if not eval_rec.needs_parser_fix:
+                eval_rec.heal_status = "healthy"
             eval_rec.save()
             logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)
             return
@@ -2579,16 +2608,26 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             is_published=False,
             delisted_at=now_utc,
             needs_recrawl=False,
+            heal_status="healthy",
             analysis_status="skipped_by_budget",
         )
         logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
 
     def _sync_persist_parser_failure(self, err_msg: str):
+        from package.utils.git_version import get_current_git_sha
+
+        cur_sha = get_current_git_sha()
         eval_rec = self._find_existing_evaluation()
         if eval_rec:
             eval_rec.needs_parser_fix = True
             eval_rec.needs_recrawl = True
+            eval_rec.heal_status = "detected"
+            eval_rec.failed_git_sha = cur_sha
             eval_rec.data_quality_issue = str(err_msg)[:500]
+            eval_rec.first_stage_predicted_price = None
+            eval_rec.second_stage_predicted_price = None
+            eval_rec.dcf_theoretical_price = None
+            eval_rec.is_first_stage_passed = False
             # 既存の公開ステータスを維持（既に掲載終了となっているものを誤って復活させない）
             eval_rec.save()
             logger.info("[Lifecycle] Tagged PropertyEvaluation with needs_parser_fix: %s (is_published=%s)", self.url, eval_rec.is_published)
@@ -2609,6 +2648,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             is_published=True,
             needs_parser_fix=True,
             needs_recrawl=True,
+            heal_status="detected",
+            failed_git_sha=cur_sha,
             data_quality_issue=str(err_msg)[:500],
             analysis_status="skipped_by_budget",
         )

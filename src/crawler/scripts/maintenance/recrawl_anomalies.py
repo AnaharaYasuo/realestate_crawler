@@ -25,8 +25,11 @@ while True:
 
 from asgiref.sync import sync_to_async
 from django.db.models import F, Q
+from django.utils import timezone
 from package.api.mitsui import DETAIL_PARARELL_LIMIT
 from package.models.evaluation import PropertyEvaluation
+from package.site_registry import SiteRegistry
+from package.utils.git_version import get_current_git_sha
 from package.utils.task_distribution import get_task_config
 from package.utils.url_router import UrlRouter
 
@@ -34,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # サーキットブレイカー: 連続タイムアウトFast-Fail上限
 MAX_CONSECUTIVE_TIMEOUTS = 3
+SOURCE_INVALID_RECRAWL_THRESHOLD = 3
 
 
 class TargetPropertyRef:
@@ -43,13 +47,21 @@ class TargetPropertyRef:
         self.property_id = property_id
 
 
+def _resolve_shard_key(rec: Any) -> int:
+    pk_val = getattr(rec, "id", None)
+    if isinstance(pk_val, int):
+        return pk_val
+    prop_id = getattr(rec, "property_id", 0)
+    return prop_id if isinstance(prop_id, int) else 0
+
+
 def filter_targets_by_task(records: list[Any], task_index: int | None, task_count: int) -> list[Any]:
-    """対象レコードを Cloud Run Jobs タスクアレイの Modulo 分割により抽出する (後方互換/単体テスト用)"""
+    """対象レコードを Cloud Run Jobs タスクアレイの Modulo 分割により抽出する (property_id=0 の Task 0 集中防止のため PK id 優先)"""
     if task_index is None or task_count <= 1:
         return records
     if task_index < 0 or task_index >= task_count:
         raise ValueError(f"task_index ({task_index}) out of range for task_count ({task_count})")
-    return [rec for rec in records if (getattr(rec, "property_id", 0) or 0) % task_count == task_index]
+    return [rec for rec in records if _resolve_shard_key(rec) % task_count == task_index]
 
 
 def fetch_assigned_targets(
@@ -60,7 +72,8 @@ def fetch_assigned_targets(
     model_name: str | None = None,
     field_empty: str | None = None,
     company: str | None = None,
-    include_needs_recrawl: bool = False,
+    include_needs_recrawl: bool = True,
+    skip_same_sha: bool = False,
 ) -> list[Any]:
     """各タスクの担当条件(Modulo)と--limitをDjangoクエリに直接適用して取得する"""
     if urls:
@@ -82,16 +95,86 @@ def fetch_assigned_targets(
         return [TargetPropertyRef(getattr(item, "pageUrl", ""), item.id) for item in qs.only("id", "pageUrl")]
 
     flag_q = Q(needs_parser_fix=True) | Q(needs_recrawl=True) if include_needs_recrawl else Q(needs_parser_fix=True)
-    qs = PropertyEvaluation.objects.filter(flag_q, is_published=True)
+    qs = PropertyEvaluation.objects.filter(flag_q, is_published=True).exclude(heal_status="source_data_invalid")
     if company:
         qs = qs.filter(company=company)
+    if skip_same_sha:
+        current_sha = get_current_git_sha()
+        if current_sha:
+            qs = qs.exclude(failed_git_sha=current_sha, recrawl_attempts__gte=1)
     if task_index is not None and task_count > 1:
-        # Django DB 側で Modulo フィルタを適用し、不要な全件ロードを抑制
-        qs = qs.annotate(mod_id=F("property_id") % task_count).filter(mod_id=task_index)
-    qs = qs.order_by("property_id")
+        # property_id=0 (初回パース例外レコード) が Task 0 に100%集中するのを防ぐため PropertyEvaluation.id で均等分割
+        qs = qs.annotate(mod_id=F("id") % task_count).filter(mod_id=task_index)
+    qs = qs.order_by("id")
     if limit and limit > 0:
         qs = qs[:limit]
     return list(qs)
+
+
+def apply_unresolved_recrawl_escalation(
+    eval_rec: Any,
+    current_sha: str | None = None,
+    item_parsed: bool = True,
+    now: Any = None,
+) -> None:
+    """Update recrawl_attempts across distinct Git SHAs and isolate source_data_invalid after 3 attempts (Issue #1410)."""
+    sha = (current_sha if current_sha is not None else get_current_git_sha()) or ""
+    ts = now if now is not None else timezone.now()
+    prev_sha = (getattr(eval_rec, "failed_git_sha", "") or "").strip()
+    attempts = int(getattr(eval_rec, "recrawl_attempts", 0) or 0)
+
+    if not sha or sha != prev_sha or attempts == 0:
+        attempts += 1
+
+    eval_rec.recrawl_attempts = attempts
+    eval_rec.last_recrawled_at = ts
+    if sha:
+        eval_rec.failed_git_sha = sha
+
+    if item_parsed and attempts >= SOURCE_INVALID_RECRAWL_THRESHOLD:
+        eval_rec.heal_status = "source_data_invalid"
+        eval_rec.needs_parser_fix = False
+        eval_rec.needs_recrawl = False
+
+
+def cleanup_orphaned_old_type_record(
+    old_company: str | None,
+    old_property_type: str | None,
+    old_property_id: int | None,
+    new_company: str | None,
+    new_property_type: str | None,
+    property_url: str,
+) -> bool:
+    """Delete stale row from previous property-type table when parser type-switch healed the URL (Issue #1410)."""
+    if not old_company or not old_property_type or not new_company or not new_property_type:
+        return False
+    if old_company == new_company and old_property_type == new_property_type:
+        return False
+
+    old_model = SiteRegistry.resolve_model_class(old_company, old_property_type)
+    new_model = SiteRegistry.resolve_model_class(new_company, new_property_type)
+    if old_model is None or old_model is new_model:
+        return False
+
+    from package.utils.url_matcher import UrlMatcher
+
+    norm_url = UrlMatcher.normalize(property_url)
+    url_q = Q(pageUrl=property_url) | Q(pageUrl=norm_url)
+    if old_property_id and old_property_id > 0:
+        qs = old_model.objects.filter(Q(id=old_property_id) | url_q)
+    else:
+        qs = old_model.objects.filter(url_q)
+    qs.delete()
+    logger.info(
+        "[Orphan Cleanup] Removed stale record in %s for %s (migrated %s/%s -> %s/%s)",
+        getattr(old_model, "__name__", str(old_model)),
+        property_url,
+        old_company,
+        old_property_type,
+        new_company,
+        new_property_type,
+    )
+    return True
 
 
 class AnomalyDetailRunner:
@@ -157,6 +240,59 @@ class CircuitBreakerState:
                 self.consecutive_failures = 0
 
 
+def _evaluate_post_recrawl_state(
+    url: str,
+    item: Any,
+    old_company: str | None,
+    old_property_type: str | None,
+    old_property_id: int | None,
+) -> str:
+    from package.utils.url_matcher import UrlMatcher
+
+    normalized_url = UrlMatcher.normalize(url)
+    latest = (
+        PropertyEvaluation.objects.filter(property_url=url).first()
+        or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
+        or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", url)
+    )
+    if not latest:
+        return "failed"
+    if not latest.is_published:
+        return "delisted"
+    if item is not None:
+        cleanup_orphaned_old_type_record(
+            old_company=old_company,
+            old_property_type=old_property_type,
+            old_property_id=old_property_id,
+            new_company=getattr(latest, "company", None),
+            new_property_type=getattr(latest, "property_type", None),
+            property_url=url,
+        )
+    if item is not None and not latest.needs_parser_fix and not latest.needs_recrawl:
+        latest.last_recrawled_at = timezone.now()
+        try:
+            latest.save(update_fields=["last_recrawled_at"])
+        except Exception:  # noqa: BLE001
+            pass
+        return "resolved"
+
+    apply_unresolved_recrawl_escalation(latest, item_parsed=item is not None)
+    try:
+        latest.save(
+            update_fields=[
+                "recrawl_attempts",
+                "last_recrawled_at",
+                "failed_git_sha",
+                "heal_status",
+                "needs_parser_fix",
+                "needs_recrawl",
+            ]
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return "failed" if item is None else "unresolved"
+
+
 async def _recrawl_single_url(
     sem: asyncio.Semaphore,
     eval_rec: Any,
@@ -167,6 +303,9 @@ async def _recrawl_single_url(
         return "skipped_by_circuit_breaker"
 
     url = getattr(eval_rec, "property_url", None) or getattr(eval_rec, "pageUrl", None) or str(eval_rec)
+    old_company = getattr(eval_rec, "company", None)
+    old_property_type = getattr(eval_rec, "property_type", None)
+    old_property_id = getattr(eval_rec, "property_id", None)
     async with sem:
         if circuit_breaker.is_tripped:
             return "skipped_by_circuit_breaker"
@@ -183,24 +322,9 @@ async def _recrawl_single_url(
             logger.exception("Failed recrawling target URL %s", url)
             return "failed"
 
-        # 永続化後の最新レコード状態を確認して分類
-        def get_post_state():
-            from package.utils.url_matcher import UrlMatcher
-            normalized_url = UrlMatcher.normalize(url)
-            latest = (
-                PropertyEvaluation.objects.filter(property_url=url).first()
-                or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
-                or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", url)
-            )
-            if not latest:
-                return "failed"
-            if not latest.is_published:
-                return "delisted"
-            if item is not None and not latest.needs_parser_fix and not latest.needs_recrawl:
-                return "resolved"
-            return "failed" if item is None else "unresolved"
-
-        outcome = await sync_to_async(get_post_state)()
+        outcome = await sync_to_async(_evaluate_post_recrawl_state)(
+            url, item, old_company, old_property_type, old_property_id
+        )
         if outcome in ("resolved", "delisted"):
             await circuit_breaker.record_success()
         else:
@@ -219,7 +343,8 @@ async def recrawl_anomalies_async(
     model_name: str | None = None,
     field_empty: str | None = None,
     company: str | None = None,
-    include_needs_recrawl: bool = False,
+    include_needs_recrawl: bool = True,
+    skip_same_sha: bool = False,
 ):
     """不整合物件および指定対象物件の分散再クローリング本体ロジック"""
     # 1. 担当条件と上限を DB クエリに直接適用して取得
@@ -232,6 +357,7 @@ async def recrawl_anomalies_async(
         field_empty=field_empty,
         company=company,
         include_needs_recrawl=include_needs_recrawl,
+        skip_same_sha=skip_same_sha,
     )
     logger.info(
         "Task [%s/%d]: Assigned %d properties to recrawl (Concurrency: %d, DryRun: %s)",
@@ -260,7 +386,7 @@ async def recrawl_anomalies_async(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Distributed recrawling for needs_parser_fix properties")
+    parser = argparse.ArgumentParser(description="Distributed recrawling for needs_parser_fix/needs_recrawl properties")
     parser.add_argument("--task-index", type=int, default=None, help="Cloud Run Task Index (0-based)")
     parser.add_argument("--task-count", type=int, default=None, help="Total Cloud Run Tasks (default: 8)")
     parser.add_argument("--concurrency", type=int, default=None, help=f"In-process concurrency (default: {DETAIL_PARARELL_LIMIT})")
@@ -270,7 +396,9 @@ def main():
     parser.add_argument("--model", type=str, default=None, help="Target model name (e.g. NomuraKodate)")
     parser.add_argument("--field-empty", type=str, default=None, help="Field name that is empty (e.g. madori)")
     parser.add_argument("--company", type=str, default=None, help="Filter by company name (e.g. homes)")
-    parser.add_argument("--include-needs-recrawl", action="store_true", help="Include needs_recrawl=True records")
+    parser.add_argument("--include-needs-recrawl", action="store_true", default=True, help="Include needs_recrawl=True records (enabled by default)")
+    parser.add_argument("--only-parser-fix", action="store_true", help="Restrict recrawl strictly to needs_parser_fix=True")
+    parser.add_argument("--skip-same-sha", action="store_true", help="Skip records that already failed on the current Git SHA")
     args = parser.parse_args()
 
     env_index, env_count = get_task_config()
@@ -282,6 +410,7 @@ def main():
     concurrency = args.concurrency if args.concurrency is not None else default_concurrency
 
     url_list = [u.strip() for u in args.urls.split(",") if u.strip()] if args.urls else None
+    include_recrawl = False if args.only_parser_fix else bool(args.include_needs_recrawl)
 
     _, stats = asyncio.run(
         recrawl_anomalies_async(
@@ -294,7 +423,8 @@ def main():
             model_name=args.model,
             field_empty=args.field_empty,
             company=args.company,
-            include_needs_recrawl=args.include_needs_recrawl,
+            include_needs_recrawl=include_recrawl,
+            skip_same_sha=args.skip_same_sha,
         )
     )
 

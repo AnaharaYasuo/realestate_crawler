@@ -12,6 +12,7 @@ Cloud Run ML Pipeline Job (クローラージョブ終了後に Cloud Scheduler 
 """
 import os
 import sys
+import json
 import time
 import asyncio
 import logging
@@ -299,6 +300,57 @@ def _build_potentials_sync_cmd(scripts_dir: str) -> list[str]:
     return cmd
 
 
+def _run_self_healing_recrawl_and_validation(
+    maintenance_dir: str,
+    debug_tools_dir: str,
+    skip_url_check: bool,
+) -> None:
+    """日次パイプライン内での異常レコードピンポイント再取得 → データ検証 → 耐障害Auto-Heal指示書生成を一貫実行する (Issue #1410)"""
+    failed_steps: list[str] = []
+
+    recrawl_cmd = [
+        sys.executable,
+        os.path.join(maintenance_dir, "recrawl_anomalies.py"),
+        "--include-needs-recrawl",
+        "--skip-same-sha",
+        "--limit",
+        "500",
+    ]
+    try:
+        run_command(recrawl_cmd, "Step 0.9/5: Automated Self-Healing Anomaly Recrawl (SHA-Aware)")
+    except RuntimeError as recrawl_err:
+        logger.warning("⚠️ Anomaly recrawl finished with partial failures (continuing to validation): %s", recrawl_err)
+        failed_steps.append(str(recrawl_err))
+
+    validate_cmd = [sys.executable, os.path.join(maintenance_dir, "validate_data.py")]
+    if skip_url_check:
+        validate_cmd.append("--skip-url-check")
+
+    validation_error: RuntimeError | None = None
+    try:
+        run_command(
+            validate_cmd,
+            f"Step 1/5: Scraping Data Validation & Automated Cleansing{' [Skip URL Check]' if skip_url_check else ''}",
+        )
+    except RuntimeError as val_err:
+        validation_error = val_err
+        failed_steps.append(str(val_err))
+
+    auto_heal_cmd = [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")]
+    if failed_steps:
+        auto_heal_cmd.extend(["--failed-steps", json.dumps(failed_steps, ensure_ascii=False)])
+
+    try:
+        run_command(auto_heal_cmd, "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
+    except RuntimeError as heal_err:
+        if validation_error is None:
+            raise
+        logger.warning("⚠️ Auto-heal instruction fallback also failed after validation error: %s", heal_err)
+
+    if validation_error is not None:
+        raise validation_error
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Cloud Run ML Pipeline Job")
     is_cloud = is_cloud_environment()
@@ -363,17 +415,12 @@ def main(argv=None):
         if not ok:
             logger.warning(f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。")
 
-        # Step 2: データ検証 & クレンジング
-        validate_cmd = [sys.executable, os.path.join(maintenance_dir, "validate_data.py")]
-        if args.skip_url_check:
-            validate_cmd.append("--skip-url-check")
-        run_command(validate_cmd, f"Step 1/5: Scraping Data Validation & Automated Cleansing{' [Skip URL Check]' if args.skip_url_check else ''}")
-
-        # AI自己修復用のバグ指示書生成
-        run_command([
-            sys.executable,
-            os.path.join(debug_tools_dir, "auto_heal_parsers.py")
-        ], "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
+        # Step 2: 自動異常再取得 & データ検証 & Auto-Heal指示書生成 (耐障害構造)
+        _run_self_healing_recrawl_and_validation(
+            maintenance_dir=maintenance_dir,
+            debug_tools_dir=debug_tools_dir,
+            skip_url_check=args.skip_url_check,
+        )
 
         # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計・マクロ指標・GSI/実成約等）
         if not args.skip_potentials_sync:

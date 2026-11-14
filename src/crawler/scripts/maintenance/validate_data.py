@@ -25,85 +25,21 @@ while True:
 from asgiref.sync import async_to_sync
 from django.db import OperationalError, close_old_connections, transaction
 from django.utils import timezone
-from package.models.athome import (
-    AthomeInvestmentApartment,
-    AthomeKodate,
-    AthomeMansion,
-    AthomeTochi,
-)
 from package.models.evaluation import PropertyEvaluation
+from package.site_registry import SiteRegistry
+from package.utils.data_validator import PropertyDataValidator, apply_integrity_transition
 from package.utils.db_timeouts import bound_mysql_timeouts
-from package.models.homes import (
-    HomesInvestmentApartment,
-    HomesKodate,
-    HomesMansion,
-    HomesTochi,
-)
-from package.models.misawa import (
-    MisawaInvestmentApartment,
-    MisawaInvestmentKodate,
-    MisawaKodate,
-    MisawaMansion,
-    MisawaTochi,
-)
-from package.models.mitsui import (
-    MitsuiInvestmentApartment,
-    MitsuiInvestmentKodate,
-    MitsuiKodate,
-    MitsuiMansion,
-    MitsuiTochi,
-)
-from package.models.nomura import (
-    NomuraInvestmentApartment,
-    NomuraInvestmentKodate,
-    NomuraKodate,
-    NomuraMansion,
-    NomuraTochi,
-)
-from package.models.sumifu import (
-    SumifuInvestmentApartment,
-    SumifuInvestmentKodate,
-    SumifuKodate,
-    SumifuMansion,
-    SumifuTochi,
-)
-from package.models.tokyu import (
-    TokyuInvestmentApartment,
-    TokyuInvestmentKodate,
-    TokyuKodate,
-    TokyuMansion,
-    TokyuTochi,
-)
-from package.utils.data_validator import PropertyDataValidator
 from package.utils.slack import send_dev_report, verify_url_active
 
 logger = logging.getLogger(__name__)
 
 
-def get_all_models_flat():
-    """全物件種別のモデルクラスとその判定タグのリストを返す"""
-    return [
-        (MitsuiMansion, "mitsui", "mansion"), (MitsuiKodate, "mitsui", "kodate"), (MitsuiTochi, "mitsui", "tochi"),
-        (MitsuiInvestmentKodate, "mitsui", "invest_kodate"), (MitsuiInvestmentApartment, "mitsui", "apartment"),
-        
-        (SumifuMansion, "sumifu", "mansion"), (SumifuKodate, "sumifu", "kodate"), (SumifuTochi, "sumifu", "tochi"),
-        (SumifuInvestmentKodate, "sumifu", "invest_kodate"), (SumifuInvestmentApartment, "sumifu", "apartment"),
-        
-        (TokyuMansion, "tokyu", "mansion"), (TokyuKodate, "tokyu", "kodate"), (TokyuTochi, "tokyu", "tochi"),
-        (TokyuInvestmentKodate, "tokyu", "invest_kodate"), (TokyuInvestmentApartment, "tokyu", "apartment"),
-        
-        (NomuraMansion, "nomura", "mansion"), (NomuraKodate, "nomura", "kodate"), (NomuraTochi, "nomura", "tochi"),
-        (NomuraInvestmentKodate, "nomura", "invest_kodate"), (NomuraInvestmentApartment, "nomura", "apartment"),
-        
-        (MisawaMansion, "misawa", "mansion"), (MisawaKodate, "misawa", "kodate"), (MisawaTochi, "misawa", "tochi"),
-        (MisawaInvestmentKodate, "misawa", "invest_kodate"), (MisawaInvestmentApartment, "misawa", "apartment"),
-        
-        (AthomeMansion, "athome", "mansion"), (AthomeKodate, "athome", "kodate"), (AthomeTochi, "athome", "tochi"),
-        (AthomeInvestmentApartment, "athome", "apartment"),
-        
-        (HomesMansion, "homes", "mansion"), (HomesKodate, "homes", "kodate"), (HomesTochi, "homes", "tochi"),
-        (HomesInvestmentApartment, "homes", "apartment"),
-    ]
+def get_all_models_flat(skip_portals: bool = False, skip_uncrawled: bool = False):
+    """SiteRegistry (SSOT) から全物件種別のモデルクラスとその判定タグのリストを動的に返す (Issue #1410)"""
+    return SiteRegistry.get_all_property_model_entries(
+        skip_portals=skip_portals,
+        skip_uncrawled=skip_uncrawled,
+    )
 
 
 async def process_property_validation(
@@ -116,7 +52,7 @@ async def process_property_validation(
     """
     単一物件レコードの生存確認およびデータ妥当性を検証する。
     1. 掲載終了（404等）判定時: is_published=False, delisted_at=now, needs_recrawl=False (skip_url_check=True の場合はスキップ)
-    2. スペック異常判定時: needs_recrawl=True, data_quality_issue 記録, 予測価格0リセット
+    2. スペック異常判定時: needs_parser_fix=True, needs_recrawl=True, heal_status='detected', 予測価格無効化 (is_slack_notifiedは非汚染)
     3. 正常時: is_published=True, needs_recrawl=False
     """
     url = getattr(item, "pageUrl", "") or getattr(item, "url", "")
@@ -130,9 +66,12 @@ async def process_property_validation(
                 eval_rec.is_published = False
                 eval_rec.delisted_at = timezone.now()
                 eval_rec.needs_recrawl = False
-                eval_rec.first_stage_predicted_price = 0
-                eval_rec.second_stage_predicted_price = 0
-                eval_rec.is_slack_notified = True
+                eval_rec.first_stage_predicted_price = None
+                eval_rec.second_stage_predicted_price = None
+                eval_rec.dcf_theoretical_price = None
+                eval_rec.is_first_stage_passed = False
+                if not eval_rec.needs_parser_fix:
+                    eval_rec.heal_status = "healthy"
             return {
                 "status": "delisted",
                 "company": company,
@@ -148,13 +87,7 @@ async def process_property_validation(
 
     if not is_valid:
         if eval_rec:
-            eval_rec.is_published = True
-            eval_rec.needs_parser_fix = True
-            eval_rec.needs_recrawl = True
-            eval_rec.data_quality_issue = "; ".join(reasons)
-            eval_rec.first_stage_predicted_price = 0
-            eval_rec.second_stage_predicted_price = 0
-            eval_rec.is_slack_notified = True  # ML推論および推薦アラートから除外
+            apply_integrity_transition(eval_rec, is_valid=False, reasons=reasons)
         return {
             "status": "invalid",
             "company": company,
@@ -165,12 +98,9 @@ async def process_property_validation(
             "is_critical": True,
         }
 
-    # 正常
+    # 3. 正常
     if eval_rec:
-        eval_rec.is_published = True
-        eval_rec.needs_parser_fix = False
-        eval_rec.needs_recrawl = False
-        eval_rec.data_quality_issue = ""
+        apply_integrity_transition(eval_rec, is_valid=True, reasons=[])
 
     return {
         "status": "valid",
@@ -183,6 +113,34 @@ async def process_property_validation(
     }
 
 
+def _instantiate_missing_eval_record(
+    item: Any,
+    ptype: str,
+    company: str,
+    res: dict[str, Any],
+) -> PropertyEvaluation | None:
+    url = res.get("url") or getattr(item, "pageUrl", "") or ""
+    if not url or res.get("status") not in ("invalid", "delisted"):
+        return None
+    raw_id = getattr(item, "id", 0)
+    prop_id = raw_id if isinstance(raw_id, int) else 0
+    rec = PropertyEvaluation(
+        property_url=url,
+        company=company,
+        property_type=ptype,
+        property_id=prop_id,
+        analysis_status="skipped_by_budget",
+    )
+    if res["status"] == "delisted":
+        rec.is_published = False
+        rec.delisted_at = timezone.now()
+        rec.needs_recrawl = False
+        rec.heal_status = "healthy"
+    else:
+        apply_integrity_transition(rec, is_valid=False, reasons=list(res.get("reasons") or []))
+    return rec
+
+
 async def _validate_single_property(
     sem: asyncio.Semaphore,
     item: Any,
@@ -193,6 +151,8 @@ async def _validate_single_property(
 ) -> tuple[dict[str, Any], PropertyEvaluation | None]:
     async with sem:
         res = await process_property_validation(item, ptype, company, eval_rec, skip_url_check=skip_url_check)
+        if eval_rec is None:
+            eval_rec = _instantiate_missing_eval_record(item, ptype, company, res)
         return res, eval_rec
 
 
@@ -209,13 +169,21 @@ async def _run_parallel_validation(
     return await asyncio.gather(*coros)
 
 
+def _safe_close_old_connections() -> None:
+    """Close stale DB connections when DB access is active; ignore pytest-django blocked non-DB unit tests."""
+    try:
+        close_old_connections()
+    except RuntimeError:
+        return
+
+
 def _fetch_eval_chunk_with_retry(chunk: list[str], max_retries: int = 3) -> list[PropertyEvaluation]:
     for attempt in range(max_retries):
         try:
-            close_old_connections()
+            _safe_close_old_connections()
             return list(PropertyEvaluation.objects.filter(property_url__in=chunk))
         except OperationalError as oe:
-            close_old_connections()
+            _safe_close_old_connections()
             if attempt >= max_retries - 1:
                 raise
             logger.warning("OperationalError in batch_resolve_evaluations (attempt %d/%d): %s", attempt + 1, max_retries, oe)
@@ -244,13 +212,13 @@ def batch_resolve_evaluations(urls: list[str], chunk_size: int = 1000) -> dict[s
 def _fetch_model_candidates_with_retry(model_cls: Any, since_date: Any, max_retries: int = 3) -> list[Any]:
     for attempt in range(max_retries):
         try:
-            close_old_connections()
+            _safe_close_old_connections()
             qs = model_cls.objects.all()
             if since_date and hasattr(model_cls, "inputDate"):
                 qs = qs.filter(inputDate__gte=since_date)
             return list(qs)
         except OperationalError as oe:
-            close_old_connections()
+            _safe_close_old_connections()
             if attempt >= max_retries - 1:
                 raise
             logger.warning("OperationalError scanning %s (attempt %d/%d): %s", getattr(model_cls, "__name__", str(model_cls)), attempt + 1, max_retries, oe)
@@ -265,7 +233,7 @@ def _save_eval_with_retry(eval_rec: PropertyEvaluation, max_retries: int = 3) ->
                 eval_rec.save()
             return
         except OperationalError as oe:
-            close_old_connections()
+            _safe_close_old_connections()
             if attempt >= max_retries - 1:
                 raise
             logger.warning("OperationalError saving PropertyEvaluation (attempt %d/%d): %s", attempt + 1, max_retries, oe)
@@ -351,7 +319,7 @@ def validate_data(
             concurrency=concurrency,
             skip_url_check=skip_url_check,
         )
-        close_old_connections()
+        _safe_close_old_connections()
         for res, eval_rec in results:
             if eval_rec:
                 _save_eval_with_retry(eval_rec)

@@ -136,3 +136,28 @@ def notify_auto_heal_request(heal_targets: list[dict]):
 2. **修正内容**: 変更対象ファイル、差分概要
 3. **修正後の動作確認結果**: 実行したテストコマンド、全件成功（Pass）の事実
 
+---
+
+## 4. 閉ループ自律治癒（Closed-Loop Self-Healing）拡張内部設計 (Issue #1410)
+
+### 4.1 `SiteRegistry` 統合モデル解決 (`package.site_registry`)
+- `SiteRegistry.get_all_property_model_entries(skip_portals=False, skip_uncrawled=False)`: 全登録サイトの `(model_cls, company, canonical_property_type)` を動的解決し、`validate_data.py` の7社ハードコードを廃止する。
+- `SiteRegistry.resolve_model_class(company, property_type)`: `invest_kodate` / `investment_kodate` / `investmentkodate` や `apartment` / `invest_apartment` / `investment` 等の全種別エイリアスを吸収し、全30社以上のモデルクラスを返す。
+- `SiteRegistry.detect_company_from_model(model_or_item)`: 中堅仲介・収益ポータルを含む全登録会社のプレフィックス判定を提供する。
+
+### 4.2 GCS 修復指示書ブリッジ (`auto_heal_parsers.py` & `monitor_error_pages.py`)
+- `auto_heal_parsers.py`:
+  - `property_id == 0`（初回 `ParserFailureException` により物件テーブル未作成のレコード）も `PropertyEvaluation` の `property_url` と `data_quality_issue` から修復ターゲットへ抽出する。
+  - 抽出された異常レコードの `heal_status` を `"heal_requested"` に更新する。
+  - `should_sync_storage_cache()` が真の環境では `auto_heal/latest_instruction.json` および `auto_heal/history/<YYYY-MM-DD>/auto_heal_instruction.json` へ JSON を自動アップロードし、ローカル実行時は `--pull-from-gcs` で取得可能とする。
+- `monitor_error_pages.py`:
+  - Linux `find` コマンド依存を廃止し、標準 `pathlib` による `docs/error_pages` ＋ `logs/runs/*/error_pages` 走査と GCS `runs/<date>/error_pages/` メタ走査を統合する。
+
+### 4.3 自動再クローリング・状態遷移統合 (`data_validator.py`, `recrawl_anomalies.py`, `run_ml_pipeline.py`)
+- `apply_integrity_transition`: 異常時は `is_slack_notified` を変更せず予測価格のみ無効化して `heal_status="detected"`・`failed_git_sha=get_current_git_sha()` を記録。再クロール正常化時は `heal_status="recrawled_pending_ml"` へ遷移。
+- `recrawl_anomalies.py`:
+  - `F("id") % task_count` による均等タスク分散、デフォルトでの `needs_parser_fix | needs_recrawl` 抽出、`--skip-same-sha` による同一SHA再試行抑止、3世代以上の異なるSHAでの連続バリデーション失敗時の `source_data_invalid` 隔離、および種別変更時の旧テーブル残骸削除を実行する。
+- `run_ml_pipeline.py`:
+  - Step 1.2 で `recrawl_anomalies.py --include-needs-recrawl --skip-same-sha` を自動実行し、Step 1.5 `validate_data.py` の失敗時も `failed_steps` を引き継いで `auto_heal_parsers.py` を確実に実行する。
+
+
