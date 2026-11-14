@@ -36,10 +36,13 @@ def get_evaluation_and_duplicate_caches() -> tuple[dict[str, tuple[float, float]
         .values_list("property_url", flat=True)
     )
 
-    # Issue #773, #969: 不整合フラグ (needs_parser_fix=True, needs_recrawl=True) またはデータ品質異常 (data_quality_issue != "") の物件を学習から除外
+    # Issue #773, #969, #1410: 不整合フラグ・自律治癒中・元サイト情報不備物件を学習データから除外
     invalid_urls = set(
         PropertyEvaluation.objects.filter(
-            Q(needs_parser_fix=True) | Q(needs_recrawl=True) | ~Q(data_quality_issue="")
+            Q(needs_parser_fix=True)
+            | Q(needs_recrawl=True)
+            | ~Q(data_quality_issue="")
+            | Q(heal_status__in=["detected", "heal_requested", "ready_for_recrawl", "source_data_invalid"])
         ).values_list("property_url", flat=True)
     )
     excluded_urls = duplicate_urls | invalid_urls

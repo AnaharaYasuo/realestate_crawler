@@ -206,4 +206,5 @@ async def test_invalid_property_sets_recrawl_flag():
         assert eval_rec.needs_parser_fix is True
         assert eval_rec.needs_recrawl is True
         assert "価格異常" in eval_rec.data_quality_issue
-        assert eval_rec.first_stage_predicted_price == 0
+        assert eval_rec.first_stage_predicted_price is None
+        assert eval_rec.is_slack_notified is False

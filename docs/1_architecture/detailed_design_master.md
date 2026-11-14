@@ -951,3 +951,60 @@ erDiagram
         boolean is_residential_induction_zone
     }
 ```
+
+---
+
+## 5. 自律治癒（Closed-Loop Self-Healing）ステートマシン＆一貫リカバリ内部設計 (Issue #1410)
+
+不整合データの発見からパーサー修正、自動再クローリング、ML再推論、およびお宝物件通知候補への復帰までを人手介入ゼロの閉ループ（Closed Loop）として完結させる内部設計。
+
+### 5.1 ステートマシン定義 (`PropertyEvaluation.heal_status`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> healthy : 初回正常パース & 検証OK
+    healthy --> detected : パース例外 / バリデーションNG
+    detected --> heal_requested : auto_heal_parsers.py (GCS & Slack発報)
+    detected --> ready_for_recrawl : 新 git_sha デプロイ検知
+    heal_requested --> ready_for_recrawl : 新 git_sha デプロイ検知
+    detected --> recrawled_pending_ml : 再クロール正常化
+    heal_requested --> recrawled_pending_ml : 再クロール正常化
+    ready_for_recrawl --> recrawled_pending_ml : recrawl_anomalies / differential 再取得OK
+    recrawled_pending_ml --> healthy : run_bulk_ml_evaluation 再推論完了
+    detected --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
+    heal_requested --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
+    ready_for_recrawl --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
+    source_data_invalid --> recrawled_pending_ml : 30日TTL再確認で元データ修正検知
+```
+
+### 5.2 追加スキーマ項目 (`PropertyEvaluation` / Migration `0073`)
+| カラム名 | 型 | 既定値 | 役割 |
+|---|---|---|---|
+| `heal_status` | `CharField(30, db_index=True)` | `"healthy"` | `healthy` / `detected` / `heal_requested` / `ready_for_recrawl` / `recrawled_pending_ml` / `source_data_invalid` |
+| `failed_git_sha` | `CharField(40, db_index=True)` | `""` | 異常検知時の稼働コミットSHA（`APP_GIT_SHA` / `GITHUB_SHA`）。同一SHAへの無駄な再クロール連打を防止し、新SHAデプロイ後のみ自動再取得させる |
+| `recrawl_attempts` | `IntegerField` | `0` | 異常サイクル内の再取得試行回数（異なる3世代以上のSHAで連続失敗した物件を `source_data_invalid` へ自動隔離） |
+| `last_recrawled_at` | `DateTimeField(null=True)` | `None` | 最終再クローリング実行日時 |
+| `last_detail_fetched_at` | `DateTimeField(null=True, db_index=True)` | `None` | 詳細ページ実取得日時。`differential.py` の一覧スキップ処理（`updateDateTime` 更新）と完全分離し、30日TTLを確実に満了させる |
+
+### 5.3 状態遷移・データ保護不変条件 (`apply_integrity_transition`)
+1. **`is_slack_notified` 汚染の完全禁止**:
+   - 異常検知時（`tag_property_integrity` / `validate_data.py`）に `is_slack_notified = True` を流用セットしてはならない。お宝通知からの除外は `needs_recrawl=False, needs_parser_fix=False, heal_status="healthy"` 条件で担保する。
+2. **異常時の予測値無効化と修復後の強制再推論**:
+   - 異常検知時は `first_stage_predicted_price = None`, `second_stage_predicted_price = None`, `dcf_theoretical_price = None`, `is_first_stage_passed = False` に無効化する。
+   - 再クロールで正常化した際は `heal_status = "recrawled_pending_ml"` に遷移させ、`targets._should_skip_item` が `force=False` の通常日次評価でも確実に再推論対象として抽出し、`build_or_update_eval_record` 完了時に `heal_status = "healthy"` へ復帰させる。
+3. **既存正常スペックの上書き汚染防止 (`api.py`)**:
+   - 物件テーブルに既存の正常レコード（`validate_property == True`）が存在する場合、後続クロールで一時的なDOM崩れ等により不正値（`validate_property == False`）がパースされた際は、物件テーブル側の正常値を不正値で上書きせず、`PropertyEvaluation` への異常記録とエラーHTML保存のみを行う。
+4. **`SiteRegistry` による全登録サイトの完全一元解決**:
+   - `SiteRegistry.get_all_property_model_entries()` / `resolve_model_class()` / `detect_company_from_model()` を単一の真実（SSOT）とし、`validate_data.py`・`auto_heal_parsers.py`・`api.py` における会社別ハードコード辞書を全廃する。
+
+### 5.4 三段構えの自動再クローリング ＆ 残骸クリーンアップ設計
+1. **本番デプロイ連動**: `deploy-production.yml` で全ジョブに `APP_GIT_SHA=${{ github.sha }}` を注入し、`src/crawler/package/parser/` 変更を含むリリース時に `realestate-recrawl-anomalies-pipeline-prod` を非同期自動起動する。
+2. **日次MLパイプライン先頭連動**: `run_ml_pipeline.py` のデータ検証前ステップとして `recrawl_anomalies.py --include-needs-recrawl --skip-same-sha` を自動実行し、修復済み物件をその日のバルクML推論・お宝通知へ即時合流させる。また `validate_data.py` 失敗時も例外を捕捉して `auto_heal_parsers.py --failed-steps` を確実に実行する。
+3. **通常差分クロール連動 (`differential.py`)**:
+   - `_query_existing_records_sync` で `PropertyEvaluation` の異常状態・`failed_git_sha`・`last_detail_fetched_at` を一括参照する。
+   - 異常フラグ付きかつ `failed_git_sha != current_git_sha`（かつ `source_data_invalid` 以外）の物件は価格一致時でもスキップを解除して詳細再取得する。
+   - TTL判定基準を `last_detail_fetched_at or inputDateTime or updateDateTime` とし、一覧キャッシュ更新（`updateDateTime=now`）でTTLが永久リセットされる不具合を解消する。
+4. **`recrawl_anomalies.py` の構造健全化**:
+   - タスク分散を `F("property_id") % task_count` から主キー `F("id") % task_count` に変更し、`property_id=0`（初回パース例外レコード）の Task 0 集中を解消する。
+   - 再クロール時に物件種別が切り替わった場合（例: 戸建→マンション）、旧種別モデルの残骸レコードを自動削除する。
+

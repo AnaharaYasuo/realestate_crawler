@@ -89,6 +89,140 @@ class SiteRegistry:
         sites.update(cls._custom_sites)
         return sites
 
+    @classmethod
+    def detect_company_from_model(cls, model_or_item: Any) -> str:
+        """Detect registered company code from a Django model class or entity instance."""
+        if model_or_item is None:
+            return "unknown"
+        cls_obj = model_or_item if isinstance(model_or_item, type) else model_or_item.__class__
+        name = getattr(cls_obj, "__name__", "").lower()
+        if not name:
+            return "unknown"
+        for comp in sorted(cls.get_all_sites().keys(), key=len, reverse=True):
+            if name.startswith(comp):
+                return comp
+        return "unknown"
+
+    @staticmethod
+    def _infer_canonical_property_type(model_name_lower: str) -> str:
+        if any(k in model_name_lower for k in ("investmentkodate", "investment_kodate", "invest_kodate")):
+            return "invest_kodate"
+        if any(k in model_name_lower for k in ("investment", "invest", "apartment", "building")):
+            return "apartment"
+        if "mansion" in model_name_lower:
+            return "mansion"
+        if "kodate" in model_name_lower:
+            return "kodate"
+        if "tochi" in model_name_lower or "land" in model_name_lower:
+            return "tochi"
+        return "unknown"
+
+    @classmethod
+    def get_all_property_model_entries(
+        cls,
+        skip_portals: bool = False,
+        skip_uncrawled: bool = False,
+    ) -> list[tuple[Any, str, str]]:
+        """Return (model_cls, company, canonical_property_type) for all concrete property models."""
+        from django.apps import apps
+
+        from package.models.base import PropertyBaseModel
+
+        portal_set = {c.lower() for c in PORTAL_COMPANIES}
+        uncrawled_set = {c.lower() for c in UNCRAWLED_COMPANIES}
+        entries: list[tuple[Any, str, str]] = []
+        for model in apps.get_app_config("package").get_models():
+            if not issubclass(model, PropertyBaseModel) or model._meta.abstract:
+                continue
+            comp = cls.detect_company_from_model(model)
+            if comp == "unknown":
+                continue
+            if skip_portals and comp in portal_set:
+                continue
+            if skip_uncrawled and comp in uncrawled_set:
+                continue
+            ptype = cls._infer_canonical_property_type(model.__name__.lower())
+            entries.append((model, comp, ptype))
+        return entries
+
+    @staticmethod
+    def _candidate_model_suffixes(norm_ptype: str) -> tuple[str, ...]:
+        alias_map: dict[str, tuple[str, ...]] = {
+            "mansion": ("mansion",),
+            "kodate": ("kodate",),
+            "tochi": ("tochi",),
+            "invest_kodate": ("investmentkodate", "investment", "kodate"),
+            "investment_kodate": ("investmentkodate", "investment", "kodate"),
+            "investmentkodate": ("investmentkodate", "investment", "kodate"),
+            "invest_apartment": ("investmentapartment", "investment", "investmentbuilding"),
+            "investmentapartment": ("investmentapartment", "investment", "investmentbuilding"),
+            "apartment": ("investmentapartment", "investment", "investmentbuilding"),
+            "investment": ("investment", "investmentapartment", "investmentbuilding"),
+            "invest_building": ("investmentbuilding", "investmentapartment", "investment"),
+            "investmentbuilding": ("investmentbuilding", "investmentapartment", "investment"),
+        }
+        return alias_map.get(norm_ptype, (norm_ptype.replace("_", ""),))
+
+    @staticmethod
+    def _route_ptype_aliases(norm_ptype: str) -> tuple[str, ...]:
+        if norm_ptype in ("invest_kodate", "investment_kodate", "investmentkodate"):
+            return ("invest_kodate",)
+        if norm_ptype in ("apartment", "invest_apartment", "investmentapartment", "investment"):
+            return ("apartment",)
+        return (norm_ptype,)
+
+    @staticmethod
+    def _import_route_model(route: dict[str, Any], norm_ptype: str) -> Any | None:
+        mod_name = str(route.get("model_module", ""))
+        cls_name = str(route.get("model_cls", ""))
+        if norm_ptype == "invest_building" and "building" not in cls_name.lower():
+            return None
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:  # noqa: BLE001
+            return None
+        return getattr(mod, cls_name, None)
+
+    @classmethod
+    def _resolve_model_from_routes(cls, comp: str, norm_ptype: str) -> Any | None:
+        target_ptypes = set(cls._route_ptype_aliases(norm_ptype))
+        for route in UrlRouter.ROUTES:
+            if str(route.get("site", "")).lower() != comp:
+                continue
+            if route.get("property_type") not in target_ptypes:
+                continue
+            resolved = cls._import_route_model(route, norm_ptype)
+            if resolved is not None:
+                return resolved
+        return None
+
+    @classmethod
+    def resolve_model_class(cls, company: str, property_type: str) -> Any | None:
+        """Resolve concrete Django property model class for any (company, property_type) or alias."""
+        comp = (company or "").strip().lower()
+        norm_ptype = (property_type or "").strip().lower().replace("-", "_")
+        if not comp or not norm_ptype:
+            return None
+
+        from django.apps import apps
+
+        from package.models.base import PropertyBaseModel
+
+        company_models = [
+            m
+            for m in apps.get_app_config("package").get_models()
+            if issubclass(m, PropertyBaseModel)
+            and not m._meta.abstract
+            and cls.detect_company_from_model(m) == comp
+        ]
+        for suffix in cls._candidate_model_suffixes(norm_ptype):
+            for m in company_models:
+                m_tail = m.__name__.lower()[len(comp):]
+                if m_tail == suffix:
+                    return m
+
+        return cls._resolve_model_from_routes(comp, norm_ptype)
+
 
 def _check_route_models_for_company(comp: str) -> list[str]:
     errs: list[str] = []

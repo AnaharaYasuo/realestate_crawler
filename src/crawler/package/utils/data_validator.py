@@ -447,6 +447,49 @@ class PropertyDataValidator:
                 reasons.append(f"利回り異常 ({yield_rate}: 数値変換不能)")
 
 
+def apply_integrity_transition(
+    eval_rec: Any,
+    is_valid: bool,
+    reasons: list[str],
+    git_sha: str | None = None,
+    now: Any = None,
+) -> None:
+    """Apply Closed-Loop Self-Healing state transition without polluting is_slack_notified (Issue #1410)."""
+    from django.utils import timezone
+    from package.utils.git_version import get_current_git_sha
+
+    ts = now if now is not None else timezone.now()
+    eval_rec.last_detail_fetched_at = ts
+
+    if not is_valid:
+        eval_rec.needs_parser_fix = True
+        eval_rec.needs_recrawl = True
+        eval_rec.data_quality_issue = "; ".join(reasons)
+        eval_rec.is_published = True
+        eval_rec.heal_status = "detected"
+        eval_rec.failed_git_sha = git_sha if git_sha is not None else get_current_git_sha()
+        eval_rec.first_stage_predicted_price = None
+        eval_rec.second_stage_predicted_price = None
+        eval_rec.dcf_theoretical_price = None
+        eval_rec.is_first_stage_passed = False
+        return
+
+    prev_status = getattr(eval_rec, "heal_status", "healthy") or "healthy"
+    was_anomalous = bool(
+        getattr(eval_rec, "needs_parser_fix", False)
+        or getattr(eval_rec, "needs_recrawl", False)
+        or prev_status not in ("healthy", "")
+    )
+    eval_rec.needs_parser_fix = False
+    eval_rec.needs_recrawl = False
+    eval_rec.is_published = True
+    eval_rec.delisted_at = None
+    eval_rec.data_quality_issue = ""
+    eval_rec.failed_git_sha = ""
+    eval_rec.recrawl_attempts = 0
+    eval_rec.heal_status = "recrawled_pending_ml" if was_anomalous else "healthy"
+
+
 def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:
     """
     保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True および needs_recrawl=True (オートヒール/再クローリング対象)、
@@ -456,30 +499,28 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
 
     is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
     issue = "; ".join(reasons)
-    eval_rec, _ = PropertyEvaluation.objects.get_or_create(
+    prop_id = getattr(item, "id", 0) or 0
+    eval_rec, created = PropertyEvaluation.objects.get_or_create(
         property_url=item.pageUrl,
         defaults={
             "company": company,
             "property_type": property_type,
-            "property_id": getattr(item, "id", 0) or 0,
+            "property_id": prop_id,
             "is_published": True,
             "needs_parser_fix": not is_valid,
             "needs_recrawl": not is_valid,
             "data_quality_issue": issue,
+            "heal_status": "healthy" if is_valid else "detected",
         },
     )
-    if not is_valid:
-        eval_rec.needs_parser_fix = True
-        eval_rec.needs_recrawl = True
-        eval_rec.data_quality_issue = issue
-        eval_rec.is_published = True
-        eval_rec.save()
-    else:
-        # 正常保存は再掲載を含め公開状態へ復旧する。修復フラグの有無には依存しない
-        eval_rec.needs_parser_fix = False
-        eval_rec.needs_recrawl = False
-        eval_rec.is_published = True
-        eval_rec.delisted_at = None
-        eval_rec.data_quality_issue = ""
-        eval_rec.save()
+    if prop_id and eval_rec.property_id != prop_id:
+        eval_rec.property_id = prop_id
+    if company and company != "unknown" and eval_rec.company != company:
+        eval_rec.company = company
+    if property_type and property_type != "unknown" and eval_rec.property_type != property_type:
+        eval_rec.property_type = property_type
+    apply_integrity_transition(eval_rec, is_valid=is_valid, reasons=reasons)
+    if created and is_valid:
+        eval_rec.heal_status = "healthy"
+    eval_rec.save()
     return is_valid, reasons

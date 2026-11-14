@@ -17,7 +17,7 @@ main:
           - concurrency: ${default(map.get(args, "concurrency"), null)}
           - limit: ${default(map.get(args, "limit"), null)}
           - taskCount: ${default(map.get(args, "taskCount"), null)}
-          - recrawlArgs: []
+          - recrawlArgs: ["--include-needs-recrawl", "--skip-same-sha"]
 
     - buildArgs:
         steps:

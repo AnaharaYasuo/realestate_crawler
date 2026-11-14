@@ -17,68 +17,13 @@ realestateSettings.configure()
 import asyncio
 
 from django.utils import timezone
-from package.models.athome import (
-    AthomeInvestmentApartment,
-    AthomeKodate,
-    AthomeMansion,
-    AthomeTochi,
-)
 from package.models.evaluation import PropertyEvaluation
-from package.models.homes import (
-    HomesInvestmentApartment,
-    HomesKodate,
-    HomesMansion,
-    HomesTochi,
-)
-from package.models.misawa import (
-    MisawaInvestmentApartment,
-    MisawaInvestmentKodate,
-    MisawaKodate,
-    MisawaMansion,
-    MisawaTochi,
-)
-from package.models.mitsui import (
-    MitsuiInvestmentApartment,
-    MitsuiInvestmentKodate,
-    MitsuiKodate,
-    MitsuiMansion,
-    MitsuiTochi,
-)
-from package.models.nomura import (
-    NomuraInvestmentApartment,
-    NomuraInvestmentKodate,
-    NomuraKodate,
-    NomuraMansion,
-    NomuraTochi,
-)
-from package.models.odakyu import (
-    OdakyuInvestment,
-    OdakyuKodate,
-    OdakyuMansion,
-    OdakyuTochi,
-)
-from package.models.smtrc import (
-    SmtrcInvestment,
-    SmtrcKodate,
-    SmtrcMansion,
-    SmtrcTochi,
-)
-from package.models.sumifu import (
-    SumifuInvestmentApartment,
-    SumifuInvestmentKodate,
-    SumifuKodate,
-    SumifuMansion,
-    SumifuTochi,
-)
-from package.models.tokyu import (
-    TokyuInvestmentApartment,
-    TokyuInvestmentKodate,
-    TokyuKodate,
-    TokyuMansion,
-    TokyuTochi,
-)
+from package.site_registry import SiteRegistry
 from package.utils.data_validator import PropertyDataValidator
+from package.utils.open_data_cache_sync import should_sync_storage_cache
 from package.utils.slack import send_dev_report
+from package.utils.storage import get_storage_manager
+from package.utils.url_matcher import UrlMatcher
 
 try:
     from google import genai
@@ -92,62 +37,26 @@ try:
 except ImportError:
     httpx = None
 
-MODEL_MAP = {
-    ("mitsui", "mansion"): MitsuiMansion,
-    ("mitsui", "kodate"): MitsuiKodate,
-    ("mitsui", "tochi"): MitsuiTochi,
-    ("mitsui", "investment_kodate"): MitsuiInvestmentKodate,
-    ("mitsui", "investmentkodate"): MitsuiInvestmentKodate,
-    ("mitsui", "apartment"): MitsuiInvestmentApartment,
-    ("mitsui", "investmentapartment"): MitsuiInvestmentApartment,
-    ("sumifu", "mansion"): SumifuMansion,
-    ("sumifu", "kodate"): SumifuKodate,
-    ("sumifu", "tochi"): SumifuTochi,
-    ("sumifu", "investment_kodate"): SumifuInvestmentKodate,
-    ("sumifu", "investmentkodate"): SumifuInvestmentKodate,
-    ("sumifu", "apartment"): SumifuInvestmentApartment,
-    ("sumifu", "investmentapartment"): SumifuInvestmentApartment,
-    ("tokyu", "mansion"): TokyuMansion,
-    ("tokyu", "kodate"): TokyuKodate,
-    ("tokyu", "tochi"): TokyuTochi,
-    ("tokyu", "investment_kodate"): TokyuInvestmentKodate,
-    ("tokyu", "investmentkodate"): TokyuInvestmentKodate,
-    ("tokyu", "apartment"): TokyuInvestmentApartment,
-    ("tokyu", "investmentapartment"): TokyuInvestmentApartment,
-    ("nomura", "mansion"): NomuraMansion,
-    ("nomura", "kodate"): NomuraKodate,
-    ("nomura", "tochi"): NomuraTochi,
-    ("nomura", "investment_kodate"): NomuraInvestmentKodate,
-    ("nomura", "investmentkodate"): NomuraInvestmentKodate,
-    ("nomura", "apartment"): NomuraInvestmentApartment,
-    ("nomura", "investmentapartment"): NomuraInvestmentApartment,
-    ("misawa", "mansion"): MisawaMansion,
-    ("misawa", "kodate"): MisawaKodate,
-    ("misawa", "tochi"): MisawaTochi,
-    ("misawa", "investment_kodate"): MisawaInvestmentKodate,
-    ("misawa", "investmentkodate"): MisawaInvestmentKodate,
-    ("misawa", "apartment"): MisawaInvestmentApartment,
-    ("misawa", "investmentapartment"): MisawaInvestmentApartment,
-    ("athome", "mansion"): AthomeMansion,
-    ("athome", "kodate"): AthomeKodate,
-    ("athome", "tochi"): AthomeTochi,
-    ("athome", "apartment"): AthomeInvestmentApartment,
-    ("athome", "investmentapartment"): AthomeInvestmentApartment,
-    ("homes", "mansion"): HomesMansion,
-    ("homes", "kodate"): HomesKodate,
-    ("homes", "tochi"): HomesTochi,
-    ("homes", "apartment"): HomesInvestmentApartment,
-    ("homes", "investmentapartment"): HomesInvestmentApartment,
-    ("smtrc", "mansion"): SmtrcMansion,
-    ("smtrc", "kodate"): SmtrcKodate,
-    ("smtrc", "tochi"): SmtrcTochi,
-    ("smtrc", "investment"): SmtrcInvestment,
-    ("smtrc", "apartment"): SmtrcInvestment,
-    ("odakyu", "mansion"): OdakyuMansion,
-    ("odakyu", "kodate"): OdakyuKodate,
-    ("odakyu", "tochi"): OdakyuTochi,
-    ("odakyu", "investment"): OdakyuInvestment,
-}
+
+def _build_dynamic_model_map() -> dict[tuple[str, str], object]:
+    mapping: dict[tuple[str, str], object] = {}
+    for model_cls, comp, ptype in SiteRegistry.get_all_property_model_entries():
+        mapping[(comp, ptype)] = model_cls
+        if ptype == "invest_kodate":
+            mapping[(comp, "investment_kodate")] = model_cls
+            mapping[(comp, "investmentkodate")] = model_cls
+        elif ptype == "apartment":
+            mapping[(comp, "invest_apartment")] = model_cls
+            mapping[(comp, "investmentapartment")] = model_cls
+            mapping[(comp, "investment")] = model_cls
+    for comp, ptype in SiteRegistry.get_all_jobs():
+        resolved = SiteRegistry.resolve_model_class(comp, ptype)
+        if resolved is not None:
+            mapping[(comp, ptype)] = resolved
+    return mapping
+
+
+MODEL_MAP = _build_dynamic_model_map()
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -548,6 +457,145 @@ async def fetch_slack_error_targets(limit: int = 100) -> list[dict]:
     return targets
 
 
+AUTO_HEAL_GCS_LATEST_KEY = "auto_heal/latest_instruction.json"
+
+
+def upload_instruction_to_gcs(instruction: dict) -> bool:
+    """Cloud Run / GCS 環境において自己修復指示書を GCS へ永続化し、ホスト /auto-heal から参照可能にする (Issue #1410)"""
+    if not should_sync_storage_cache():
+        return False
+    try:
+        payload = json.dumps(instruction, ensure_ascii=False, indent=2).encode("utf-8")
+        today_str = datetime.now(dt_timezone.utc).strftime("%Y-%m-%d")
+        sm = get_storage_manager()
+        sm.upload_bytes(payload, AUTO_HEAL_GCS_LATEST_KEY, content_type="application/json")
+        sm.upload_bytes(
+            payload,
+            f"auto_heal/history/{today_str}/auto_heal_instruction.json",
+            content_type="application/json",
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to upload auto_heal_instruction.json to GCS: %s", exc)
+        return False
+
+
+def pull_latest_instruction_from_gcs(dest_path: str | None = None) -> bool:
+    """GCS 上の最新 auto_heal/latest_instruction.json をローカル Temp/auto_heal_instruction.json へ取得する (Issue #1410)"""
+    target_path = dest_path or os.path.join(get_project_root(), "Temp", "auto_heal_instruction.json")
+    try:
+        raw_text = get_storage_manager().read_text(AUTO_HEAL_GCS_LATEST_KEY)
+        if not raw_text:
+            return False
+        parsed = json.loads(raw_text)
+        os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(parsed, f, ensure_ascii=False, indent=2)
+        logger.info("Pulled latest auto-heal instruction from GCS to %s", target_path)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not pull auto-heal instruction from GCS: %s", exc)
+        return False
+
+
+def _resolve_property_for_eval(ev, model):
+    prop_id = getattr(ev, "property_id", 0) or 0
+    if prop_id > 0:
+        try:
+            return model.objects.get(id=prop_id)
+        except model.DoesNotExist:
+            pass
+    prop_url = getattr(ev, "property_url", "") or ""
+    if prop_url:
+        try:
+            return UrlMatcher.find_match_in_queryset(model.objects, "pageUrl", prop_url)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _mark_eval_heal_requested(ev) -> None:
+    cur_status = getattr(ev, "heal_status", "detected")
+    if cur_status in ("healthy", "detected", ""):
+        try:
+            ev.heal_status = "heal_requested"
+            ev.save(update_fields=["heal_status"])
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _extract_fallback_reason_from_prop(prop) -> str:
+    if getattr(prop, "price", None) and prop.price < 1000000:
+        return f"価格異常極小: {getattr(prop, 'priceStr', '')} ({prop.price}円)"
+    if getattr(prop, "tatemonoMenseki", 0) and prop.tatemonoMenseki < 5.0:
+        return f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
+    if getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
+        return f"土地面積異常極小: {prop.tochiMenseki}㎡"
+    return ""
+
+
+def _build_target_from_eval_anomaly(ev) -> dict | None:
+    model = MODEL_MAP.get((ev.company, ev.property_type)) or SiteRegistry.resolve_model_class(
+        ev.company, ev.property_type
+    )
+    prop = _resolve_property_for_eval(ev, model) if model is not None else None
+
+    if prop is None:
+        # 初回詳細ページ取得で ParserFailureException となり property_id=0 のみのケースを救済 (Issue #1410)
+        prop_url = getattr(ev, "property_url", "") or ""
+        reason = getattr(ev, "data_quality_issue", "") or ""
+        if not prop_url or not reason:
+            return None
+        _mark_eval_heal_requested(ev)
+        return {
+            "url": prop_url,
+            "company": ev.company,
+            "property_type": ev.property_type,
+            "propertyName": "(初回パース失敗・未保存物件)",
+            "price": 0,
+            "reason": reason,
+            "detected_at": ev.analyzed_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(ev, "analyzed_at", None) else None,
+        }
+
+    # 現行バリデータで再検証: すでに合格するレコードは自動的に不整合フラグを解消 (Issue #922)
+    is_valid, current_reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
+    if is_valid:
+        if ev.needs_parser_fix or ev.data_quality_issue:
+            ev.needs_parser_fix = False
+            ev.data_quality_issue = ""
+            if hasattr(ev, "heal_status"):
+                ev.heal_status = "recrawled_pending_ml"
+            ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
+        return None
+
+    reason = "; ".join(current_reasons) if current_reasons else (ev.data_quality_issue or "")
+    if not reason:
+        reason = _extract_fallback_reason_from_prop(prop)
+
+    if (
+        hasattr(prop, "maguchi")
+        and prop.maguchi == 0
+        and prop.setsudou
+        and any(k in str(prop.setsudou) for k in ["間口", "接面"])
+    ):
+        maguchi_warn = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+        reason = f"{reason}; {maguchi_warn}" if reason else maguchi_warn
+
+    if not reason:
+        return None
+
+    _mark_eval_heal_requested(ev)
+    return {
+        "url": prop.pageUrl,
+        "company": ev.company,
+        "property_type": ev.property_type,
+        "propertyName": prop.propertyName,
+        "price": float(prop.price) if prop.price else 0,
+        "reason": reason,
+        "detected_at": ev.analyzed_at.strftime("%Y-%m-%d %H:%M:%S") if ev.analyzed_at else None,
+    }
+
+
 def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = None):
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
@@ -580,56 +628,9 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
         eval_anomalies = PropertyEvaluation.objects.filter(analyzed_at__gte=three_days_ago, is_published=True)
 
     for ev in eval_anomalies:
-        model = MODEL_MAP.get((ev.company, ev.property_type))
-        if not model:
-            continue
-        try:
-            prop = model.objects.get(id=ev.property_id)
-        except model.DoesNotExist:
-            continue
-
-        # 現行バリデータで再検証: すでに合格するレコードは自動的に不整合フラグを解消 (Issue #922)
-        is_valid, current_reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
-        if is_valid:
-            if ev.needs_parser_fix or ev.data_quality_issue:
-                ev.needs_parser_fix = False
-                ev.data_quality_issue = ""
-                ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
-            continue
-
-        reason = "; ".join(current_reasons) if current_reasons else (ev.data_quality_issue or "")
-        if not reason:
-            if prop.price and prop.price < 1000000:
-                reason = f"価格異常極小: {prop.priceStr} ({prop.price}円)"
-            elif getattr(prop, "tatemonoMenseki", 0) and prop.tatemonoMenseki < 5.0:
-                reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
-            elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
-                reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
-
-        if (
-            hasattr(prop, "maguchi")
-            and prop.maguchi == 0
-            and prop.setsudou
-            and any(k in str(prop.setsudou) for k in ["間口", "接面"])
-        ):
-            maguchi_warn = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
-            reason = f"{reason}; {maguchi_warn}" if reason else maguchi_warn
-
-
-        if reason:
-            target = {
-                "url": prop.pageUrl,
-                "company": ev.company,
-                "property_type": ev.property_type,
-                "propertyName": prop.propertyName,
-                "price": float(prop.price) if prop.price else 0,
-                "reason": reason,
-                "detected_at": ev.analyzed_at.strftime("%Y-%m-%d %H:%M:%S")
-                if ev.analyzed_at
-                else None,
-            }
-            if target not in heal_targets:
-                heal_targets.append(target)
+        target = _build_target_from_eval_anomaly(ev)
+        if target and target not in heal_targets:
+            heal_targets.append(target)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = get_project_root()
@@ -668,6 +669,8 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
     with open(inst_path, "w", encoding="utf-8") as f:
         json.dump(instruction, f, ensure_ascii=False, indent=2)
 
+    upload_instruction_to_gcs(instruction)
+
     logger.info(
         f"Successfully generated AI self-healing instruction at {inst_path} with {len(top_targets)} prioritized targets (total {len(heal_targets)} detected, failed_steps: {len(failed_steps or [])})."
     )
@@ -689,7 +692,16 @@ if __name__ == "__main__":
         default=None,
         help="JSON-encoded list of failed pipeline step descriptions",
     )
+    parser.add_argument(
+        "--pull-from-gcs",
+        dest="pull_from_gcs",
+        action="store_true",
+        help="Pull latest auto_heal_instruction.json from GCS to Temp/ and exit",
+    )
     args = parser.parse_args()
+    if args.pull_from_gcs:
+        pull_latest_instruction_from_gcs()
+        sys.exit(0)
     failed_steps_list = None
     if args.failed_steps:
         try:

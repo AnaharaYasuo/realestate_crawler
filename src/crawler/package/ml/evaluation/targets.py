@@ -48,6 +48,24 @@ def get_all_property_models(skip_portals: bool = False, skip_uncrawled: bool = F
     return property_models
 
 
+_EXCLUDED_HEAL_STATUSES = frozenset({
+    "detected",
+    "heal_requested",
+    "ready_for_recrawl",
+    "source_data_invalid",
+})
+
+
+def _is_blocked_for_ml_evaluation(existing_eval: Any) -> bool:
+    if not existing_eval:
+        return False
+    if not getattr(existing_eval, "is_published", True):
+        return True
+    if getattr(existing_eval, "needs_recrawl", False) or getattr(existing_eval, "needs_parser_fix", False):
+        return True
+    return getattr(existing_eval, "heal_status", "healthy") in _EXCLUDED_HEAL_STATUSES
+
+
 def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = None) -> bool:
     """スキップ対象物件か判定する (Cognitive Complexity 分散)
 
@@ -56,8 +74,10 @@ def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = 
         force: 強制全件再評価フラグ
         reevaluate_before: 指定日時より前の analyzed_at を持つ評価レコードを再処理対象とする
     """
-    if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
+    if _is_blocked_for_ml_evaluation(existing_eval):
         return True
+    if existing_eval and getattr(existing_eval, "heal_status", "") == "recrawled_pending_ml":
+        return False
     if force:
         return False
     if reevaluate_before is not None:

@@ -841,9 +841,12 @@ def _fetch_recommendation_candidates(limit: int = 3000):
         is_slack_notified=False,
         is_published=True,
         needs_recrawl=False,
+        needs_parser_fix=False,
         duplicate_of__isnull=True,
     ).exclude(
-        Q(is_first_stage_passed=False) | Q(first_stage_predicted_price=0)
+        Q(is_first_stage_passed=False)
+        | Q(first_stage_predicted_price=0)
+        | Q(heal_status__in=["detected", "heal_requested", "ready_for_recrawl", "recrawled_pending_ml", "source_data_invalid"])
     )
     all_types = [
         'mansion', 'kodate', 'tochi',

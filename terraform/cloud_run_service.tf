@@ -110,6 +110,26 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
         name  = "SLACK_DEV_CHANNEL"
         value = "C0BKBHWD26T"
       }
+
+      env {
+        name  = "STORAGE_BACKEND"
+        value = "gcs"
+      }
+
+      env {
+        name  = "STORAGE_BUCKET"
+        value = google_storage_bucket.property_images.name
+      }
+
+      env {
+        name  = "SLACK_ALLOWED_USERS"
+        value = var.slack_allowed_users
+      }
+
+      env {
+        name  = "SLACK_ALLOWED_BOT_IDS"
+        value = var.slack_allowed_bot_ids
+      }
     }
   }
 
