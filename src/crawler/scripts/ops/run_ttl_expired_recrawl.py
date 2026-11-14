@@ -23,8 +23,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import defaultdict, deque
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import datetime
+import functools
 import gc
 import inspect
 import json
@@ -54,27 +57,38 @@ for _parent in _CUR_FILE.parents:
 
 import setup_env  # noqa: E402, F401
 from asgiref.sync import sync_to_async  # noqa: E402
-from django.db import DatabaseError, InterfaceError, OperationalError, close_old_connections, connection  # noqa: E402
+from django.db import DatabaseError, InterfaceError, OperationalError, close_old_connections, connection, connections  # noqa: E402
 from django.utils import timezone  # noqa: E402
 
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController  # noqa: E402
 from package.api.api import ParseDetailPageAsyncBase, header as DEFAULT_HTTP_HEADERS  # noqa: E402
 from package.api.differential import _is_ttl_expired  # noqa: E402
-from package.models.evaluation import PropertyEvaluation  # noqa: E402
+from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory  # noqa: E402
 from package.parser.baseParser import SkipPropertyException  # noqa: E402
 from package.site_registry import SiteRegistry  # noqa: E402
 from package.utils.crawler_diagnostics import record_thread_activity  # noqa: E402
+from package.utils.data_validator import PropertyDataValidator, apply_integrity_transition  # noqa: E402
+from package.utils.git_version import get_current_git_sha  # noqa: E402
+from package.utils.property_type_detector import PropertyTypeDetector  # noqa: E402
+from package.utils.report import CrawlerReporter  # noqa: E402
 from package.utils.url_matcher import UrlMatcher  # noqa: E402
 from package.utils.url_router import UrlRouter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_DAYS = 14
-DEFAULT_CONCURRENCY = 6
-DEFAULT_DOMAIN_CONCURRENCY = 2
+DEFAULT_CONCURRENCY = 36
+DEFAULT_DOMAIN_CONCURRENCY = 3
+DEFAULT_PLAYWRIGHT_CONCURRENCY = 2
+DEFAULT_DB_CONCURRENCY = 8
+DEFAULT_DB_BATCH_SIZE = 100
 DEFAULT_TIMEOUT_SEC = 60
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 25
 POST_START_SETTLE_SEC = 25.0
 DEFAULT_PROD_GCS_BUCKET = "realestate-images-sumifu-prod"
+PLAYWRIGHT_HEAVY_COMPANIES: frozenset[str] = frozenset(
+    {"athome", "mizuho", "sekisui", "smtrc", "kenbiya"}
+)
 _TRANSIENT_DB_ERROR_TOKENS = (
     "2002",
     "2003",
@@ -793,8 +807,488 @@ def _strip_item_soup(item: Any) -> None:
             logger.debug("Ignored error removing _soup attribute from parsed item.")
 
 
+class _BoundedDbExecutor:
+    """Bounded thread pool for concurrent Django ORM work without sync_to_async single-thread bottlenecks."""
+
+    def __init__(self, max_workers: int = DEFAULT_DB_CONCURRENCY) -> None:
+        self.max_workers = max(1, max_workers)
+        self._sem = asyncio.Semaphore(self.max_workers)
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="ttl-db",
+        )
+        self._seen_tids: set[int] = set()
+        self._tid_lock = threading.Lock()
+
+    def _invoke_with_tid_tracking(self, fn: Callable[..., Any], *args: Any) -> Any:
+        with self._tid_lock:
+            self._seen_tids.add(threading.get_ident())
+        return fn(*args)
+
+    async def run(self, fn: Callable[..., Any], *args: Any) -> Any:
+        async with self._sem:
+            loop = asyncio.get_running_loop()
+            call = functools.partial(self._invoke_with_tid_tracking, fn, *args)
+            return await loop.run_in_executor(self._executor, call)
+
+    def _close_worker_connections_sync(self) -> None:
+        with self._tid_lock:
+            target_count = len(self._seen_tids)
+        if target_count <= 0:
+            return
+        barrier = threading.Barrier(min(self.max_workers, max(1, target_count)), timeout=2.0)
+
+        def _close_on_worker() -> None:
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                logger.debug("DB worker cleanup barrier timed out; closing thread connection directly.")
+            try:
+                connections.close_all()
+            except Exception:  # noqa: BLE001
+                logger.debug("Ignored error closing worker-thread DB connections.")
+
+        futures = [
+            self._executor.submit(_close_on_worker)
+            for _ in range(min(self.max_workers, max(1, target_count)))
+        ]
+        for fut in futures:
+            try:
+                fut.result(timeout=4.0)
+            except Exception:  # noqa: BLE001
+                logger.debug("Ignored error waiting on DB worker connection cleanup.")
+
+    async def aclose(self) -> None:
+        await asyncio.to_thread(self._close_worker_connections_sync)
+        self._executor.shutdown(wait=True)
+
+
+def _partition_targets_by_pool(
+    targets: list[TtlTarget],
+) -> tuple[deque[TtlTarget], deque[TtlTarget]]:
+    static_pending: deque[TtlTarget] = deque()
+    pw_pending: deque[TtlTarget] = deque()
+    for target in targets:
+        if (target.company or "").lower() in PLAYWRIGHT_HEAVY_COMPANIES:
+            pw_pending.append(target)
+        else:
+            static_pending.append(target)
+    return static_pending, pw_pending
+
+
+_EVAL_BATCH_UPDATE_FIELDS = [
+    "company",
+    "property_type",
+    "property_id",
+    "is_published",
+    "delisted_at",
+    "needs_parser_fix",
+    "needs_recrawl",
+    "data_quality_issue",
+    "heal_status",
+    "failed_git_sha",
+    "recrawl_attempts",
+    "last_detail_fetched_at",
+    "first_stage_predicted_price",
+    "second_stage_predicted_price",
+    "dcf_theoretical_price",
+    "is_first_stage_passed",
+]
+
+
+@dataclass
+class _FetchedOutcomeItem:
+    target: TtlTarget
+    kind: str  # "active" | "delisted" | "parser_failed"
+    item: Any = None
+    error_msg: str = ""
+    proc: Any = None
+
+
+def _build_url_lookup_candidates(urls: list[str]) -> list[str]:
+    candidates: set[str] = set()
+    for raw in urls:
+        if not raw:
+            continue
+        candidates.add(raw)
+        norm = UrlMatcher.normalize(raw)
+        candidates.add(norm)
+        candidates.add(norm.rstrip("/"))
+        candidates.add(norm.rstrip("/") + "/")
+    return list(candidates)
+
+
+def _index_existing_by_norm_url(rows: list[Any], url_attr: str) -> dict[str, Any]:
+    indexed: dict[str, Any] = {}
+    for row in rows:
+        raw = str(getattr(row, url_attr, "") or "")
+        key = _normalize_url_key(raw)
+        if key and key not in indexed:
+            indexed[key] = row
+    return indexed
+
+
+def _updatable_model_field_names(model_class: Any) -> list[str]:
+    meta = getattr(model_class, "_meta", None)
+    if meta is None or not hasattr(meta, "concrete_fields"):
+        return []
+    return [f.name for f in meta.concrete_fields if not getattr(f, "primary_key", False)]
+
+
+def _prepare_single_active_model_entry(
+    entry: _FetchedOutcomeItem,
+    existing_map: dict[str, Any],
+    current_day: datetime.date,
+    current_time: datetime.datetime,
+    price_revisions: list[PropertyPriceHistory],
+    to_update: dict[int, Any],
+    to_create: list[Any],
+) -> None:
+    item = entry.item
+    item.pageUrl = UrlMatcher.normalize(item.pageUrl)
+    key = _normalize_url_key(item.pageUrl)
+    existing = existing_map.get(key)
+    proc = entry.proc
+
+    if existing is None:
+        item.inputDate = current_day
+        item.inputDateTime = current_time
+        item.updateDateTime = current_time
+        to_create.append(item)
+        return
+
+    preserve_old, broken_reasons = (
+        proc._should_preserve_existing_valid_record(existing, item)
+        if proc is not None
+        else (False, [])
+    )
+    if preserve_old:
+        item.id = existing.id
+        logger.warning(
+            "[Overwrite Protection] Preserving existing valid DB record for %s; new parse failed validation: %s",
+            item.pageUrl,
+            "; ".join(broken_reasons),
+        )
+        if proc is not None:
+            proc._save_error_html_record(item, broken_reasons)
+        return
+
+    item.id = existing.id
+    item.pk = existing.pk
+    if hasattr(item, "_state"):
+        item._state.adding = False
+    item.inputDate = getattr(existing, "inputDate", None) or current_day
+    item.inputDateTime = getattr(existing, "inputDateTime", None) or current_time
+    item.updateDateTime = current_time
+
+    old_p = getattr(existing, "price", None)
+    new_p = getattr(item, "price", None)
+    if old_p is not None and new_p is not None and old_p != new_p:
+        comp = ParseDetailPageAsyncBase._detect_company_name(item) or entry.target.company
+        ptype = PropertyTypeDetector.detect_from_object(item) or entry.target.property_type
+        price_revisions.append(
+            PropertyPriceHistory(
+                property_url=item.pageUrl,
+                company=comp,
+                property_type=ptype,
+                old_price=old_p,
+                new_price=new_p,
+                price_diff=new_p - old_p,
+            )
+        )
+    to_update[int(existing.pk)] = item
+
+
+def _flush_active_models_for_class(
+    model_class: Any,
+    entries: list[_FetchedOutcomeItem],
+    batch_size: int,
+    price_revisions: list[PropertyPriceHistory],
+) -> None:
+    urls = [str(getattr(e.item, "pageUrl", "") or e.target.property_url) for e in entries]
+    candidates = _build_url_lookup_candidates(urls)
+    existing_rows = list(model_class.objects.filter(pageUrl__in=candidates))
+    existing_map = _index_existing_by_norm_url(existing_rows, "pageUrl")
+
+    current_time = datetime.datetime.now()
+    current_day = datetime.date.today()
+    to_update: dict[int, Any] = {}
+    to_create: list[Any] = []
+
+    for entry in entries:
+        _prepare_single_active_model_entry(
+            entry,
+            existing_map,
+            current_day,
+            current_time,
+            price_revisions,
+            to_update,
+            to_create,
+        )
+
+    if to_update:
+        sorted_updates = [to_update[pk] for pk in sorted(to_update)]
+        fields = _updatable_model_field_names(model_class)
+        if fields:
+            model_class.objects.bulk_update(sorted_updates, fields=fields, batch_size=batch_size)
+        else:
+            for obj in sorted_updates:
+                obj.save()
+
+    if to_create:
+        model_class.objects.bulk_create(to_create, batch_size=batch_size, ignore_conflicts=True)
+        need_ids = [e.item for e in entries if getattr(e.item, "id", None) is None]
+        if need_ids:
+            refetched = list(
+                model_class.objects.filter(
+                    pageUrl__in=_build_url_lookup_candidates([i.pageUrl for i in need_ids])
+                )
+            )
+            refetched_map = _index_existing_by_norm_url(refetched, "pageUrl")
+            for created_item in need_ids:
+                matched = refetched_map.get(_normalize_url_key(created_item.pageUrl))
+                if matched is not None:
+                    created_item.id = matched.id
+
+
+def _apply_eval_entry_mutation(
+    entry: _FetchedOutcomeItem,
+    eval_rec: PropertyEvaluation | None,
+    now_ts: datetime.datetime,
+    cur_sha: str,
+    eval_updates: dict[int, PropertyEvaluation],
+    eval_creates: dict[str, PropertyEvaluation],
+) -> str:
+    norm_url = UrlMatcher.normalize(entry.target.property_url)
+    key = _normalize_url_key(norm_url)
+    comp = entry.target.company or "unknown"
+    ptype = entry.target.property_type or "unknown"
+
+    if entry.kind == "delisted":
+        if eval_rec is not None:
+            eval_rec.is_published = False
+            eval_rec.delisted_at = now_ts
+            eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+            eval_rec.needs_recrawl = False
+            if not eval_rec.needs_parser_fix:
+                eval_rec.heal_status = "healthy"
+            eval_updates[int(eval_rec.pk)] = eval_rec
+        else:
+            eval_creates[key] = PropertyEvaluation(
+                property_url=entry.target.property_url,
+                company=comp,
+                property_type=ptype,
+                property_id=entry.target.property_id or 0,
+                is_published=False,
+                delisted_at=now_ts,
+                needs_recrawl=False,
+                heal_status="healthy",
+                analysis_status="skipped_by_budget",
+            )
+        return "delisted"
+
+    if entry.kind == "parser_failed":
+        issue_txt = str(entry.error_msg)[:500]
+        if eval_rec is not None:
+            eval_rec.needs_parser_fix = True
+            eval_rec.needs_recrawl = True
+            eval_rec.heal_status = "detected"
+            eval_rec.failed_git_sha = cur_sha
+            eval_rec.data_quality_issue = issue_txt
+            eval_rec.first_stage_predicted_price = None
+            eval_rec.second_stage_predicted_price = None
+            eval_rec.dcf_theoretical_price = None
+            eval_rec.is_first_stage_passed = False
+            eval_updates[int(eval_rec.pk)] = eval_rec
+        else:
+            eval_creates[key] = PropertyEvaluation(
+                property_url=entry.target.property_url,
+                company=comp,
+                property_type=ptype,
+                property_id=entry.target.property_id or 0,
+                is_published=True,
+                needs_parser_fix=True,
+                needs_recrawl=True,
+                heal_status="detected",
+                failed_git_sha=cur_sha,
+                data_quality_issue=issue_txt,
+                analysis_status="skipped_by_budget",
+            )
+        return "parser_failed"
+
+    item = entry.item
+    detected_comp = ParseDetailPageAsyncBase._detect_company_name(item) or comp
+    detected_ptype = PropertyTypeDetector.detect_from_object(item) or ptype
+    is_valid, reasons = PropertyDataValidator.validate_property(item, detected_ptype)
+    prop_id = int(getattr(item, "id", 0) or entry.target.property_id or 0)
+
+    if eval_rec is None:
+        eval_rec = PropertyEvaluation(
+            property_url=item.pageUrl,
+            company=detected_comp,
+            property_type=detected_ptype,
+            property_id=prop_id,
+            is_published=True,
+            needs_parser_fix=not is_valid,
+            needs_recrawl=not is_valid,
+            data_quality_issue="; ".join(reasons),
+            heal_status="healthy" if is_valid else "detected",
+        )
+        apply_integrity_transition(eval_rec, is_valid=is_valid, reasons=reasons, git_sha=cur_sha, now=now_ts)
+        if is_valid:
+            eval_rec.heal_status = "healthy"
+        eval_creates[key] = eval_rec
+    else:
+        if prop_id and eval_rec.property_id != prop_id:
+            eval_rec.property_id = prop_id
+        if detected_comp != "unknown" and eval_rec.company != detected_comp:
+            eval_rec.company = detected_comp
+        if detected_ptype != "unknown" and eval_rec.property_type != detected_ptype:
+            eval_rec.property_type = detected_ptype
+        apply_integrity_transition(eval_rec, is_valid=is_valid, reasons=reasons, git_sha=cur_sha, now=now_ts)
+        eval_updates[int(eval_rec.pk)] = eval_rec
+
+    return "refreshed" if is_valid else "invalid_saved"
+
+
+def _flush_fetched_batch_sync_once(
+    batch: list[_FetchedOutcomeItem],
+    batch_size: int,
+) -> list[str]:
+    active_by_model: dict[Any, list[_FetchedOutcomeItem]] = defaultdict(list)
+    for entry in batch:
+        if entry.kind == "active" and entry.item is not None:
+            active_by_model[entry.item.__class__].append(entry)
+
+    price_revisions: list[PropertyPriceHistory] = []
+    for model_cls, group in active_by_model.items():
+        _flush_active_models_for_class(model_cls, group, batch_size, price_revisions)
+
+    if price_revisions:
+        PropertyPriceHistory.objects.bulk_create(price_revisions, batch_size=batch_size)
+
+    all_urls = [
+        str(getattr(e.item, "pageUrl", "") or e.target.property_url)
+        for e in batch
+    ]
+    eval_rows = list(
+        PropertyEvaluation.objects.filter(property_url__in=_build_url_lookup_candidates(all_urls))
+    )
+    eval_map = _index_existing_by_norm_url(eval_rows, "property_url")
+
+    now_ts = timezone.now()
+    cur_sha = get_current_git_sha()
+    eval_updates: dict[int, PropertyEvaluation] = {}
+    eval_creates: dict[str, PropertyEvaluation] = {}
+    outcomes: list[str] = []
+
+    for entry in batch:
+        lookup_url = str(getattr(entry.item, "pageUrl", "") or entry.target.property_url)
+        existing_eval = eval_map.get(_normalize_url_key(lookup_url))
+        outcomes.append(
+            _apply_eval_entry_mutation(
+                entry,
+                existing_eval,
+                now_ts,
+                cur_sha,
+                eval_updates,
+                eval_creates,
+            )
+        )
+
+    if eval_updates:
+        sorted_evals = [eval_updates[pk] for pk in sorted(eval_updates)]
+        PropertyEvaluation.objects.bulk_update(
+            sorted_evals,
+            fields=_EVAL_BATCH_UPDATE_FIELDS,
+            batch_size=batch_size,
+        )
+    if eval_creates:
+        PropertyEvaluation.objects.bulk_create(
+            list(eval_creates.values()),
+            batch_size=batch_size,
+            ignore_conflicts=True,
+        )
+    return outcomes
+
+
+def _flush_fetched_batch_with_retry(
+    batch: list[_FetchedOutcomeItem],
+    batch_size: int = DEFAULT_DB_BATCH_SIZE,
+) -> list[str]:
+    for attempt in range(3):
+        try:
+            return _flush_fetched_batch_sync_once(batch, max(1, batch_size))
+        except Exception as exc:
+            if not _is_transient_db_disconnect(exc) or attempt >= 2:
+                raise
+            logger.warning(
+                "[TTLRecrawl] Transient DB disconnect during %d-item batch flush (attempt %d/3: %s); retrying...",
+                len(batch),
+                attempt + 1,
+                exc,
+            )
+            connection.close()
+            time.sleep(2.0)
+    raise RuntimeError("Unreachable batch flush retry exhaustion")
+
+
+class _TtlDbBatchBuffer:
+    """Accumulates fetched detail outcomes and flushes to Cloud SQL in batches of 100."""
+
+    def __init__(
+        self,
+        db_runner: _BoundedDbExecutor,
+        stats_lock: asyncio.Lock,
+        state: _BatchRunState,
+        batch_size: int = DEFAULT_DB_BATCH_SIZE,
+    ) -> None:
+        self._db_runner = db_runner
+        self._stats_lock = stats_lock
+        self._state = state
+        self._batch_size = max(1, batch_size)
+        self._buf_lock = asyncio.Lock()
+        self._buffer: list[_FetchedOutcomeItem] = []
+
+    async def add(self, entry: _FetchedOutcomeItem) -> None:
+        chunk_to_flush: list[_FetchedOutcomeItem] | None = None
+        async with self._buf_lock:
+            self._buffer.append(entry)
+            if len(self._buffer) >= self._batch_size:
+                chunk_to_flush = self._buffer[: self._batch_size]
+                self._buffer = self._buffer[self._batch_size :]
+        if chunk_to_flush is not None:
+            await self._flush_chunk(chunk_to_flush)
+
+    async def flush_remaining(self) -> None:
+        while True:
+            async with self._buf_lock:
+                if not self._buffer:
+                    return
+                chunk = self._buffer[: self._batch_size]
+                self._buffer = self._buffer[self._batch_size :]
+            await self._flush_chunk(chunk)
+
+    async def _flush_chunk(self, chunk: list[_FetchedOutcomeItem]) -> None:
+        if not chunk:
+            return
+        try:
+            outcomes = await self._db_runner.run(
+                _flush_fetched_batch_with_retry,
+                chunk,
+                self._batch_size,
+            )
+        except Exception:
+            logger.exception("[TTLRecrawl] Batch DB flush failed for %d items; falling back per-item.", len(chunk))
+            outcomes = ["error"] * len(chunk)
+
+        async with self._stats_lock:
+            for outcome in outcomes:
+                self._state.record_outcome(outcome)
+
+
 class TtlDirectDetailProc(ParseDetailPageAsyncBase):
-    """Detail-page processor supporting optional shared aiohttp.ClientSession reuse."""
+    """Detail-page processor supporting shared ClientSession reuse and multi-thread DB persistence."""
 
     def __init__(
         self,
@@ -802,10 +1296,14 @@ class TtlDirectDetailProc(ParseDetailPageAsyncBase):
         resolved_parser: Any,
         timeout_sec: int,
         shared_session: aiohttp.ClientSession | None = None,
+        db_runner: _BoundedDbExecutor | None = None,
+        domain_concurrency: int = DEFAULT_DOMAIN_CONCURRENCY,
     ) -> None:
         self._resolved_parser = resolved_parser
         self._timeout_sec = timeout_sec
         self._shared_session = shared_session
+        self._db_runner = db_runner
+        self._domain_concurrency = max(1, domain_concurrency)
         super().__init__()
         self.company = target.company
         self.parser = resolved_parser
@@ -815,16 +1313,21 @@ class TtlDirectDetailProc(ParseDetailPageAsyncBase):
         return self._resolved_parser
 
     def _getLocalPararellLimit(self) -> int:
-        return DEFAULT_DOMAIN_CONCURRENCY
+        return self._domain_concurrency
 
     def _getCloudPararellLimit(self) -> int:
-        return DEFAULT_DOMAIN_CONCURRENCY
+        return self._domain_concurrency
 
     def _getTimeOutSecond(self) -> int:
         return self._timeout_sec
 
     def _getApiKey(self) -> str:
         return ""
+
+    async def _run_db_callable(self, fn: Callable[..., Any], *args: Any) -> Any:
+        if self._db_runner is not None:
+            return await self._db_runner.run(fn, *args)
+        return await sync_to_async(fn, thread_sensitive=False)(*args)
 
     async def _execute_single_detail_fetch(self) -> Any:
         shared = self._shared_session
@@ -856,7 +1359,108 @@ class TtlDirectDetailProc(ParseDetailPageAsyncBase):
                     raise
                 connection.close()
 
+    def _sync_persist_parser_failure_with_retry(self, err_msg: str) -> None:
+        for attempt in range(2):
+            try:
+                self._sync_persist_parser_failure(err_msg)
+                return
+            except Exception as exc:
+                if not _is_transient_db_disconnect(exc) or attempt >= 1:
+                    raise
+                connection.close()
+
+    def _record_price_revision_sync(self, item: Any, old_p: Any, new_p: Any) -> None:
+        company = self._detect_company_name(item)
+        property_type = PropertyTypeDetector.detect_from_object(item)
+        try:
+            PropertyPriceHistory.objects.create(
+                property_url=item.pageUrl,
+                company=company,
+                property_type=property_type,
+                old_price=old_p,
+                new_price=new_p,
+                price_diff=new_p - old_p,
+            )
+            logger.info("[Price Revision] %s: %s -> %s (diff: %+d)", item.pageUrl, old_p, new_p, new_p - old_p)
+        except Exception as he:  # noqa: BLE001
+            logger.warning("Failed to record price history for %s: %s", item.pageUrl, he)
+
+    def _apply_existing_or_new_timestamps(
+        self,
+        existing_record: Any,
+        item: Any,
+        current_day: datetime.date,
+        current_time: datetime.datetime,
+    ) -> bool:
+        if not existing_record:
+            item.inputDateTime = current_time
+            item.inputDate = current_day
+            item.updateDateTime = current_time
+            return True
+
+        preserve_old, broken_reasons = self._should_preserve_existing_valid_record(existing_record, item)
+        if preserve_old:
+            item.id = existing_record.id
+            logger.warning(
+                "[Overwrite Protection] Preserving existing valid DB record for %s; new parse failed validation: %s",
+                item.pageUrl,
+                "; ".join(broken_reasons),
+            )
+            self._save_error_html_record(item, broken_reasons)
+            self._tag_integrity_sync(item)
+            return False
+
+        item.id = existing_record.id
+        item._state.adding = False
+        item.inputDate = existing_record.inputDate or current_day
+        item.inputDateTime = existing_record.inputDateTime or current_time
+        item.updateDateTime = current_time
+
+        old_p = existing_record.price
+        new_p = item.price
+        if old_p is not None and new_p is not None and old_p != new_p:
+            self._record_price_revision_sync(item, old_p, new_p)
+        return True
+
+    def _sync_save_property_and_integrity_once(self, item: Any) -> None:
+        current_time = datetime.datetime.now()
+        current_day = datetime.date.today()
+        item.pageUrl = UrlMatcher.normalize(item.pageUrl)
+        model_class = item.__class__
+        try:
+            existing_record = UrlMatcher.find_match_in_queryset(model_class.objects, "pageUrl", item.pageUrl)
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"CheckExisting: {e}")
+            if _is_transient_db_disconnect(e):
+                raise
+            logger.exception("Operational error checking existing record for %s, aborting save", item.pageUrl)
+            return
+        except Exception as exc:
+            if _is_transient_db_disconnect(exc):
+                raise
+            logger.exception("Failed to check existing record for %s, aborting save", item.pageUrl)
+            return
+
+        if not self._apply_existing_or_new_timestamps(existing_record, item, current_day, current_time):
+            return
+        self._save_item_record_with_duplicate_fallback(item, model_class, current_day, current_time)
+        self._tag_integrity_sync(item)
+
+    def _sync_save_property_and_integrity_with_retry(self, item: Any) -> None:
+        for attempt in range(2):
+            try:
+                self._sync_save_property_and_integrity_once(item)
+                return
+            except Exception as exc:
+                if not _is_transient_db_disconnect(exc) or attempt >= 1:
+                    raise
+                connection.close()
+
     async def _save_property_and_price_history(self, item: Any) -> None:
+        if self._db_runner is not None:
+            await self._db_runner.run(self._sync_save_property_and_integrity_with_retry, item)
+            return
         for attempt in range(2):
             try:
                 await super()._save_property_and_price_history(item)
@@ -864,7 +1468,27 @@ class TtlDirectDetailProc(ParseDetailPageAsyncBase):
             except Exception as exc:
                 if not _is_transient_db_disconnect(exc) or attempt >= 1:
                     raise
-                await sync_to_async(connection.close)()
+                await sync_to_async(connection.close, thread_sensitive=False)()
+
+    async def _handle_skipped_property(self) -> None:
+        self._touch_watchdog_progress()
+        logger.info("Skipped property processing (Listing Ended) for URL: %s", self.url)
+        try:
+            await self._run_db_callable(self._sync_persist_delisted)
+        except OperationalError as le_err:
+            if AdaptiveConcurrencyController.is_db_overload_error(le_err):
+                AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+        except (DatabaseError, AttributeError, ValueError) as le_err:
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+
+    async def _handle_parser_failure(self, error: Any) -> None:
+        self._touch_watchdog_progress()
+        logger.warning("Handling parser failure for URL %s: %s", self.url, error)
+        try:
+            await self._run_db_callable(self._sync_persist_parser_failure_with_retry, str(error))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to persist parser failure for %s: %s", self.url, e)
 
     async def run_with_optional_shared_session(self) -> Any:
         shared = self._shared_session
@@ -881,11 +1505,73 @@ class TtlDirectDetailProc(ParseDetailPageAsyncBase):
             _strip_item_soup(item)
         return item
 
+    async def fetch_detail_only_for_batch(self) -> tuple[Any, bool, Any]:
+        """Fetch and parse detail page without per-item DB round-trips (persisted in 100-item batches)."""
+        fetch_res = await self._fetch_detail_item()
+        item = fetch_res[0] if len(fetch_res) > 0 else None
+        is_delisted = bool(fetch_res[1]) if len(fetch_res) > 1 else False
+        parser_err = fetch_res[2] if len(fetch_res) > 2 else None
+        _strip_item_soup(item)
+        return item, is_delisted, parser_err
+
+
+def _is_crawl_single_overridden() -> bool:
+    return bool(hasattr(crawl_single_ttl_target, "side_effect") or hasattr(crawl_single_ttl_target, "assert_called"))
+
+
+async def _fetch_and_enqueue_batch_target(
+    target: TtlTarget,
+    timeout_sec: int,
+    shared_session: aiohttp.ClientSession,
+    db_runner: _BoundedDbExecutor,
+    domain_concurrency: int,
+    db_batch_buffer: _TtlDbBatchBuffer,
+) -> str | None:
+    parser = UrlRouter.create_parser(
+        target.property_url,
+        property_type=target.property_type if target.property_type != "unknown" else None,
+    )
+    if parser is None:
+        logger.warning("[TTLRecrawl] No parser resolved for URL: %s", target.property_url)
+        return "unresolved_url"
+
+    proc = TtlDirectDetailProc(
+        target=target,
+        resolved_parser=parser,
+        timeout_sec=timeout_sec,
+        shared_session=shared_session,
+        db_runner=db_runner,
+        domain_concurrency=domain_concurrency,
+    )
+    item, is_delisted, parser_err = await proc.fetch_detail_only_for_batch()
+    if item is not None:
+        if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
+            await proc._handle_saved_property(item)
+            return str(await db_runner.run(_inspect_post_crawl_outcome_sync, target.property_url, item))
+        CrawlerReporter.success(proc.url, item.__class__.__name__)
+        await db_batch_buffer.add(_FetchedOutcomeItem(target=target, kind="active", item=item, proc=proc))
+        return None
+    if is_delisted:
+        proc._touch_watchdog_progress()
+        logger.info("Buffered delisted property for 100-item DB batch: %s", proc.url)
+        await db_batch_buffer.add(_FetchedOutcomeItem(target=target, kind="delisted", proc=proc))
+        return None
+    if parser_err is not None:
+        proc._touch_watchdog_progress()
+        logger.warning("Buffered parser failure for 100-item DB batch (%s): %s", proc.url, parser_err)
+        await db_batch_buffer.add(
+            _FetchedOutcomeItem(target=target, kind="parser_failed", error_msg=str(parser_err), proc=proc)
+        )
+        return None
+    return "transient_skipped"
+
 
 async def crawl_single_ttl_target(
     target: TtlTarget,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     session: aiohttp.ClientSession | None = None,
+    db_runner: _BoundedDbExecutor | None = None,
+    domain_concurrency: int = DEFAULT_DOMAIN_CONCURRENCY,
 ) -> str:
     """Open a single TTL-expired URL directly via ParseDetailPageAsyncBase."""
     parser = UrlRouter.create_parser(
@@ -901,33 +1587,50 @@ async def crawl_single_ttl_target(
         resolved_parser=parser,
         timeout_sec=timeout_sec,
         shared_session=session,
+        db_runner=db_runner,
+        domain_concurrency=domain_concurrency,
     )
     item = await proc.run_with_optional_shared_session()
-    return await sync_to_async(_inspect_post_crawl_outcome_sync)(target.property_url, item)
+    if db_runner is not None:
+        return str(await db_runner.run(_inspect_post_crawl_outcome_sync, target.property_url, item))
+    return await sync_to_async(_inspect_post_crawl_outcome_sync, thread_sensitive=False)(
+        target.property_url, item
+    )
 
 
-def _supports_session_kwarg(fn: Any) -> bool:
+def _accepted_optional_kwargs(
+    fn: Any,
+    candidate_kwargs: dict[str, Any],
+) -> dict[str, Any]:
     side_effect = getattr(fn, "side_effect", None)
     target_fn = side_effect if callable(side_effect) else fn
     if not callable(target_fn):
-        return False
+        return {}
     try:
         sig = inspect.signature(target_fn)
     except (TypeError, ValueError):
-        return False
-    return "session" in sig.parameters or any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
+        return {}
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return candidate_kwargs
+    return {k: v for k, v in candidate_kwargs.items() if k in sig.parameters}
 
 
 async def _invoke_single_ttl_target(
     target: TtlTarget,
     timeout_sec: int,
     session: aiohttp.ClientSession | None,
+    db_runner: _BoundedDbExecutor | None,
+    domain_concurrency: int,
 ) -> str:
-    if _supports_session_kwarg(crawl_single_ttl_target):
-        return await crawl_single_ttl_target(target, timeout_sec=timeout_sec, session=session)
-    return await crawl_single_ttl_target(target, timeout_sec=timeout_sec)
+    extra = _accepted_optional_kwargs(
+        crawl_single_ttl_target,
+        {
+            "session": session,
+            "db_runner": db_runner,
+            "domain_concurrency": domain_concurrency,
+        },
+    )
+    return await crawl_single_ttl_target(target, timeout_sec=timeout_sec, **extra)
 
 
 @dataclass
@@ -972,22 +1675,104 @@ class _BatchRunState:
             )
 
 
+async def _execute_one_worker_target(
+    target: TtlTarget,
+    timeout_sec: int,
+    shared_session: aiohttp.ClientSession,
+    db_runner: _BoundedDbExecutor,
+    domain_concurrency: int,
+    db_batch_buffer: _TtlDbBatchBuffer | None,
+) -> str | None:
+    if db_batch_buffer is not None and not _is_crawl_single_overridden():
+        return await _fetch_and_enqueue_batch_target(
+            target,
+            timeout_sec,
+            shared_session,
+            db_runner,
+            domain_concurrency,
+            db_batch_buffer,
+        )
+    return await _invoke_single_ttl_target(
+        target,
+        timeout_sec,
+        shared_session,
+        db_runner,
+        domain_concurrency,
+    )
+
+
+async def _consume_target_deque(
+    pending: deque[TtlTarget],
+    domain_sems: dict[str, asyncio.Semaphore],
+    stats_lock: asyncio.Lock,
+    state: _BatchRunState,
+    timeout_sec: int,
+    shared_session: aiohttp.ClientSession,
+    db_runner: _BoundedDbExecutor,
+    domain_concurrency: int,
+    db_batch_buffer: _TtlDbBatchBuffer | None = None,
+) -> None:
+    while True:
+        try:
+            target = pending.popleft()
+        except IndexError:
+            return
+        if state.circuit_tripped:
+            async with stats_lock:
+                state.record_skipped()
+            continue
+
+        comp_sem = domain_sems[target.company or "unknown"]
+        async with comp_sem:
+            if state.circuit_tripped:
+                async with stats_lock:
+                    state.record_skipped()
+                continue
+            try:
+                outcome = await _execute_one_worker_target(
+                    target,
+                    timeout_sec,
+                    shared_session,
+                    db_runner,
+                    domain_concurrency,
+                    db_batch_buffer,
+                )
+            except Exception:
+                logger.exception("[TTLRecrawl] Unexpected error crawling %s", target.property_url)
+                outcome = "error"
+
+            if outcome is not None:
+                async with stats_lock:
+                    state.record_outcome(outcome)
+
+
 async def crawl_ttl_expired_targets_async(
     targets: list[TtlTarget],
     concurrency: int = DEFAULT_CONCURRENCY,
     domain_concurrency: int = DEFAULT_DOMAIN_CONCURRENCY,
+    playwright_concurrency: int = DEFAULT_PLAYWRIGHT_CONCURRENCY,
+    db_concurrency: int = DEFAULT_DB_CONCURRENCY,
+    db_batch_size: int = DEFAULT_DB_BATCH_SIZE,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
 ) -> dict[str, int]:
-    """Crawl all TTL-expired targets via a bounded async worker pool and shared HTTP session."""
+    """Crawl all TTL-expired targets via isolated static/Playwright worker pools and 100-item DB batch flushes."""
     if not targets:
         return {}
 
-    worker_count = min(len(targets), max(1, concurrency))
-    pending: deque[TtlTarget] = deque(targets)
-    domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
-        lambda: asyncio.Semaphore(max(1, domain_concurrency))
+    static_pending, pw_pending = _partition_targets_by_pool(targets)
+    static_workers = min(len(static_pending), max(1, concurrency)) if static_pending else 0
+    pw_workers = min(len(pw_pending), max(1, playwright_concurrency)) if pw_pending else 0
+
+    static_dom_limit = max(1, domain_concurrency)
+    pw_dom_limit = max(1, min(static_dom_limit, max(1, playwright_concurrency)))
+    static_domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
+        lambda: asyncio.Semaphore(static_dom_limit)
     )
+    pw_domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
+        lambda: asyncio.Semaphore(pw_dom_limit)
+    )
+
     stats_lock = asyncio.Lock()
     state = _BatchRunState(
         total=len(targets),
@@ -995,49 +1780,83 @@ async def crawl_ttl_expired_targets_async(
         started_mono=time.monotonic(),
         stats={},
     )
+    db_runner = _BoundedDbExecutor(max_workers=max(1, db_concurrency))
+    batch_buffer = (
+        _TtlDbBatchBuffer(
+            db_runner=db_runner,
+            stats_lock=stats_lock,
+            state=state,
+            batch_size=max(1, db_batch_size),
+        )
+        if db_batch_size > 1
+        else None
+    )
     connector = aiohttp.TCPConnector(
-        limit=max(24, worker_count * 4),
-        limit_per_host=max(4, domain_concurrency * 2),
+        limit=max(48, (static_workers + pw_workers) * 3),
+        limit_per_host=max(6, static_dom_limit * 2),
         ssl=_build_shared_ssl_context(),
     )
     client_timeout = aiohttp.ClientTimeout(total=timeout_sec)
 
-    async with aiohttp.ClientSession(
-        headers=DEFAULT_HTTP_HEADERS,
-        connector=connector,
-        timeout=client_timeout,
-    ) as shared_session:
+    logger.info(
+        "[TTLRecrawl] Starting split pools: static_targets=%d (workers=%d, dom=%d), "
+        "playwright_targets=%d (workers=%d, dom=%d), db_threads=%d, db_batch_size=%d.",
+        len(static_pending),
+        static_workers,
+        static_dom_limit,
+        len(pw_pending),
+        pw_workers,
+        pw_dom_limit,
+        db_runner.max_workers,
+        max(1, db_batch_size),
+    )
 
-        async def _pool_worker() -> None:
-            while True:
-                try:
-                    target = pending.popleft()
-                except IndexError:
-                    return
-                if state.circuit_tripped:
-                    async with stats_lock:
-                        state.record_skipped()
-                    continue
+    try:
+        async with aiohttp.ClientSession(
+            headers=DEFAULT_HTTP_HEADERS,
+            connector=connector,
+            timeout=client_timeout,
+        ) as shared_session:
+            workers = [
+                asyncio.create_task(
+                    _consume_target_deque(
+                        static_pending,
+                        static_domain_sems,
+                        stats_lock,
+                        state,
+                        timeout_sec,
+                        shared_session,
+                        db_runner,
+                        static_dom_limit,
+                        batch_buffer,
+                    )
+                )
+                for _ in range(static_workers)
+            ]
+            workers.extend(
+                asyncio.create_task(
+                    _consume_target_deque(
+                        pw_pending,
+                        pw_domain_sems,
+                        stats_lock,
+                        state,
+                        timeout_sec,
+                        shared_session,
+                        db_runner,
+                        pw_dom_limit,
+                        batch_buffer,
+                    )
+                )
+                for _ in range(pw_workers)
+            )
+            if workers:
+                await asyncio.gather(*workers)
+            if batch_buffer is not None:
+                await batch_buffer.flush_remaining()
+    finally:
+        await db_runner.aclose()
+        await sync_to_async(close_old_connections, thread_sensitive=False)()
 
-                comp_sem = domain_sems[target.company or "unknown"]
-                async with comp_sem:
-                    if state.circuit_tripped:
-                        async with stats_lock:
-                            state.record_skipped()
-                        continue
-                    try:
-                        outcome = await _invoke_single_ttl_target(target, timeout_sec, shared_session)
-                    except Exception:
-                        logger.exception("[TTLRecrawl] Unexpected error crawling %s", target.property_url)
-                        outcome = "error"
-
-                    async with stats_lock:
-                        state.record_outcome(outcome)
-
-        workers = [asyncio.create_task(_pool_worker()) for _ in range(worker_count)]
-        await asyncio.gather(*workers)
-
-    await sync_to_async(close_old_connections)()
     return state.stats
 
 
@@ -1073,13 +1892,31 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--concurrency",
         type=int,
         default=DEFAULT_CONCURRENCY,
-        help=f"Global concurrent URL workers (default: {DEFAULT_CONCURRENCY}).",
+        help=f"Static HTTP concurrent URL workers (default: {DEFAULT_CONCURRENCY}).",
     )
     parser.add_argument(
         "--domain-concurrency",
         type=int,
         default=DEFAULT_DOMAIN_CONCURRENCY,
         help=f"Per-company concurrent URL workers (default: {DEFAULT_DOMAIN_CONCURRENCY}).",
+    )
+    parser.add_argument(
+        "--playwright-concurrency",
+        type=int,
+        default=DEFAULT_PLAYWRIGHT_CONCURRENCY,
+        help=f"Dedicated concurrent workers for Playwright-heavy sites (default: {DEFAULT_PLAYWRIGHT_CONCURRENCY}).",
+    )
+    parser.add_argument(
+        "--db-concurrency",
+        type=int,
+        default=DEFAULT_DB_CONCURRENCY,
+        help=f"Parallel Django ORM persistence threads over ProxySQL (default: {DEFAULT_DB_CONCURRENCY}).",
+    )
+    parser.add_argument(
+        "--db-batch-size",
+        type=int,
+        default=DEFAULT_DB_BATCH_SIZE,
+        help=f"Number of crawled items buffered per bulk DB flush (default: {DEFAULT_DB_BATCH_SIZE}).",
     )
     parser.add_argument(
         "--timeout-sec",
@@ -1142,6 +1979,9 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
             targets=targets,
             concurrency=args.concurrency,
             domain_concurrency=args.domain_concurrency,
+            playwright_concurrency=args.playwright_concurrency,
+            db_concurrency=args.db_concurrency,
+            db_batch_size=args.db_batch_size,
             timeout_sec=args.timeout_sec,
         )
     )
