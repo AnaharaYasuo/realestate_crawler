@@ -699,9 +699,9 @@ graph TD
   - プロセス内でのスレッド生成・DBコネクション破棄（`close_old_connections()` / `connections.close_all()`）を確実に担保し、DB接続リークを防止。
 - **プロセス並行度抑制 (`src/crawler/scripts/ops/run_all_crawlers.py`)**:
   - `parse_args` の `default_parallel` を 35 から 6 に抑制。Cloud Run 8タスク同時稼働時の最大DB接続数を ProxySQL バックエンド上限（50）未満に制限。
-- **差分クロール TTL 30日化 (`src/crawler/package/api/differential.py`, `src/crawler/package/api/api.py`)**:
-  - `DIFFERENTIAL_TTL_DAYS` のデフォルトを `7` から `30` に変更。
-  - 一覧カードから抽出された価格がDB既存価格と一致しかつ最終更新から30日以内の物件は詳細アクセスを完全にスキップ。
+- **差分クロール TTL 14日設定 (`src/crawler/package/api/differential.py`, `src/crawler/package/api/api.py` - Issue #1415 で 30日 ➔ 14日へ短縮)**:
+  - `DIFFERENTIAL_TTL_DAYS` のデフォルトおよび `filter_differential_items` の `ttl_days` デフォルトを `14` に設定。
+  - 一覧カードから抽出された価格がDB既存価格と一致しかつ最終詳細取得（`last_detail_fetched_at`）から14日以内の物件は詳細アクセスを完全にスキップ。
 - **クローラータイムアウト5時間 (18000s) 延長とパイプライン連動**:
   - `src/crawler/scripts/ops/run_all_crawlers.py`: `timeout_sec` のデフォルトを 18000 に変更。
   - `src/crawler/scripts/ops/run_pipeline.py`: `DEFAULT_TIMEOUT_SEC` を 18000.0 に変更。
@@ -974,7 +974,7 @@ stateDiagram-v2
     detected --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
     heal_requested --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
     ready_for_recrawl --> source_data_invalid : 3世代以上の異なる git_sha で連続バリデーションNG
-    source_data_invalid --> recrawled_pending_ml : 30日TTL再確認で元データ修正検知
+    source_data_invalid --> recrawled_pending_ml : 14日TTL再確認で元データ修正検知
 ```
 
 ### 5.2 追加スキーマ項目 (`PropertyEvaluation` / Migration `0073`)
@@ -984,7 +984,7 @@ stateDiagram-v2
 | `failed_git_sha` | `CharField(40, db_index=True)` | `""` | 異常検知時の稼働コミットSHA（`APP_GIT_SHA` / `GITHUB_SHA`）。同一SHAへの無駄な再クロール連打を防止し、新SHAデプロイ後のみ自動再取得させる |
 | `recrawl_attempts` | `IntegerField` | `0` | 異常サイクル内の再取得試行回数（異なる3世代以上のSHAで連続失敗した物件を `source_data_invalid` へ自動隔離） |
 | `last_recrawled_at` | `DateTimeField(null=True)` | `None` | 最終再クローリング実行日時 |
-| `last_detail_fetched_at` | `DateTimeField(null=True, db_index=True)` | `None` | 詳細ページ実取得日時。`differential.py` の一覧スキップ処理（`updateDateTime` 更新）と完全分離し、30日TTLを確実に満了させる |
+| `last_detail_fetched_at` | `DateTimeField(null=True, db_index=True)` | `None` | 詳細ページ実取得日時。`differential.py` の一覧スキップ処理（`updateDateTime` 更新）と完全分離し、14日TTLを確実に満了させる |
 
 ### 5.3 状態遷移・データ保護不変条件 (`apply_integrity_transition`)
 1. **`is_slack_notified` 汚染の完全禁止**:
@@ -1007,4 +1007,35 @@ stateDiagram-v2
 4. **`recrawl_anomalies.py` の構造健全化**:
    - タスク分散を `F("property_id") % task_count` から主キー `F("id") % task_count` に変更し、`property_id=0`（初回パース例外レコード）の Task 0 集中を解消する。
    - 再クロール時に物件種別が切り替わった場合（例: 戸建→マンション）、旧種別モデルの残骸レコードを自動削除する。
+
+---
+
+## 8. 14日TTL経過物件の全件直接URL再クロール ＆ 掲載終了フラグ更新・ローカル本番日次実行内部設計 (Issue #1415)
+
+### 8.1 設計背景
+- 一覧ページ起点の差分クロール（`filter_differential_items`）は「現在一覧ページに掲載されているURL」のみを検査するため、成約・取下げにより一覧から消滅した物件の URL には到達せず、`PropertyEvaluation.is_published=True` のまま残存する。
+- これを解消するため、詳細TTLを **14日** に短縮した上で、DB 内の全公開中物件のうち詳細取得から 14日を超過した URL を直接開いてクロールし、掲載終了時は `is_published=False` を記録し、掲載継続時は通常どおり物件情報を最新化する日次バッチ [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を実装する。
+
+### 8.2 対象抽出ロジック (`collect_ttl_expired_targets`)
+1. **評価済み公開中レコードからの抽出**:
+   - `PropertyEvaluation.objects.filter(is_published=True)` のうち、`last_detail_fetched_at < cutoff`（`now - timedelta(days=ttl_days)`、既定 `14` 日）のレコードを抽出する。
+   - `last_detail_fetched_at IS NULL` のレガシー公開中レコードについては、対応する物件テーブルの `inputDateTime`（不在時は `updateDateTime`）を参照し、`cutoff` より古い場合（または元レコード不在の場合）に対象へ含める。
+2. **未評価物件レコードからの補完抽出**:
+   - `SiteRegistry.get_all_property_model_entries(skip_portals=skip_portals, skip_uncrawled=True)` で全登録物件モデルを走査し、`PropertyEvaluation` が未作成かつ `inputDateTime < cutoff`（`inputDateTime IS NULL` 時は `updateDateTime < cutoff`）の物件 URL も漏れなく対象に含める（既に `is_published=False` と判定済みの正規化 URL は除外）。
+3. **正規化 URL 重複排除 ＆ ドメインインターリーブ**:
+   - `UrlMatcher.normalize(url)` で一意化した上で、同一サイトへのバーストアクセスを避けるため会社（ドメイン）単位のラウンドロビン順（インターリーブ）に整列する。
+
+### 8.3 直接URLクロール ＆ ステータス遷移 (`crawl_ttl_expired_targets_async`)
+- 各対象 URL に対し `UrlRouter.create_parser(url)` でパーサーを解決し、`ParseDetailPageAsyncBase` サブクラスを実行する：
+  - **掲載終了検知**（`ListingEndedException` / HTTP 404・410）: `_handle_skipped_property` ➔ `_sync_persist_delisted` により `PropertyEvaluation.is_published = False`、`delisted_at = now_utc`、`needs_recrawl = False` を保存する（結果区分: `delisted`）。
+  - **掲載継続・正常パース**: `_handle_saved_property` ➔ `_save_property_and_price_history` ➔ `tag_property_integrity` により物件スペック更新・価格改定履歴（`PropertyPriceHistory`）記録・`PropertyEvaluation.last_detail_fetched_at = now` 更新・`is_published = True` 維持を一貫実行する（結果区分: `refreshed` / バリデーションNG時は `invalid_saved`）。
+  - **一時障害・メンテ・アクセス遮断保護**: `SiteMaintenanceException` / `AccessBlockedException` / `ServerBusyException` / タイムアウト発生時は `_classify_fetch_exception` が `is_listing_ended=False` を返すため、`is_published=True` が厳格に維持され誤掲載終了は発生しない（結果区分: `transient_skipped`）。
+
+### 8.4 ローカル本番実行インフラ制御 (`LocalProdInfraContext` - 原則 1.1 & 原則 1 準拠)
+- `--ensure-local-prod-infra` 指定時、クロール本体実行前に以下の事前準備と事後クリーンアップを完全ヘッドレス（`CREATE_NO_WINDOW`）で行う：
+  1. GCE `proxysql-instance-prod`（`asia-northeast1-a`, project `sumifu`）の状態を `gcloud.cmd compute instances describe` で確認し、`RUNNING` 以外の場合は `gcloud.cmd compute instances start` を実行して `RUNNING` 到達＋ProxySQL 起動待機を行う。
+  2. ローカル `127.0.0.1:6033` への TCP 接続を確認し、未開放の場合は `gcloud.cmd compute start-iap-tunnel proxysql-instance-prod 6033 --local-host-port=127.0.0.1:6033 --zone=asia-northeast1-a --project=sumifu` をコンソール非表示（`CREATE_NO_WINDOW`）で起動し、ポート開放までポーリング待機する。
+  3. Django DB コネクションで `SELECT 1` を実行し、失敗時は放置・空転させず即座に例外送出（Fail-Fast）する。
+  4. `finally` ブロックで、自身が起動した IAP トンネルプロセスのみを安全に終了し、`ensure_resources_stopped.py`（共有インフラ保護原則準拠）を呼び出して他 Cloud Run ジョブ・通信がない場合のみ ProxySQL を安全停止する。
+
 

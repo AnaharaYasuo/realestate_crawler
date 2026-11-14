@@ -110,6 +110,28 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 
 ---
 
+## 6. 14日TTL経過物件の全件直接URLクロール＆掲載終了フラグ更新運用手順（Issue #1415）
+
+一覧ページから消えた成約・取下げ物件の掲載終了フラグ（`PropertyEvaluation.is_published=False` / `delisted_at`）更新および 14日TTL経過物件の詳細スペック最新化は、**ローカル端末でのローカル本番実行（`AGENTS.md` 原則 1.1）**として毎日 **08:30 JST** に自動実行されます。
+
+| 時刻 (JST) | 実行基盤 | 処理内容 |
+| :--- | :--- | :--- |
+| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py --ensure-local-prod-infra`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を直接起動。`proxysql-instance-prod` 起動確認・`127.0.0.1:6033` IAPトンネル確立・`SELECT 1` 疎通検証の後、14日TTL経過物件を全件直接URLクロールし、掲載終了時は `is_published=False` 設定、継続時は通常物件保存＆`last_detail_fetched_at` 更新を実施 |
+
+### 手動確認・実行コマンド（ローカル本番実行）
+```bash
+# 対象件数のドライラン確認（インフラ自動接続付き）
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --dry-run
+
+# 件数上限を指定した動作確認実行
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --limit 20
+
+# 日次本番フル実行（14日TTL経過物件全件）
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14
+```
+
+---
+
 **最終更新**: 2026年11月14日  
-**バージョン**: 1.4 (Issue #1412: GitHub Issue ドリブン × Antigravity Scheduled Automation 自動修復手順追記)
+**バージョン**: 1.5 (Issue #1415: 物件詳細TTL 14日短縮とTTL経過物件の全件直接クロール・掲載終了フラグ更新手順追記)
 
