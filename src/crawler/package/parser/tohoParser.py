@@ -74,9 +74,9 @@ class TohoBaseParser(ParserBase):
 
         specs = {}
         for dl in response.find_all("dl"):
-            dt = dl.find("dt")
-            dd = dl.find("dd")
-            if dt and dd:
+            dts = dl.find_all("dt")
+            dds = dl.find_all("dd")
+            for dt, dd in zip(dts, dds):
                 key = dt.get_text(strip=True)
                 val = dd.get_text(" ", strip=True)
                 specs[key] = val
@@ -88,7 +88,9 @@ class TohoBaseParser(ParserBase):
         h1 = response.find("h1")
         if h1:
             raw_h1 = h1.get_text(" ", strip=True)
-            cleaned_h1 = re.sub(r"^(?:お気に入りに追加\s*)+", "", raw_h1).strip()
+            cleaned_h1 = raw_h1.strip()
+            while cleaned_h1.startswith("お気に入りに追加"):
+                cleaned_h1 = cleaned_h1[len("お気に入りに追加"):].strip()
             if cleaned_h1:
                 return cleaned_h1
         if response.title:
@@ -185,7 +187,7 @@ class TohoMansionParser(TohoBaseParser, MansionParserBase):
 
     def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        raw = specs.get("所在階", "") or specs.get(SPEC_KEY_STRUCTURE_FLOORS, "")
+        raw = specs.get("所在階数", "") or specs.get("所在階", "") or specs.get(SPEC_KEY_STRUCTURE_FLOORS, "")
         if "階" in raw:
             idx = raw.find("階")
             start = idx

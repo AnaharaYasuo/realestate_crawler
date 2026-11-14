@@ -33,3 +33,40 @@ async def test_toho_property_list_page_and_next_page():
     # 2. Test parseNextPage
     next_url = await parser.parseNextPage(soup)
     assert next_url == "https://th-yokohama.com/estates?div=1&page=2"
+
+
+@pytest.mark.asyncio
+async def test_toho_mansion_detail_floor_parsing():
+    detail_html = """
+    <html>
+      <body>
+        <h1>クリオ片瀬江ノ島</h1>
+        <dl>
+          <dt>物件種別</dt><dd>マンション</dd>
+          <dt>交通</dt><dd>小田急江ノ島線 / 片瀬江ノ島駅 徒歩6分</dd>
+          <dt>価格</dt><dd>3,480万円(税込)</dd>
+          <dt>所在地</dt><dd>藤沢市片瀬海岸２丁目</dd>
+          <dt>専有面積</dt><dd>34.24m²</dd>
+          <dt>間取り</dt><dd>1DK</dd>
+          <dt>所在階数</dt><dd>5階</dd>
+          <dt>総階数</dt><dd>地上6階</dd>
+          <dt>構造</dt><dd>RC造</dd>
+          <dt>管理費</dt><dd>10,200円/月</dd>
+          <dt>修繕積立金</dt><dd>9,450円/月</dd>
+          <dt>築年月</dt><dd>令和 1年 11月</dd>
+        </dl>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(detail_html, "html.parser")
+    parser = TohoMansionParser()
+    entity = parser.createEntity()
+    entity = parser._parsePropertyDetailPage(entity, soup)
+
+    assert entity.propertyName == "クリオ片瀬江ノ島"
+    assert entity.kaisu == "5階"
+    assert entity.kouzou == "RC造"
+    assert entity.price == 34800000
+    assert entity.address == "藤沢市片瀬海岸２丁目"
+    assert entity.madori == "1DK"
+
