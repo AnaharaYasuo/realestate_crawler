@@ -1081,6 +1081,105 @@ class TestIssue1424SplitPoolsAndParallelDb:
         assert eval_active.last_detail_fetched_at is not None
 
 
+class TestIssue1427ConcurrencyDefaultsAndStopAtJst:
+    def test_tuned_concurrency_defaults(self):
+        parser = ttl_recrawl.build_arg_parser()
+        args = parser.parse_args([])
+        assert args.concurrency == 50
+        assert args.domain_concurrency == 4
+        assert args.playwright_concurrency == 3
+        assert args.db_concurrency == 8
+        assert args.db_batch_size == 100
+        assert args.stop_at_jst is None
+        assert args.stop_proxysql_on_exit is False
+
+    def test_compute_next_jst_deadline_rolls_to_next_day_when_past(self):
+        # 2026-11-14 21:30 JST -> next 00:50 JST is 2026-11-15 00:50 JST
+        now_jst = datetime.datetime(2026, 11, 14, 21, 30, 0, tzinfo=ttl_recrawl.JST)
+        deadline_evening = ttl_recrawl.compute_next_jst_deadline("00:50", now_utc=now_jst.astimezone(datetime.UTC))
+        assert deadline_evening.astimezone(ttl_recrawl.JST) == datetime.datetime(
+            2026, 11, 15, 0, 50, 0, tzinfo=ttl_recrawl.JST
+        )
+
+        # 2026-11-15 00:10 JST -> next 00:50 JST is same day 2026-11-15 00:50 JST
+        now_early = datetime.datetime(2026, 11, 15, 0, 10, 0, tzinfo=ttl_recrawl.JST)
+        deadline_early = ttl_recrawl.compute_next_jst_deadline("00:50", now_utc=now_early.astimezone(datetime.UTC))
+        assert deadline_early.astimezone(ttl_recrawl.JST) == datetime.datetime(
+            2026, 11, 15, 0, 50, 0, tzinfo=ttl_recrawl.JST
+        )
+
+        with pytest.raises(ValueError, match="HH:MM"):
+            ttl_recrawl.compute_next_jst_deadline("25:99")
+
+    @pytest.mark.asyncio
+    async def test_deadline_reached_stops_popping_new_targets_and_flushes_buffered_items(self):
+        targets = [
+            ttl_recrawl.TtlTarget(
+                property_url=f"https://www.rehouse.co.jp/buy/mansion/bkdetail/DL{i}/",
+                company="mitsui",
+                property_type="mansion",
+            )
+            for i in range(6)
+        ]
+        fetched_urls: list[str] = []
+        past_deadline = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=5)
+
+        async def _fake_crawl_single(target, timeout_sec=60):
+            fetched_urls.append(target.property_url)
+            return "refreshed"
+
+        with patch.object(ttl_recrawl, "crawl_single_ttl_target", side_effect=_fake_crawl_single):
+            stats = await ttl_recrawl.crawl_ttl_expired_targets_async(
+                targets=targets,
+                concurrency=2,
+                domain_concurrency=2,
+                db_batch_size=1,
+                deadline_utc=past_deadline,
+            )
+
+        assert fetched_urls == []
+        assert stats.get("deadline_skipped") == 6
+
+    def test_stop_proxysql_on_exit_runs_stop_check_with_skip_traffic_even_when_already_running(self):
+        with (
+            patch.object(ttl_recrawl.LocalProdInfraContext, "_get_proxysql_status", return_value="RUNNING"),
+            patch.object(ttl_recrawl, "_is_tcp_port_open", return_value=True),
+            patch.object(ttl_recrawl, "verify_db_select_one", return_value=True),
+            patch.object(ttl_recrawl, "_run_safe_proxysql_stop_check") as stop_mock,
+        ):
+            with ttl_recrawl.LocalProdInfraContext(
+                gcloud_bin="gcloud.cmd",
+                stop_if_idle_on_exit=True,
+                force_stop_proxysql_on_exit=True,
+            ):
+                pass
+
+        stop_mock.assert_called_once_with(skip_traffic_check=True)
+
+    def test_ensure_resources_stopped_skip_traffic_check_stops_instance_despite_recent_local_traffic(self):
+        from scripts import ensure_resources_stopped as ers
+
+        with (
+            patch.object(ers, "_get_instance_info", return_value=("RUNNING", "", 1800.0)),
+            patch.object(ers, "_get_active_cloud_run_executions", return_value=([], "")),
+            patch.object(ers, "_get_instance_network_received_bytes") as traffic_mock,
+            patch.object(ers, "_stop_instance", return_value="") as stop_inst_mock,
+            patch.object(ers, "send_slack_alert"),
+        ):
+            res = ers.check_and_stop_proxysql_instance(
+                project_id="sumifu",
+                zone="asia-northeast1-a",
+                instance_name="proxysql-instance-prod",
+                grace_period_sec=0.0,
+                skip_traffic_check=True,
+            )
+
+        assert res.forced_stop is True
+        traffic_mock.assert_not_called()
+        stop_inst_mock.assert_called_once_with("sumifu", "asia-northeast1-a", "proxysql-instance-prod")
+
+
+
 
 
 

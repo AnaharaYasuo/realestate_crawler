@@ -77,15 +77,16 @@ from package.utils.url_router import UrlRouter  # noqa: E402
 logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_DAYS = 14
-DEFAULT_CONCURRENCY = 36
-DEFAULT_DOMAIN_CONCURRENCY = 3
-DEFAULT_PLAYWRIGHT_CONCURRENCY = 2
+DEFAULT_CONCURRENCY = 50
+DEFAULT_DOMAIN_CONCURRENCY = 4
+DEFAULT_PLAYWRIGHT_CONCURRENCY = 3
 DEFAULT_DB_CONCURRENCY = 8
 DEFAULT_DB_BATCH_SIZE = 100
 DEFAULT_TIMEOUT_SEC = 60
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 25
 POST_START_SETTLE_SEC = 25.0
 DEFAULT_PROD_GCS_BUCKET = "realestate-images-sumifu-prod"
+JST = datetime.timezone(datetime.timedelta(hours=9), name="JST")
 PLAYWRIGHT_HEAVY_COMPANIES: frozenset[str] = frozenset(
     {"athome", "mizuho", "sekisui", "smtrc", "kenbiya"}
 )
@@ -195,16 +196,38 @@ def verify_db_select_one() -> bool:
     return bool(row and row[0] == 1)
 
 
-def _run_safe_proxysql_stop_check() -> None:
+def compute_next_jst_deadline(
+    hhmm: str,
+    now_utc: datetime.datetime | None = None,
+) -> datetime.datetime:
+    """Parse 'HH:MM' in Asia/Tokyo (JST) and return the next upcoming UTC datetime."""
+    cleaned = hhmm.strip()
+    parts = cleaned.split(":")
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        raise ValueError(f"Invalid --stop-at-jst value '{hhmm}': expected HH:MM (e.g. 00:50)")
+    hour, minute = int(parts[0]), int(parts[1])
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"Invalid --stop-at-jst value '{hhmm}': expected HH:MM between 00:00 and 23:59")
+    ref_utc = now_utc or datetime.datetime.now(datetime.UTC)
+    if ref_utc.tzinfo is None:
+        ref_utc = ref_utc.replace(tzinfo=datetime.UTC)
+    now_jst = ref_utc.astimezone(JST)
+    candidate_jst = now_jst.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate_jst <= now_jst:
+        candidate_jst += datetime.timedelta(days=1)
+    return candidate_jst.astimezone(datetime.UTC)
+
+
+def _run_safe_proxysql_stop_check(skip_traffic_check: bool = False) -> None:
     """Delegate idle ProxySQL stop check to ensure_resources_stopped.py (Shared Infra Protection)."""
     safety_script = _CUR_FILE.parents[1] / "ensure_resources_stopped.py"
     if not safety_script.exists():
         return
+    cmd = [sys.executable, str(safety_script), "--grace-period-sec", "0"]
+    if skip_traffic_check:
+        cmd.append("--skip-traffic-check")
     try:
-        _run_headless_cmd(
-            [sys.executable, str(safety_script), "--grace-period-sec", "0"],
-            timeout=90.0,
-        )
+        _run_headless_cmd(cmd, timeout=90.0)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Safety-net ProxySQL stop check encountered an error: %s", exc)
 
@@ -231,6 +254,7 @@ class LocalProdInfraContext:
         local_host: str | None = None,
         local_port: int | None = None,
         stop_if_idle_on_exit: bool = True,
+        force_stop_proxysql_on_exit: bool = False,
         enable_tunnel_watchdog: bool = True,
     ) -> None:
         self.gcloud_bin: str = _resolve_gcloud_binary(gcloud_bin)
@@ -242,6 +266,7 @@ class LocalProdInfraContext:
         port_raw = os.getenv("DB_PORT") or "6033"
         self.local_port: int = local_port if local_port is not None else int(port_raw)
         self.stop_if_idle_on_exit = stop_if_idle_on_exit
+        self.force_stop_proxysql_on_exit = force_stop_proxysql_on_exit
         self.enable_tunnel_watchdog = enable_tunnel_watchdog
         self.started_proxysql = False
         self.started_tunnel = False
@@ -507,9 +532,12 @@ class LocalProdInfraContext:
         if self.started_tunnel:
             logger.info("[LocalProdInfra] Closing self-started IAP tunnel...")
             self._terminate_tunnel()
-        if self.stop_if_idle_on_exit and self.started_proxysql:
-            logger.info("[LocalProdInfra] Running safe idle stop check for ProxySQL...")
-            _run_safe_proxysql_stop_check()
+        if self.stop_if_idle_on_exit and (self.started_proxysql or self.force_stop_proxysql_on_exit):
+            logger.info(
+                "[LocalProdInfra] Running safe stop check for ProxySQL (skip_traffic_check=%s)...",
+                self.force_stop_proxysql_on_exit,
+            )
+            _run_safe_proxysql_stop_check(skip_traffic_check=self.force_stop_proxysql_on_exit)
 
 
 def _index_model_timestamps(
@@ -1639,12 +1667,31 @@ class _BatchRunState:
     max_consecutive_failures: int
     started_mono: float
     stats: dict[str, int]
+    deadline_utc: datetime.datetime | None = None
     consecutive_hard_errors: int = 0
     circuit_tripped: bool = False
+    deadline_reached: bool = False
     completed: int = 0
 
     def record_skipped(self) -> None:
         self.stats["skipped_by_circuit_breaker"] = self.stats.get("skipped_by_circuit_breaker", 0) + 1
+
+    def record_deadline_skipped(self, count: int = 1) -> None:
+        if count <= 0:
+            return
+        self.stats["deadline_skipped"] = self.stats.get("deadline_skipped", 0) + count
+
+    def is_deadline_reached(self) -> bool:
+        if self.deadline_reached:
+            return True
+        if self.deadline_utc is not None and datetime.datetime.now(datetime.UTC) >= self.deadline_utc:
+            self.deadline_reached = True
+            logger.info(
+                "[TTLRecrawl] Reached scheduled stop deadline (%s JST). Stopping new URL fetches and flushing remaining batch...",
+                self.deadline_utc.astimezone(JST).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            return True
+        return False
 
     def record_outcome(self, outcome: str) -> None:
         self.stats[outcome] = self.stats.get(outcome, 0) + 1
@@ -1701,6 +1748,42 @@ async def _execute_one_worker_target(
     )
 
 
+async def _drain_deadline_skipped(
+    pending: deque[TtlTarget],
+    stats_lock: asyncio.Lock,
+    state: _BatchRunState,
+) -> None:
+    drained = 0
+    while True:
+        try:
+            pending.popleft()
+            drained += 1
+        except IndexError:
+            break
+    if drained > 0:
+        async with stats_lock:
+            state.record_deadline_skipped(drained)
+
+
+async def _should_skip_before_fetch(
+    stats_lock: asyncio.Lock,
+    state: _BatchRunState,
+    pending: deque[TtlTarget],
+) -> bool:
+    if state.circuit_tripped:
+        async with stats_lock:
+            state.record_skipped()
+        return True
+    async with stats_lock:
+        reached = state.is_deadline_reached()
+        if reached:
+            state.record_deadline_skipped(1)
+    if reached:
+        await _drain_deadline_skipped(pending, stats_lock, state)
+        return True
+    return False
+
+
 async def _consume_target_deque(
     pending: deque[TtlTarget],
     domain_sems: dict[str, asyncio.Semaphore],
@@ -1717,16 +1800,12 @@ async def _consume_target_deque(
             target = pending.popleft()
         except IndexError:
             return
-        if state.circuit_tripped:
-            async with stats_lock:
-                state.record_skipped()
+        if await _should_skip_before_fetch(stats_lock, state, pending):
             continue
 
         comp_sem = domain_sems[target.company or "unknown"]
         async with comp_sem:
-            if state.circuit_tripped:
-                async with stats_lock:
-                    state.record_skipped()
+            if await _should_skip_before_fetch(stats_lock, state, pending):
                 continue
             try:
                 outcome = await _execute_one_worker_target(
@@ -1755,6 +1834,7 @@ async def crawl_ttl_expired_targets_async(
     db_batch_size: int = DEFAULT_DB_BATCH_SIZE,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    deadline_utc: datetime.datetime | None = None,
 ) -> dict[str, int]:
     """Crawl all TTL-expired targets via isolated static/Playwright worker pools and 100-item DB batch flushes."""
     if not targets:
@@ -1779,6 +1859,7 @@ async def crawl_ttl_expired_targets_async(
         max_consecutive_failures=max_consecutive_failures,
         started_mono=time.monotonic(),
         stats={},
+        deadline_utc=deadline_utc,
     )
     db_runner = _BoundedDbExecutor(max_workers=max(1, db_concurrency))
     batch_buffer = (
@@ -1935,6 +2016,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Ensure GCE ProxySQL is RUNNING, establish headless IAP tunnel (127.0.0.1:6033), and verify SELECT 1 before crawling.",
     )
     parser.add_argument(
+        "--stop-at-jst",
+        type=str,
+        default=None,
+        help="Gracefully stop popping new URLs and flush pending DB batch at the next HH:MM in Asia/Tokyo (e.g. 00:50).",
+    )
+    parser.add_argument(
+        "--stop-proxysql-on-exit",
+        action="store_true",
+        help="Invoke ensure_resources_stopped.py --skip-traffic-check on exit even if ProxySQL was already RUNNING before start.",
+    )
+    parser.add_argument(
         "--no-stop-proxysql-on-exit",
         action="store_true",
         help="Do not invoke ensure_resources_stopped.py on exit even if ProxySQL was started by this script.",
@@ -1946,6 +2038,14 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
     # Fail-fast DB connectivity check per AGENTS.md Principle 1.1 even without --ensure-local-prod-infra
     verify_db_select_one()
     started_at = datetime.datetime.now(datetime.UTC)
+    deadline_utc: datetime.datetime | None = None
+    if getattr(args, "stop_at_jst", None):
+        deadline_utc = compute_next_jst_deadline(args.stop_at_jst, now_utc=started_at)
+        logger.info(
+            "[TTLRecrawl] Scheduled graceful stop deadline set to %s JST (%s UTC).",
+            deadline_utc.astimezone(JST).strftime("%Y-%m-%d %H:%M:%S"),
+            deadline_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        )
     targets = collect_ttl_expired_targets(
         ttl_days=args.ttl_days,
         company=args.company,
@@ -1974,17 +2074,20 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
 
     # Prevent CRAWLER_LIMIT env var from calling os._exit(0) mid-batch unless explicitly desired
     os.environ.pop("CRAWLER_LIMIT", None)
-    stats = asyncio.run(
-        crawl_ttl_expired_targets_async(
-            targets=targets,
-            concurrency=args.concurrency,
-            domain_concurrency=args.domain_concurrency,
-            playwright_concurrency=args.playwright_concurrency,
-            db_concurrency=args.db_concurrency,
-            db_batch_size=args.db_batch_size,
-            timeout_sec=args.timeout_sec,
-        )
-    )
+    crawl_kwargs: dict[str, Any] = {
+        "targets": targets,
+        "concurrency": args.concurrency,
+        "domain_concurrency": args.domain_concurrency,
+        "playwright_concurrency": args.playwright_concurrency,
+        "db_concurrency": args.db_concurrency,
+        "db_batch_size": args.db_batch_size,
+        "timeout_sec": args.timeout_sec,
+    }
+    if deadline_utc is not None and "deadline_utc" in _accepted_optional_kwargs(
+        crawl_ttl_expired_targets_async, {"deadline_utc": deadline_utc}
+    ):
+        crawl_kwargs["deadline_utc"] = deadline_utc
+    stats = asyncio.run(crawl_ttl_expired_targets_async(**crawl_kwargs))
     elapsed_sec = round((datetime.datetime.now(datetime.UTC) - started_at).total_seconds(), 1)
     return {
         "ttl_days": args.ttl_days,
@@ -2004,7 +2107,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
 
     if args.ensure_local_prod_infra:
-        with LocalProdInfraContext(stop_if_idle_on_exit=not args.no_stop_proxysql_on_exit):
+        with LocalProdInfraContext(
+            stop_if_idle_on_exit=not args.no_stop_proxysql_on_exit,
+            force_stop_proxysql_on_exit=bool(args.stop_proxysql_on_exit and not args.no_stop_proxysql_on_exit),
+        ):
             summary = _run_job_body(args)
     else:
         summary = _run_job_body(args)
