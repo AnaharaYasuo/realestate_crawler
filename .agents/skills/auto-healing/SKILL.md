@@ -25,6 +25,20 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 
 ## 実行ステップ
 
+### 0. GitHub Issue ドリブン自動修復プロトコル（Scheduled Automation / Issue起点実行時）
+1. **対象 Issue の高速判定**:
+   - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、`count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
+2. **試行回数記録とサーキットブレーカー**:
+   - 対象 Issue `#<N>` に着手する前に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった場合は作業を停止する。
+3. **独立 Worktree での SDD × TDD × Parser 修正 ➔ `production` マージ＆本番デプロイ完遂**:
+   - **【最重要・完了定義】自動修復のゴールは「`production` ブランチへのマージ完了および本番デプロイ（`Deploy Production`）の成功確認」である。PR作成時点や `master` マージ時点で作業を終了してはならない。**
+   - 必ず `.worktrees/fix-<N>-auto-heal-<company>-<type>`（ブランチ `fix/<N>-auto-heal-<company>-<type>`）を作成して作業する。
+   - 対象サイトの SDD 正本仕様書（`docs/2_crawlers/sites/` 等）の同期更新、回帰単体テスト（`src/crawler/tests/unit/`）の追加・更新、およびパーサー／セレクタの最小修正を行う。
+   - 検証ゲート（`pytest`、`test_architecture_harness.py`、`check_local_sonar.py --diff`、ライブ疎通検証）がすべて合格したら、`python src/crawler/scripts/ops/sync_auto_heal_issues.py --mark-criteria-done <N>` で Issue の受入基準を `[x]` に更新する。
+   - **Stage 1 (`master` マージ)**: PR（タイトル `[#<N>] fix(<company>): ...`、本文 `Closes #<N>`）を作成し、`check_pr_ci_status.py` で全CI合格を確認して `master` へマージする。
+   - **Stage 2 (`production` マージ ＆ デプロイ完了確認)**: 自動生成（または手動作成）された `master` ➔ `production` リリースPR の CI 合格を確認して `production` へマージし、GitHub Actions `Deploy Production` ワークフローが `success` で完了（Cloud Run 本番反映 ＆ 異常物件再クロール起動）するところまで必ず見届けてから Worktree をクリーンアップする。
+   - サイト側の大規模仕様変更・CAPTCHA遮断等で自動修正不能な場合は `python src/crawler/scripts/ops/sync_auto_heal_issues.py --escalate <N> --reason "<根本原因>"` を実行して人手対応へ引き継ぐ。
+
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
 * まず `python src/crawler/scripts/debug_tools/auto_heal_parsers.py --pull-from-gcs` でクラウド最新の `Temp/auto_heal_instruction.json` を同期する（ローカルDB接続済みの場合は引数なしで直接再集計も可能）。指示書に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
 * 大規模ポータル（athome, homes等）で0件警告や極小件数が記録されている場合、一覧URL抽出セレクター、ページネーション、あるいはアクセス遮断を最優先で調査・修復。

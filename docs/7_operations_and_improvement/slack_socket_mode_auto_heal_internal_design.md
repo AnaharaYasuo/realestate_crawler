@@ -160,4 +160,29 @@ def notify_auto_heal_request(heal_targets: list[dict]):
 - `run_ml_pipeline.py`:
   - Step 1.2 で `recrawl_anomalies.py --include-needs-recrawl --skip-same-sha` を自動実行し、Step 1.5 `validate_data.py` の失敗時も `failed_steps` を引き継いで `auto_heal_parsers.py` を確実に実行する。
 
+---
+
+## 5. GitHub Issue ドリブン × Antigravity Scheduled Automation 内部設計 (Issue #1412)
+
+### 5.1 全体タイムラインと責務分離
+1. **05:10 JST（Cloud Run `realestate-ml-pipeline-prod`）**:
+   - `auto_heal_parsers.py` が異常スキャンを実行し、GCS `auto_heal/latest_instruction.json` を更新する。
+   - **ゼロ件時の Stale 防止**: 異常物件・失敗ステップが 0 件の場合も、ローカル `Temp/auto_heal_instruction.json` 削除に加えて、`total_anomalies_detected: 0`, `targets: []`, `failed_pipeline_steps: []` のクリーン JSON を GCS `auto_heal/latest_instruction.json` へアップロードする。
+   - **`source_data_invalid` 除外**: `heal_status == "source_data_invalid"` または `[source_data_invalid]` 理由を持つレコードはパーサーバグではないため修復対象から除外する。
+2. **06:15 JST（GitHub Actions `.github/workflows/sync-auto-heal-issues.yml`）**:
+   - GCP Workload Identity Federation（`GCP_WORKLOAD_IDENTITY_PROVIDER`）と標準 `GITHUB_TOKEN` を用いて [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) `--pull-from-gcs` を実行する（LLM API 呼び出しゼロ）。
+   - `(company, property_type)` ごとに決定論的マーカー `<!-- auto-heal-key:<company>:<property_type> -->` で OPEN Issue を照合：
+     - **未起票**: ラベル `auto-heal`・試行カウンタ `<!-- auto-heal-attempts:0 -->`・`ci_governance_gate.py` 準拠の受入基準チェックボックス付きで新規 Issue を作成。
+     - **既存 `auto-heal` OPEN**: 同一 `generated_at` での重複コメントを抑止（`<!-- auto-heal-sync-ts:<generated_at> -->`）しつつ最新サンプルURLを追記。
+     - **既存 `auto-heal:needs-human` OPEN**: サーキットブレーカー作動中として `auto-heal` ラベル再付与を行わない。
+     - **解決済み自動クローズ**: 最新指示書で当該キーの異常が消滅しており、紐づく OPEN PR が存在しない `auto-heal` Issue を自動クローズする。
+3. **07:00 JST（Antigravity Scheduled Automation: `issue-driven-auto-heal`）**:
+   - 個人の Antigravity 定額トークン枠上で毎日 07:00 JST に起動し、最初に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行する。
+   - `count == 0` の場合は 1 コマンドで即時終了する。
+   - 対象 Issue `#N` が存在する場合は `--record-attempt N` で試行回数を記録（上限2回超過時は自動で `auto-heal:needs-human` へ昇格）し、`.worktrees/fix-N-auto-heal-...` で SDD 更新 ➔ TDD テスト追加 ➔ パーサー/セレクタ最小修正 ➔ `pytest` & `test_architecture_harness.py` & `check_local_sonar.py --diff` 合格後に `--mark-criteria-done N` を実行する。
+   - **完了定義の明言（Production デプロイ完遂義務）**: 指示書（`action_required`）、GitHub Issue 本文、および Scheduled Automation プロンプトのすべてにおいて、**「自動修復のゴールは `production` ブランチへのマージと本番デプロイ完了である（PR作成や `master` マージのみで終了してはならない）」** ことを明言し、エージェント自身が Stage 1（`master` マージ）➔ Stage 2（`production` リリースPRマージ）➔ `Deploy Production` 成功確認まで一貫して見届ける。
+4. **CI 合格 ➔ `master` ➔ `production` 自動昇格 ➔ 即時再クロール**:
+   - `auto-release-pr.yml` と `deploy-production.yml` により本番デプロイおよび `realestate-recrawl-anomalies-pipeline-prod` が即時起動し、データ修復まで無人で完結する。
+
+
 
