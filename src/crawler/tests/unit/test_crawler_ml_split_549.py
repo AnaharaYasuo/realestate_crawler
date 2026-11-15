@@ -356,6 +356,8 @@ def test_ml_main_order_with_force(ml_main):
         "sync_all_potentials.py",
         "run_bulk_ml_evaluation.py",
         "send_recommendations.py",
+        "auto_heal_parsers.py",
+        "sync_auto_heal_issues.py",
         "run_daily_prediction_diagnostics.py",
         "scale:0",
     ]
@@ -375,6 +377,8 @@ def test_ml_main_order_with_force_and_train(ml_main):
         "train.py",
         "run_bulk_ml_evaluation.py",
         "send_recommendations.py",
+        "auto_heal_parsers.py",
+        "sync_auto_heal_issues.py",
         "run_daily_prediction_diagnostics.py",
         "scale:0",
     ]
