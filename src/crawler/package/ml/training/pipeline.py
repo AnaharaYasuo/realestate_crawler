@@ -38,23 +38,25 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_TRAINING_ITEMS = 50000
 
 
+def _downcast_chunk_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """単一チャンクの数値列を float32 / downcasted int に圧縮"""
+    for col in df.columns:
+        if pd.api.types.is_float_dtype(df[col]):
+            df[col] = df[col].astype("float32")
+        elif pd.api.types.is_integer_dtype(df[col]):
+            df[col] = pd.to_numeric(df[col], downcast="integer")
+    return df
+
+
 def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
     """
-    特徴量チャンクを逐次 DataFrame 化し、低精度型 (float32, integer downcast, category)
-    へ圧縮しながら結合してメモリ常駐量を最小化 (Issue #1517)
+    特徴量チャンクを逐次 DataFrame 化し、低精度型へ圧縮してメモリ常駐量を最小化 (Issue #1517)
     """
     dfs: list[pd.DataFrame] = []
     for chunk in chunk_stream:
-        if not chunk:
-            continue
-        c_df = pd.DataFrame(chunk)
-        del chunk
-        for col in c_df.columns:
-            if pd.api.types.is_float_dtype(c_df[col]):
-                c_df[col] = c_df[col].astype("float32")
-            elif pd.api.types.is_integer_dtype(c_df[col]):
-                c_df[col] = pd.to_numeric(c_df[col], downcast="integer")
-        dfs.append(c_df)
+        if chunk:
+            dfs.append(_downcast_chunk_columns(pd.DataFrame(chunk)))
+            del chunk
 
     if not dfs:
         return pd.DataFrame()
@@ -63,7 +65,6 @@ def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
     del dfs
     gc.collect()
 
-    # 高カーディナリティ以外の文字列カラムを category 型に変換してメモリ圧縮
     for col in full_df.columns:
         if pd.api.types.is_object_dtype(full_df[col]) and col not in ("pageUrl", "url"):
             try:
@@ -73,6 +74,40 @@ def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
                 pass
 
     return full_df
+
+
+def _resolve_input_dataframe(features_iterator: Any) -> pd.DataFrame:
+    """イテレータまたはリストからメモリ効率の良い DataFrame を解決"""
+    if isinstance(features_iterator, list):
+        if features_iterator and isinstance(features_iterator[0], list):
+            return _build_compact_dataframe(features_iterator)
+        df = pd.DataFrame(features_iterator) if features_iterator else pd.DataFrame()
+        return _downcast_chunk_columns(df)
+
+    if not hasattr(features_iterator, "__iter__"):
+        return pd.DataFrame()
+
+    sample = next(features_iterator, None)
+    if sample is None:
+        return pd.DataFrame()
+
+    if isinstance(sample, list):
+        def _rest_chunks():
+            yield sample
+            yield from features_iterator
+        return _build_compact_dataframe(_rest_chunks())
+
+    def _single_chunk_gen():
+        current_chunk = [sample]
+        for item in features_iterator:
+            current_chunk.append(item)
+            if len(current_chunk) >= 1000:
+                yield current_chunk
+                current_chunk = []
+        if current_chunk:
+            yield current_chunk
+
+    return _build_compact_dataframe(_single_chunk_gen())
 
 
 def train_property_type(
@@ -91,40 +126,7 @@ def train_property_type(
     mem_start_bytes, _, _ = _read_host_memory_fallback()
     mem_start_mb = round(mem_start_bytes / (1024 * 1024), 1)
 
-    # チャンクストリームまたは単一リストからメモリ効率の良い DataFrame を構築
-    if hasattr(features_iterator, "__iter__") and not isinstance(features_iterator, list):
-        # チャンク単位のジェネレータか1件単位のジェネレータかを判別
-        sample = next(features_iterator, None)
-        if sample is None:
-            df = pd.DataFrame()
-        elif isinstance(sample, list):
-            # チャンク単位ジェネレータ
-            def _rest_chunks():
-                yield sample
-                yield from features_iterator
-            df = _build_compact_dataframe(_rest_chunks())
-        else:
-            # 1件単位ジェネレータ
-            def _single_chunk_gen():
-                current_chunk = [sample]
-                for item in features_iterator:
-                    current_chunk.append(item)
-                    if len(current_chunk) >= 1000:
-                        yield current_chunk
-                        current_chunk = []
-                if current_chunk:
-                    yield current_chunk
-            df = _build_compact_dataframe(_single_chunk_gen())
-    elif isinstance(features_iterator, list) and features_iterator and isinstance(features_iterator[0], list):
-        df = _build_compact_dataframe(features_iterator)
-    else:
-        df = pd.DataFrame(features_iterator) if features_iterator else pd.DataFrame()
-        for col in df.columns:
-            if pd.api.types.is_float_dtype(df[col]):
-                df[col] = df[col].astype("float32")
-            elif pd.api.types.is_integer_dtype(df[col]):
-                df[col] = pd.to_numeric(df[col], downcast="integer")
-
+    df = _resolve_input_dataframe(features_iterator)
     initial_count = len(df)
 
     logger.info("\n=========================================")
