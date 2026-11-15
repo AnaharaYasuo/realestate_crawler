@@ -900,6 +900,17 @@ Cloud Run（2 vCPU / 2 GiB RAM）環境下でのモデル再学習において�
 3. **直列学習間のメモリ強制回収**:
    - 各物件種別の学習終了ごとに `del` による参照破棄と `gc.collect()` を確実に呼び出し、2GiB 上限内での安全な連続稼働を保証する。
 
+## 20. 割安物件推薦における非現実的外れ値安全弁ガード仕様 (Issue #1509)
+
+機械学習モデル推論時や過去の過渡的データにおいて生じうる極端な外れ値・異常値が、割安物件（お宝物件）として誤配信されることを機械的に防ぐため、以下の安全弁（Outlier Circuit Breaker）を規定する：
+
+1. **非現実的ディスカウント率の安全弁 (`MAX_REALISTIC_DISCOUNT_PCT = 85.0`)**:
+   - `send_recommendations.py` の一次スクリーニング（`_evaluate_investment_candidate`, `_evaluate_residential_candidate`）において、売出価格に対する割安度（ディスカウント率）が **85.0% 以上**（理論予測価格が売出価格の約 6.67 倍以上）に達する物件は、市場実勢から乖離したモデル推論異常・外れ値として除外（スキップ）する。
+2. **積算・DCF理論価格の極端乖離ガード (`MAX_VALUATION_MULTIPLIER = 6.0`)**:
+   - 投資物件において、積算価格（`estimated_sekisan_price`）または DCF 理論価格（`dcf_theoretical_price`）が売出価格（`asking_price_man`）の **6.0 倍**を超えるような極端な歪みを持つ物件は、一次スクリーニングで機械的に除外する。
+3. **AI定性評価プロンプトへの汚染防止**:
+   - 極端な外れ値が一次スクリーニングで遮断されることにより、LLM（Gemini）が異常数値を「圧倒的な積算割れ」「価格の歪み」と誤認して好意的な推薦レポートを自動生成する事態を未然に防止する。
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。

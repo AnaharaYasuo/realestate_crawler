@@ -33,10 +33,13 @@ from package.ml.report_generator import generate_professional_and_danchou_report
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# ディスカウント率（割安率 = (予測価格 - 売出価格) / 予測価格 * 100）の一次スクリーニング閾値 (Issue #1343)
+# ディスカウント率（割安率 = (予測価格 - 売出価格) / 予測価格 * 100）の一次スクリーニング閾値 (Issue #1343, #1509)
 # 全体傾向として予想価格が散らばり、一定数が高めに算出されがちな点、および投資物件で控えめに算出される点の双方を考慮して緩和
 # 二次スクリーニングが存在するため上限閾値は不要（下限 15.0% のみ適用、Issue #1348）
+# ただし、モデル推論の過渡的異常値や桁数取り違えによる非現実的外れ値（85%超割安: 予測が売出の6.67倍超）は安全弁として遮断 (Issue #1509)
 MIN_RECOMMEND_DISCOUNT_PCT = 15.0
+MAX_REALISTIC_DISCOUNT_PCT = 85.0
+MAX_REALISTIC_VALUATION_RATIO = 6.0
 
 
 def _notify_status(msg: str) -> None:
@@ -406,7 +409,31 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
         return False, "", 0.0
 
     # 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
+    # ただし、モデル推論異常やデータ欠損等による非現実的な極端外れ値は安全弁として除外 (Issue #1509)
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+    if discount_pct >= MAX_REALISTIC_DISCOUNT_PCT:
+        logger.warning(
+            f"Skipping investment alert (unrealistic discount outlier >= {MAX_REALISTIC_DISCOUNT_PCT}%): "
+            f"Pred {pred_price:.0f}万 vs Asking {asking_price_man:.0f}万 ({discount_pct:.1f}% discount)"
+        )
+        return False, "", 0.0
+
+    # 積算価格およびDCF理論価格の極端乖離（売出価格の6倍超）も安全弁として除外
+    sekisan_val = getattr(eval_rec, "estimated_sekisan_price", None)
+    dcf_val = getattr(eval_rec, "dcf_theoretical_price", None)
+    if sekisan_val and float(sekisan_val) > asking_price_man * MAX_REALISTIC_VALUATION_RATIO:
+        logger.warning(
+            f"Skipping investment alert (unrealistic sekisan outlier > {MAX_REALISTIC_VALUATION_RATIO}x asking): "
+            f"Sekisan {float(sekisan_val):.0f}万 vs Asking {asking_price_man:.0f}万"
+        )
+        return False, "", 0.0
+    if dcf_val and float(dcf_val) > asking_price_man * MAX_REALISTIC_VALUATION_RATIO:
+        logger.warning(
+            f"Skipping investment alert (unrealistic DCF outlier > {MAX_REALISTIC_VALUATION_RATIO}x asking): "
+            f"DCF {float(dcf_val):.0f}万 vs Asking {asking_price_man:.0f}万"
+        )
+        return False, "", 0.0
+
     if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
         p10_bonus, p10_disc_pct = _compute_p10_priority_bonus(eval_rec, asking_price_man, pred_price)
@@ -422,6 +449,14 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
         return False, "", 0.0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
     # 二次スクリーニングが存在するため一次スクリーニングでの割安度上限閾値は不要 (Issue #1348)
+    # ただし、モデル推論異常やデータ欠損等による非現実的な極端外れ値は安全弁として除外 (Issue #1509)
+    if discount_pct >= MAX_REALISTIC_DISCOUNT_PCT:
+        logger.warning(
+            f"Skipping residential alert (unrealistic discount outlier >= {MAX_REALISTIC_DISCOUNT_PCT}%): "
+            f"Pred {pred_price:.0f}万 vs Asking {asking_price_man:.0f}万 ({discount_pct:.1f}% discount)"
+        )
+        return False, "", 0.0
+
     if discount_pct >= MIN_RECOMMEND_DISCOUNT_PCT:
         p10_bonus, p10_disc_pct = _compute_p10_priority_bonus(eval_rec, asking_price_man, pred_price)
         p10_tag = f" / P10下限比 {p10_disc_pct:.1f}%割安" if p10_disc_pct > 0 else ""
