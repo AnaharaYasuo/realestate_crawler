@@ -70,21 +70,32 @@ def test_evaluate_investment_candidate_pred_price_must_exceed_asking_price():
     assert "25.0% 割安" in reason2
     assert priority2 >= 70.0
 
-def test_evaluate_investment_candidate_extreme_prediction_gap_passed():
-    """二次スクリーニングが存在するため一次スクリーニングでの上限閾値は不要、予測価格が売出価格を下回る場合のみ除外されることを検証 (Issue #1348)"""
-    # 例: フローラ・国分寺ＡＢ (売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 高い割安度でも一次スクリーニングは通過)
-    rec_flora = MockEvaluation(
+def test_evaluate_investment_candidate_extreme_prediction_gap():
+    """非現実的な外れ値（割安度85%以上、または売出の6.67倍超）は安全弁により一次スクリーニングで除外され、現実的な割安物件（例: 割安度70%）は通過することを検証 (Issue #1348, #1509)"""
+    # 1. 極端な外れ値 (例: 売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 割安度98.0%で非現実的外れ値として除外)
+    rec_outlier = MockEvaluation(
         "investmentapartment",
         total_investment_score=100.0,
         first_stage_predicted_price=174133.0,
         id=999
     )
-    prop_flora = MockProperty(rec_flora.property_url, 35600000)
-    is_rec, reason, _priority = _evaluate_candidate(rec_flora, prop_flora)
-    assert is_rec is True
-    assert "割安" in reason
+    prop_outlier = MockProperty(rec_outlier.property_url, 35600000)
+    is_rec, reason, _priority = _evaluate_candidate(rec_outlier, prop_outlier)
+    assert is_rec is False
 
-    # 予測値が売出価格を下回る場合（売出価格 3,000万円 に対し 予測価格 500万円 -> 約0.16倍、割安でない）は除外
+    # 2. 現実的な高割安度物件 (例: 売出価格 3,000万円 に対し 理論予測価格 10,000万円 -> 割安度70.0%で通過)
+    rec_valid_high = MockEvaluation(
+        "investmentapartment",
+        total_investment_score=95.0,
+        first_stage_predicted_price=10000.0,
+        id=998
+    )
+    prop_valid_high = MockProperty(rec_valid_high.property_url, 30000000)
+    is_rec2, reason2, _priority2 = _evaluate_candidate(rec_valid_high, prop_valid_high)
+    assert is_rec2 is True
+    assert "割安" in reason2
+
+    # 3. 予測値が売出価格を下回る場合（売出価格 3,000万円 に対し 予測価格 500万円 -> 割安でない）は除外
     rec_low = MockEvaluation(
         "investmentapartment",
         total_investment_score=85.0,
@@ -92,8 +103,8 @@ def test_evaluate_investment_candidate_extreme_prediction_gap_passed():
         id=1000
     )
     prop_low = MockProperty(rec_low.property_url, 30000000)
-    is_rec, reason, _priority = _evaluate_candidate(rec_low, prop_low)
-    assert is_rec is False
+    is_rec3, reason3, _priority3 = _evaluate_candidate(rec_low, prop_low)
+    assert is_rec3 is False
 
 def test_evaluate_investment_candidate_by_discount():
     """投資物件でも理論予測価格が存在し、割安度（discount_pct >= 20%）がある場合の判定テスト"""
