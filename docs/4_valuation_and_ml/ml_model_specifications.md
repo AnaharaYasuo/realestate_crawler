@@ -883,6 +883,23 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
    - `run_ml_pipeline.py --property-type <type>` を受け付け、指定時は曜日ローテーション判定をオーバーライドして該当物件種別の `train.py --property-type <type>` を実行する。
    - 未指定時は従来どおり曜日ローテーション（木: mansion, 金: kodate, 土: apartment, 日: tochi）に従う。
 
+## 19. 全物件種別（all）一括再学習サポート & リアルタイムCPU/メモリ使用量テレメトリ (Issue #1504)
+
+Cloud Run（2 vCPU / 2 GiB RAM）環境下でのモデル再学習において、全モデルの一括検証要求に対応しつつ、リソース枯渇（OOM Kill, Exit Code -9）を定量的に観測・防止するため、以下の仕様を規定する：
+
+1. **`--property-type all` サポート**:
+   - `run_ml_pipeline.py --property-type all` を受け付け、指定時は全4種別（`mansion`, `kodate`, `apartment`, `tochi`）を対象とする。
+   - `train.py` の引数として各対象種別（`--property-type mansion --property-type kodate --property-type apartment --property-type tochi`）を明示的に渡して直列学習を実行する。
+2. **モデル学習中のリアルタイム CPU / メモリ使用量テレメトリ**:
+   - `package.ml.training.pipeline` の `train_property_type` および `run_training` において、`_read_host_memory_fallback` および `_read_cpu_metrics` を用いて以下を計測・ログ出力する：
+     - 開始時 RSS メモリ (MB)
+     - 終了時 RSS メモリ (MB)
+     - モデル学習中ピーク RAM 推定 (MB)
+     - プロセス CPU 利用率 (%) および システム CPU 利用率 (%)
+   - `BatchMetrics` のサマリバナーに各種別のメモリ推移と CPU 利用率を表示し、Cloud Logging / 構造化ログ上でリソース消費をリアルタイムに把握可能とする。
+3. **直列学習間のメモリ強制回収**:
+   - 各物件種別の学習終了ごとに `del` による参照破棄と `gc.collect()` を確実に呼び出し、2GiB 上限内での安全な連続稼働を保証する。
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。
