@@ -561,7 +561,7 @@ def test_pull_instruction_from_gcs_direct():
 
 
 def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
-    """Verify that sync_auto_heal_issues suppresses creating duplicate issues for existing closed/open keys (Issue #1477)."""
+    """Verify that sync_auto_heal_issues suppresses creating duplicate issues for existing closed/open keys (Issue #1477, #1498)."""
     from scripts.ops import sync_auto_heal_issues
 
     instruction = {
@@ -578,7 +578,7 @@ def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
         "failed_pipeline_steps": [],
     }
 
-    # toho:mansion is already CLOSED as #1442
+    # Case 1: toho:mansion is already CLOSED as #1442
     fake_gh = FakeGhClient(
         issues=[
             {
@@ -600,6 +600,32 @@ def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
     assert len(fake_gh.comments) == 1
     assert fake_gh.comments[0][0] == 1442
 
+    # Case 2: toho:mansion is OPEN or in-progress with an open PR (Issue #1498)
+    fake_gh_open = FakeGhClient(
+        issues=[
+            {
+                "number": 1499,
+                "title": "[Auto-Heal] toho/mansion パーサー不整合・取得異常の自動修復",
+                "body": "<!-- auto-heal-key:toho:mansion -->\n<!-- auto-heal-sync-ts:2026-11-14 20:34:41 -->\nBody",
+                "state": "OPEN",
+                "labels": ["auto-heal"],
+                "comments": [],
+            }
+        ],
+        open_prs=[
+            {
+                "number": 1500,
+                "title": "[#1499] fix(toho): fix mansion parser",
+                "body": "Closes #1499",
+                "headRefName": "fix/1499-toho-mansion",
+            }
+        ],
+    )
+    summary_open = sync_auto_heal_issues.sync_instruction_to_issues(instruction, fake_gh_open, dry_run=False)
+    assert summary_open["created"] == []
+    assert summary_open["updated"] == [1499]
+    assert len(fake_gh_open.created_issues) == 0
+
 
 def test_run_pipeline_post_crawl_auto_heal_step():
     """Verify that run_pipeline triggers post-crawl auto-heal inspection and sync (Issue #1477)."""
@@ -613,5 +639,57 @@ def test_run_pipeline_post_crawl_auto_heal_step():
         calls = [c[0][1] for c in mock_run_cmd.call_args_list]
         assert "Step 1.1a: Post-Crawl Anomaly Inspection & Instruction Generation" in calls
         assert "Step 1.1b: Post-Crawl Auto-Heal Issue Deduplicated Sync" in calls
+
+
+def test_post_recommendation_auto_heal_trigger_in_run_pipeline():
+    """Verify run_pipeline executes post-recommendation instant auto-heal inspection & sync (Issue #1498)."""
+    from scripts.ops import run_pipeline
+
+    executed_descriptions = []
+
+    def fake_run_command(cmd, desc):
+        executed_descriptions.append(desc)
+
+    with (
+        patch.object(run_pipeline, "run_command", side_effect=fake_run_command),
+    ):
+        failed_steps = run_pipeline._run_post_crawl_pipeline(
+            crawler_dir="crawler_dir",
+            ops_dir="ops_dir",
+            maintenance_dir="maintenance_dir",
+            debug_tools_dir="debug_tools_dir",
+            skip_portals=True,
+            skip_train=True,
+        )
+        assert failed_steps == []
+        assert "Step 5/6: Slack Notification (Hot Property Recommendation)" in executed_descriptions
+        assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
+        assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
+
+
+def test_post_recommendation_auto_heal_trigger_in_run_ml_pipeline():
+    """Verify run_ml_pipeline executes post-recommendation instant auto-heal inspection & sync (Issue #1498)."""
+    from scripts.ops import run_ml_pipeline
+
+    executed_descriptions = []
+
+    def fake_run_command(cmd, desc):
+        executed_descriptions.append(desc)
+
+    with (
+        patch.object(run_ml_pipeline, "start_on_demand_resources"),
+        patch.object(run_ml_pipeline, "run_command", side_effect=fake_run_command),
+        patch.object(run_ml_pipeline, "verify_barrier_completion", return_value=(True, [])),
+        patch.object(run_ml_pipeline, "filter_crawl_jobs", return_value=[]),
+        patch.object(run_ml_pipeline, "send_aggregated_crawl_report"),
+        patch.object(run_ml_pipeline, "_run_self_healing_recrawl_and_validation"),
+        patch.object(run_ml_pipeline, "_can_stop_shared_proxysql", return_value=False),
+    ):
+        code = run_ml_pipeline.main(["--dry-run", "--skip-train", "--skip-potentials-sync"])
+        assert code == 0
+        assert "Step 4/5: Slack Notification (Hot Property Recommendation)" in executed_descriptions
+        assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
+        assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
+
 
 

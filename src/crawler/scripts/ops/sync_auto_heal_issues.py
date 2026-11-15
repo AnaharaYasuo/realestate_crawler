@@ -349,17 +349,20 @@ def _sync_single_active_group(
     *,
     dry_run: bool,
     summary: dict[str, list[int]],
+    linked_pr_issues: set[int] | None = None,
 ) -> None:
     generated_at = str(instruction.get("generated_at") or "")
     existing = existing_by_key.get(key)
+    linked_prs = linked_pr_issues or set()
     if existing is None:
-        # 重複起票の完全防止: 既にCLOSEDされたIssueや過去の同一キーIssueが存在するか確認
+        # 重複起票の完全防止: 既にOPEN・着手中（関連PRあり）またはCLOSEDの同一キーIssueが存在するか確認
         closed_existing = all_by_key.get(key)
         if closed_existing is not None:
             c_num = int(closed_existing["number"])
             c_state = str(closed_existing.get("state", "CLOSED")).upper()
-            if c_state != "OPEN":
-                # 同一内容・キーで過去に起票されている場合は新規作成を抑止し、既存Issueへ再検知コメント追記
+            is_in_progress = c_state == "OPEN" or c_num in linked_prs
+            if not is_in_progress:
+                # 過去にクローズ済みの同一キー・同一内容Issueへ再検知コメント追記し重複新規起票を抑止
                 if _has_sync_timestamp(closed_existing, generated_at):
                     logger.info("Skipping duplicate Issue creation for %s: already recorded on #%d", key, c_num)
                     return
@@ -370,6 +373,15 @@ def _sync_single_active_group(
                 gh.comment_issue(c_num, comment)
                 summary["updated"].append(c_num)
                 logger.info("Re-linked telemetry to existing Issue #%d for %s (prevented duplicate issue creation)", c_num, key)
+                return
+            else:
+                # 既にOPENまたは着手中（PRあり）のIssueが存在する場合は重複起票を抑止
+                logger.info("Skipping duplicate Issue creation for %s: issue #%d is already %s", key, c_num, "in-progress" if c_num in linked_prs else "OPEN")
+                if not _has_sync_timestamp(closed_existing, generated_at):
+                    comment = _build_refresh_comment(key, group, generated_at)
+                    if not dry_run:
+                        gh.comment_issue(c_num, comment)
+                        summary["updated"].append(c_num)
                 return
 
         title = f"[Auto-Heal] {group['company']}/{group['property_type']} パーサー不整合・取得異常の自動修復"
@@ -474,6 +486,7 @@ def sync_instruction_to_issues(
             gh,
             dry_run=dry_run,
             summary=summary,
+            linked_pr_issues=linked_pr_issues,
         )
 
     _close_resolved_issues(
