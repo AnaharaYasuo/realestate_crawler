@@ -312,7 +312,7 @@ class KeioMansionParser(KeioParser, MansionParserBase):
         return KeioMansion()
 
     def _parse_floors(self, item, specs):
-        item.kaisuStr = _first_spec(specs, "所在階/構造・階建", "所在階", "階数")
+        item.kaisuStr = _first_spec(specs, "所在階/階数", "所在階/構造・階建", "所在階", "階数")
         if item.kaisuStr:
             m = re.search(r'(\d{1,5})階', item.kaisuStr)
             if m:

@@ -105,6 +105,10 @@ class ParserFailureException(SkipPropertyException):
     """Raised when parsing fails due to selector mismatch or data deficiency (needs parser fix)."""
 
 
+class IncompatiblePropertyTypeException(SkipPropertyException):
+    """Raised when property type on page is fundamentally incompatible with the parser (e.g. whole building in condo parser)."""
+
+
 MAINTENANCE_KEYWORDS = (
     "システムメンテナンス",
     "ただいまメンテナンス",
@@ -2536,6 +2540,8 @@ class ParserBase(metaclass=ABCMeta):
         "お探しのページは存在しないか、掲載が終了",
         "現在、掲載を停止しております",
         "この物件は現在掲載されていません",
+        "この物件は販売を終了しております",
+        "販売を終了しております",
     )
 
     @classmethod
@@ -2684,7 +2690,11 @@ class ParserBase(metaclass=ABCMeta):
             property_type=detected_type,
         )
         if not target_parser or target_parser.__class__ == self.__class__:
-            return (self, item)
+            # サイト側に該当種別パーサーが存在しない（例: 一棟アパート/一棟マンション取り扱いなし）場合、
+            # 区分マンションや戸建として無理にパースして必須項目欠損エラーにするのではなく、種別不適合としてスキップする
+            raise IncompatiblePropertyTypeException(
+                f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' but detected '{detected_type}', and no suitable parser exists."
+            )
         logging.info(
             f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})"
         )

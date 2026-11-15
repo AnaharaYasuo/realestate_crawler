@@ -384,6 +384,15 @@ class PropertyTypeDetector:
         if cls._is_pure_land_from_spec_areas(specs):
             return "tochi"
 
+        # 土地面積と建物面積（または延床面積）の双方が存在し、専有面積がない場合は戸建
+        has_land = cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
+        has_bldg = cls._is_positive_area_value(
+            specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積")
+        )
+        has_senyu = cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
+        if has_land and has_bldg and not has_senyu:
+            return "kodate"
+
         for k, val in specs.items():
             if cls._is_free_text_spec_key(str(k)):
                 cleaned_val = cls._strip_neighborhood_noise(str(val))
@@ -437,6 +446,10 @@ class PropertyTypeDetector:
         specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype == "apartment":
             return cls._resolve_apartment_or_invest_kodate(clean_title)
+        url_ptype = cls._detect_from_url(url) if url else None
+        # URLが明示的な土地パス（/land/, /tochi/等）かつ建物面積・専有面積がない場合は土地を最優先判定
+        if url_ptype == "tochi" and specs and cls._is_pure_land_from_spec_areas(specs):
+            return "tochi"
         title_ptype = cls._match_keywords(clean_title) if clean_title else None
         if title_ptype:
             return title_ptype
@@ -444,7 +457,6 @@ class PropertyTypeDetector:
             return "apartment"
         if specs_ptype:
             return specs_ptype
-        url_ptype = cls._detect_from_url(url) if url else None
         if url_ptype:
             return url_ptype
         if cls._has_yield_signal(html_text):
@@ -668,8 +680,8 @@ class PropertyTypeDetector:
         if val is None:
             return False
         try:
-            cleaned = re.sub(r"[^\d.]", "", str(val))
-            return bool(cleaned and float(cleaned) > 0)
+            m = re.search(r'([\d\.]+)', str(val))
+            return bool(m and float(m.group(1)) > 0)
         except (ValueError, TypeError):
             return False
 

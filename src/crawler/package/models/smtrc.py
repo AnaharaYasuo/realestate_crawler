@@ -107,6 +107,7 @@ class SmtrcInvestment(SmtrcModel):
     chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
+    kaisu = models.IntegerField(null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     # 面積
