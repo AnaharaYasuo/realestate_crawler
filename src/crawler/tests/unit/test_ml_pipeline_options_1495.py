@@ -83,3 +83,42 @@ class TestRunMLPipelineOptions1495(unittest.TestCase):
         self.assertIn("--property-type", train_cmd)
         prop_idx = train_cmd.index("--property-type")
         self.assertEqual(train_cmd[prop_idx + 1], "tochi")
+
+    @patch("scripts.ops.run_ml_pipeline._run_self_healing_recrawl_and_validation")
+    @patch("scripts.ops.run_ml_pipeline.verify_barrier_completion", return_value=(True, []))
+    @patch("scripts.ops.run_ml_pipeline.filter_crawl_jobs", return_value=[])
+    @patch("scripts.ops.run_ml_pipeline.send_aggregated_crawl_report")
+    @patch("scripts.ops.run_ml_pipeline.start_on_demand_resources")
+    @patch("scripts.ops.run_ml_pipeline.run_command")
+    def test_main_cli_property_type_all(
+        self,
+        mock_run_cmd,
+        mock_start_res,
+        mock_report,
+        mock_filter,
+        mock_barrier,
+        mock_recrawl_val,
+    ):
+        argv = [
+            "--force",
+            "--train",
+            "--skip-recrawl",
+            "--property-type",
+            "all",
+            "--skip-potentials-sync",
+            "--dry-run",
+        ]
+
+        exit_code = main(argv)
+        self.assertEqual(exit_code, 0)
+
+        train_calls = [
+            call_args[0][0]
+            for call_args in mock_run_cmd.call_args_list
+            if any("train.py" in str(part) for part in call_args[0][0])
+        ]
+        self.assertEqual(len(train_calls), 1)
+        train_cmd = train_calls[0]
+        # Should include mansion, kodate, apartment, tochi
+        for pt in ["mansion", "kodate", "apartment", "tochi"]:
+            self.assertIn(pt, train_cmd)
