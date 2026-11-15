@@ -76,13 +76,31 @@ def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
     return full_df
 
 
+def _chunk_single_items(first_item: Any, iterator: Any) -> Any:
+    """単一要素イテレータを1000件チャンクのジェネレータに変換"""
+    current_chunk = [first_item]
+    for item in iterator:
+        current_chunk.append(item)
+        if len(current_chunk) >= 1000:
+            yield current_chunk
+            current_chunk = []
+    if current_chunk:
+        yield current_chunk
+
+
+def _resolve_from_list(features_list: list[Any]) -> pd.DataFrame:
+    """リスト入力からメモリ効率の良い DataFrame を解決"""
+    if not features_list:
+        return pd.DataFrame()
+    if isinstance(features_list[0], list):
+        return _build_compact_dataframe(features_list)
+    return _downcast_chunk_columns(pd.DataFrame(features_list))
+
+
 def _resolve_input_dataframe(features_iterator: Any) -> pd.DataFrame:
     """イテレータまたはリストからメモリ効率の良い DataFrame を解決"""
     if isinstance(features_iterator, list):
-        if features_iterator and isinstance(features_iterator[0], list):
-            return _build_compact_dataframe(features_iterator)
-        df = pd.DataFrame(features_iterator) if features_iterator else pd.DataFrame()
-        return _downcast_chunk_columns(df)
+        return _resolve_from_list(features_iterator)
 
     if not hasattr(features_iterator, "__iter__"):
         return pd.DataFrame()
@@ -97,17 +115,7 @@ def _resolve_input_dataframe(features_iterator: Any) -> pd.DataFrame:
             yield from features_iterator
         return _build_compact_dataframe(_rest_chunks())
 
-    def _single_chunk_gen():
-        current_chunk = [sample]
-        for item in features_iterator:
-            current_chunk.append(item)
-            if len(current_chunk) >= 1000:
-                yield current_chunk
-                current_chunk = []
-        if current_chunk:
-            yield current_chunk
-
-    return _build_compact_dataframe(_single_chunk_gen())
+    return _build_compact_dataframe(_chunk_single_items(sample, features_iterator))
 
 
 def train_property_type(
