@@ -940,6 +940,14 @@ class SumifuInvestmentKodateParser(SumifuInvestmentParserBase, KodateParserBase)
     def _parseYouseki(self, response, specs=None):
         return super()._parseYouseki(response, specs)
 
+    def _parseKenpeiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
+    def _parseYousekiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
     def _parseRights(self, response, specs=None) -> str:
         target_specs = specs or self._get_specs(response)
         return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
@@ -1408,6 +1416,14 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         return super()._parseCurrentStatus(response, specs)
 
 
+    def _parseKenpeiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
+    def _parseYousekiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
     def _parseRights(self, response, specs=None) -> str:
         target_specs = specs or self._get_specs(response)
         return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
@@ -1455,6 +1471,8 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         
         item.kenpei = self._parseKenpei(response)
         item.youseki = self._parseYouseki(response)
+        item.kenpeiStr = self._parseKenpeiStr(response)
+        item.yousekiStr = self._parseYousekiStr(response)
         item.kenpeiYousekiStr = self._parseKenpeiYousekiStr(response)
         
         item.youtoChiiki = self._parseYoutoChiiki(response)
@@ -1613,6 +1631,14 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         return super()._parseCurrentStatus(response, specs)
 
 
+    def _parseKenpeiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
+    def _parseYousekiStr(self, response, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "") or target_specs.get(LABEL_KENPEI_YOUSEKI, "")
+
     def _parseRights(self, response, specs=None) -> str:
         target_specs = specs or self._get_specs(response)
         return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
@@ -1649,6 +1675,8 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         
         item.kenpei = self._parseKenpei(response)
         item.youseki = self._parseYouseki(response)
+        item.kenpeiStr = self._parseKenpeiStr(response)
+        item.yousekiStr = self._parseYousekiStr(response)
         item.kenpeiYousekiStr = self._parseKenpeiYousekiStr(response)
         item.kenpeiStr = self._parseKenpeiStr(response)
         item.yousekiStr = self._parseYousekiStr(response)

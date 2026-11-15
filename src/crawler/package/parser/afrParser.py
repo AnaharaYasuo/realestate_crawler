@@ -433,7 +433,7 @@ class AfrKodateParser(AfrParser, KodateParserBase):
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         # 建ぺい率・容積率
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
@@ -510,7 +510,7 @@ class AfrTochiParser(AfrParser, TochiParserBase):
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
         # 建ぺい率・容積率
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
