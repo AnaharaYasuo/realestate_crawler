@@ -571,7 +571,14 @@ def main(argv=None):
             )
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
-        eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
+        # 2GiB RAM コンテナ環境での OOM 防止のため、評価並行数を 2 に制限 (Issue #1484)
+        eval_concurrency = os.getenv("BULK_EVAL_CONCURRENCY", "2")
+        eval_cmd = [
+            sys.executable,
+            os.path.join(ops_dir, "run_bulk_ml_evaluation.py"),
+            "--concurrency",
+            str(eval_concurrency),
+        ]
         if args.skip_portals:
             eval_cmd.append("--skip-portals")
         else:

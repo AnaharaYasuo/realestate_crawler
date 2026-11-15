@@ -67,7 +67,7 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
         }
         env {
           name  = "BULK_EVAL_CONCURRENCY"
-          value = "4"
+          value = "2"
         }
 
         # データベース接続設定 (ProxySQL 経由ポート 6033)
@@ -569,7 +569,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
         }
         env {
           name  = "BULK_EVAL_CONCURRENCY"
-          value = "8"
+          value = "2"
         }
         env {
           name  = "VALIDATE_DATA_SKIP_URL_CHECK"

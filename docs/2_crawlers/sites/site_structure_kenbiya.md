@@ -29,3 +29,7 @@
    - HTTP 429 を単なるタイムアウト（504）や一般的パース失敗（422）と混同せず、`RateLimitedException` として明示的に捕捉・分類する。
 5. **API レスポンスマッピング**:
    - `/api/evaluation/predict-by-url` において `RateLimitedException` を検知した場合、HTTP 429 `TARGET_SITE_RATE_LIMITED` を返却し、呼び出し元に適切な待機・再試行を促す。
+4. **Playwright フォールバック時の静的アセット取得遮断 (Issue #1484)**:
+   - WAFブロック時の Playwright ステルス取得において、画像（png, jpg, webp 等）、CSS、フォント（woff, ttf 等）、メディア等の静的アセットへのリクエストを `page.route` で即座に `abort()` 遮断する。
+   - これにより、健美家サーバーおよび WAF への通信負荷を最小化し、ページ描画時間とメモリ使用量を大幅に低減する。
+

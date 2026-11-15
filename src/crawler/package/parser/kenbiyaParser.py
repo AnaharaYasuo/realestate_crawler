@@ -137,7 +137,11 @@ class KenbiyaParserBase(ParserBase):
     @classmethod
     async def _throttle_before_request(cls) -> None:
         """Cloud環境または設定時にリクエスト送信間隔を全パーサー共通の共有ロックで担保"""
-        if not (os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB") or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")):
+        if not (
+            os.getenv("K_SERVICE")
+            or os.getenv("CLOUD_RUN_JOB")
+            or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")
+        ):
             return
         min_interval = 2.0
         async with KenbiyaParserBase._request_lock:
@@ -180,17 +184,23 @@ class KenbiyaParserBase(ParserBase):
                     )
                     page = await context.new_page()
 
-                    # ギガ浪費防止: 画像、フォント、メディア、スタイルシート等の不要アセットをルート遮断
+                    # ギガ浪費防止・高速化: 画像、フォント、メディア、スタイルシート等の不要アセットをルート遮断 (Issue #1484, #1486)
                     async def _block_unnecessary_resources(route):
-                        if route.request.resource_type in {"image", "media", "font", "stylesheet", "other"}:
+                        req = route.request
+                        res_type = getattr(req, "resource_type", "")
+                        req_url = getattr(req, "url", "")
+                        if res_type in {"image", "media", "font", "stylesheet", "other"}:
+                            await route.abort()
+                        elif isinstance(req_url, str) and re.search(r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$", req_url, re.IGNORECASE):
                             await route.abort()
                         else:
                             await route.continue_()
 
                     await page.route("**/*", _block_unnecessary_resources)
-
                     try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                        await page.goto(
+                            url, wait_until="domcontentloaded", timeout=20000
+                        )
                         await page.wait_for_timeout(1500)
                         content_str = await page.content()
                         return content_str.encode("utf-8")
@@ -201,7 +211,9 @@ class KenbiyaParserBase(ParserBase):
             finally:
                 await browser.close()
 
-    async def _try_playwright_on_403(self, session: aiohttp.ClientSession, status: int, url: str) -> bytes | None:
+    async def _try_playwright_on_403(
+        self, session: aiohttp.ClientSession, status: int, url: str
+    ) -> bytes | None:
         if status != 403 or not isinstance(session, aiohttp.ClientSession):
             return None
         try:
@@ -265,7 +277,7 @@ class KenbiyaParserBase(ParserBase):
                 ServerDownException,
             ):
                 raise
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(
@@ -318,7 +330,9 @@ class KenbiyaParserBase(ParserBase):
             yielded += 1
             yield item
         if yielded == 0:
-            raise ServerBusyException("Kenbiya root page returned 0 items (WAF/blocked)")
+            raise ServerBusyException(
+                "Kenbiya root page returned 0 items (WAF/blocked)"
+            )
 
     @staticmethod
     def _clean_spec_value(text: str) -> str:
@@ -343,10 +357,13 @@ class KenbiyaParserBase(ParserBase):
                 continue
             p_classes = " ".join(parent.get("class", []) or [])
             p_id = parent.get("id", "") or ""
-            if any(
-                k in p_classes
-                for k in ["guide", "help", "glossary", "explanation", "box_outline"]
-            ) or "guide" in p_id:
+            if (
+                any(
+                    k in p_classes
+                    for k in ["guide", "help", "glossary", "explanation", "box_outline"]
+                )
+                or "guide" in p_id
+            ):
                 return True
         return False
 
@@ -393,10 +410,14 @@ class KenbiyaParserBase(ParserBase):
         if not response:
             return ""
         # 対象物件の詳細領域 (div.property, #property_detail 等) を特定して探索
-        container = response.select_one("div.property, #property_detail, .property-header, .property_detail")
+        container = response.select_one(
+            "div.property, #property_detail, .property-header, .property_detail"
+        )
         if not container:
             return ""
-        price_el = container.select_one(".price, .mod-price, span.price, .property_price, em.price")
+        price_el = container.select_one(
+            ".price, .mod-price, span.price, .property_price, em.price"
+        )
         return price_el.get_text(strip=True) if price_el else ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
@@ -535,12 +556,16 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = self._extract_kenpei_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
+        raw = self._extract_kenpei_from_specs(specs) or specs.get(
+            KENPEI_YOUSEKI_SLASH, ""
+        )
         return converter.parse_ratio(raw)
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = self._extract_youseki_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
+        raw = self._extract_youseki_from_specs(specs) or specs.get(
+            KENPEI_YOUSEKI_SLASH, ""
+        )
         if raw and _KENBIYA_RATIO_SPLIT_RE.search(raw):
             parts = _KENBIYA_RATIO_SPLIT_RE.split(raw)
             if len(parts) >= 2:
@@ -554,7 +579,11 @@ class KenbiyaParserBase(ParserBase):
             parsed = self._extract_maguchi_decimal(direct, allow_bare_meter=True)
             if parsed is not None:
                 return parsed
-        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        setsudou_val = (
+            specs.get("接道状況", "")
+            or specs.get("道路付け", "")
+            or specs.get("接道", "")
+        )
         if setsudou_val:
             m = _KENBIYA_MAGUCHI_RE.search(setsudou_val)
             if m:
@@ -569,11 +598,15 @@ class KenbiyaParserBase(ParserBase):
                 m_dir = re.search(r"(\d{1,4}(?:\.\d{1,3})?)", direct)
                 if m_dir:
                     return Decimal(m_dir.group(1))
-        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        setsudou_val = (
+            specs.get("接道状況", "")
+            or specs.get("道路付け", "")
+            or specs.get("接道", "")
+        )
         if setsudou_val:
-            m = _KENBIYA_WIDTH_LABEL_RE.search(setsudou_val) or _KENBIYA_WIDTH_DIR_RE.search(
+            m = _KENBIYA_WIDTH_LABEL_RE.search(
                 setsudou_val
-            )
+            ) or _KENBIYA_WIDTH_DIR_RE.search(setsudou_val)
             if m:
                 return Decimal(m.group(1))
         return None
