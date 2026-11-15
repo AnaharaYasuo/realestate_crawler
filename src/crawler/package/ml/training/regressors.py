@@ -43,7 +43,11 @@ def _get_ml_thread_limit() -> int:
     env_threads = os.getenv("ML_NUM_THREADS", "").strip()
     if env_threads:
         try:
-            return int(env_threads)
+            val = int(env_threads)
+            # 2GiB 環境でのメモリ爆発・プロセス複製を防ぐため、-1 または 2 を超える値は最大 2 スレッドにクランプ (Issue #1513)
+            if val < 1 or val > 2:
+                return 2
+            return val
         except ValueError:
             pass
     # デフォルトを全コア(-1)ではなく2スレッドに抑制（マルチプロセス/マルチスレッドによるメモリ複製防止）
@@ -74,7 +78,7 @@ def get_regressor(
             random_state=42,
             n_jobs=ml_threads,
             n_estimators=p.get("n_estimators", 100),
-            max_depth=p.get("max_depth", None),
+            max_depth=p.get("max_depth", 12),
             min_samples_leaf=p.get("min_samples_leaf", 5),
             max_features=p.get("max_features", "sqrt"),
         )
