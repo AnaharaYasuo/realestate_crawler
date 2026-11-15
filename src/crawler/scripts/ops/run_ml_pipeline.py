@@ -617,6 +617,22 @@ def main(argv=None):
             "Step 4/5: Slack Notification (Hot Property Recommendation)",
         )
 
+        # 割安物件通知直後の材料探索・指示書更新・重複抑止付きIssue同期 (Issue #1498)
+        try:
+            logger.info("🔍 Post-Recommendation Instant Auto-Heal Inspection & Issue Sync")
+            run_command(
+                [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")],
+                "Post-Recommendation Anomaly Inspection & Instruction Generation",
+            )
+            run_command(
+                [sys.executable, os.path.join(ops_dir, "sync_auto_heal_issues.py"), "--pull-from-gcs"],
+                "Post-Recommendation Auto-Heal Issue Deduplicated Sync",
+            )
+        except Exception as heal_sync_err:
+            logger.warning(
+                f"⚠️ [Post-Recommendation Warning] Auto-heal inspection/sync encountered an error: {heal_sync_err}"
+            )
+
         # Step 6: 日次予測精度診断 & AIインサイト分析
         run_command(
             [

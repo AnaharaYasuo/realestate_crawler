@@ -655,6 +655,23 @@ def _run_post_crawl_pipeline(
             ],
             "Step 5/6: Slack Notification (Hot Property Recommendation)",
         )
+        # 割安物件通知直後の材料探索・指示書更新・重複抑止付きIssue同期 (Issue #1498)
+        try:
+            logger.info(BORDER_LINE)
+            logger.info("🔍 Post-Recommendation Instant Auto-Heal Inspection & Issue Sync")
+            logger.info(BORDER_LINE)
+            run_command(
+                [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")],
+                "Post-Recommendation Anomaly Inspection & Instruction Generation",
+            )
+            run_command(
+                [sys.executable, os.path.join(ops_dir, "sync_auto_heal_issues.py"), "--pull-from-gcs"],
+                "Post-Recommendation Auto-Heal Issue Deduplicated Sync",
+            )
+        except Exception as rec_heal_err:
+            logger.warning(
+                f"⚠️ [Post-Recommendation Warning] Auto-heal inspection/sync encountered an error: {rec_heal_err}"
+            )
     except Exception as e:
         failed_steps.append("Step 5/6: Slack Notification")
         logger.error(f"❌ [Step 5/6 Error] Slack recommendation sending failed: {e}")

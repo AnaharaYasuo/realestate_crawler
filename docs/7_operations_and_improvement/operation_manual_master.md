@@ -94,15 +94,18 @@ python src/crawler/scripts/ops/run_bulk_ml_evaluation.py --force --no-skip-porta
 
 | 時刻 (JST) | 実行基盤 | 処理内容 | トークン消費 |
 | :--- | :--- | :--- | :--- |
-| **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・`auto_heal_parsers.py` による GCS `auto_heal/latest_instruction.json` 更新 | Gemini Flash 要約のみ |
-| **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) により `auto-heal` ラベル付き Issue を自動起票・重複排除・解決時自動クローズ | **ゼロ** |
-| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を全件取得し、**未解決の全Issueを順次ループして修復**。各Issueごとに Worktree で修正・テスト・`master` マージ ➔ **`production` マージ＆本番デプロイ成功までを1件の完了要件として完遂**し次へ進む | **Antigravity 定額枠**（対象0件時は即終了） |
+| **01:00** | Cloud Run (`realestate-crawler-pipeline-prod`) | 並列クローリング実行。終了直後に材料探索・重複抑止付きIssue起票・自動修正（Auto-Heal Solver）起動 | **ゼロ** |
+| **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・ML再学習・バルク評価・お宝物件Slack通知。通知直後に材料探索・重複抑止付きIssue起票・自動修正（Auto-Heal Solver）起動 | Gemini Flash 要約のみ |
+| **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) による定期整合性同期・重複排除・解決時自動クローズ | **ゼロ** |
+| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を全件取得し、**未着手の全Issueを一括バッチ修復**。単一のWorktreeで一括修正・テスト・`master` マージ ➔ **`production` マージ＆本番デプロイ成功までを完了要件として完遂** | **Antigravity 定額枠**（対象0件時は即終了） |
 | **PRマージ後** | GitHub Actions (`auto-release-pr` ➔ `deploy-production`) | `production` 自動昇格・Cloud Run 更新・`realestate-recrawl-anomalies-pipeline-prod` 即時起動による異常データ再取得 | **ゼロ** |
 
-### 5.1 スケジュール自動修復の実行原則（全件バッチ一括処理 ＆ Production Done）
-1. **全件バッチ一括処理原則**:
-   - スケジュール自動修復は未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機せず、未解決の全アクション可能 Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で一括して解消します。
-2. **Production Done 完了要件**:
+### 5.1 スケジュール自動修復の実行原則（重複起票防止・全件バッチ一括処理 ＆ Production Done）
+1. **起票時の重複防止徹底（OPEN/着手中チェック）**:
+   - Issue起票時（`sync_auto_heal_issues.py`）は、同一の会社・物件種別（`key`）および同一のエラー内容について、既に「OPEN」状態または「着手中」（関連PRが存在する・直近起票済み）のIssueが存在しないかを事前に厳格確認し、多重起票を完全に防止します。
+2. **未着手全件バッチ一括処理原則**:
+   - スケジュール自動修復および即時自動修復は、未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機せず、未着手の全アクション可能 Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で一括して解消します。
+3. **Production Done 完了要件**:
    - 各 Issue の完了要件は「`production` ブランチへのリリース PR マージ完了および本番デプロイ（`Deploy Production`）の成功確認」です。PR作成や `master` マージ時点で処理を停止してはならず、本番反映を見届けてから完了とします。
 
 ### 手動運用コマンド
@@ -138,6 +141,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ---
 
-**最終更新**: 2026年11月14日  
-**バージョン**: 1.7 (Issue #1430: TTL再クロールのサイト別並列制御導入 — 弱いサーバーのドメイン並列上限を2に設定)
+**最終更新**: 2026年11月15日  
+**バージョン**: 1.8 (Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
 

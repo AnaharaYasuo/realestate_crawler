@@ -26,12 +26,13 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 ## 実行ステップ
 
 ### 0. GitHub Issue ドリブン自動修復プロトコル（Scheduled Automation / Issue起点実行時）
-- **【全件バッチ一括処理・自律完遂規約】**: スケジュール自動修復（毎朝 07:00 JST 等）および手動 `/auto-heal` において、未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機して終了してはならない。未解決の `auto-heal` Issue が存在する限り、**すべてのアクション可能な Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で `master` ➔ `production` マージおよび本番デプロイ（`Deploy Production`）まで一気通貫で完遂**すること。途中で停止してユーザーに確認を求めてはならない。
+- **【重複起票の完全防止規約】**: Issue起票時（`sync_auto_heal_issues.py`）は、同一キー（`company:property_type`）および同一エラー内容について、既に「OPEN」状態または「着手中」（関連PRが存在する・直近起票済み）のIssueが存在しないかを事前に厳格確認し、多重起票を完全に防止する。
+- **【未着手全件バッチ一括処理・自律完遂規約】**: スケジュール自動修復（毎朝 07:00 JST 等）およびクローリング直後・割安通知直後の即時自動修復において、未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機して終了してはならない。未解決の `auto-heal` Issue が存在する限り、**未着手のすべてのアクション可能な Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で `master` ➔ `production` マージおよび本番デプロイ（`Deploy Production`）まで一気通貫で完遂**すること。途中で停止してユーザーに確認を求めてはならない。
 - **【完了定義】**: 各 Issue の修復は、単体修正・PR作成時点や `master` マージ時点ではなく、**「`production` ブランチへのリリースPRマージ完了および本番デプロイ（`Deploy Production`）の成功確認」をもって初めて完了とする。**
 
-1. **対象 Issue の高速判定とバッチグループ化**:
+1. **対象 Issue の高速判定と全件バッチグループ化**:
    - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、未解決 Issue 一覧（`issues`）を取得する。`count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
-   - `count > 0` の場合、リストされた全 Issue（または優先上位バッチ）をまとめて 1 つの修復ブランチで一括処理する。
+   - `count > 0` の場合、リストされた未着手の全 Issue をまとめて 1 つの修復ブランチで一括処理する。
 2. **試行回数記録とサーキットブレーカー**:
    - 対象 Issue 群 `#<N>` に対して着手前に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった Issue はバッチから除外して人手対応へ引き継ぐ。
 3. **独立 Worktree での SDD × TDD × Parser 一括修正 ➔ `production` マージ＆本番デプロイ完遂**:
