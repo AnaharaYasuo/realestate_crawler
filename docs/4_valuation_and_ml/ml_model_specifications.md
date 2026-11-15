@@ -850,6 +850,28 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 
 
 
+## 17. MLモデル種別単位ローテーション再学習・直列化・メモリ最適化 (Issue #1482)
+
+2GiBコンテナ（`realestate-ml-pipeline-prod`）におけるメモリ超過（OOM Kill, Exit Code -9）を防ぎ、軽量かつ安定した日次運用を実現するため、以下の再学習ローテーションおよびメモリ最適化アーキテクチャを適用する：
+
+1. **種別単位の指定引数 (`--property-type` / `ML_TRAIN_PROPERTY_TYPES`)**:
+   - `python train.py --property-type <type>` により、単一または複数種別（`mansion`, `kodate`, `apartment`, `tochi`）のみを個別に学習可能化。
+2. **曜日分散ローテーション**:
+   - 日次パイプライン（`run_ml_pipeline.py`）実行時、全種別の一括再学習を廃止し、曜日ごとに1種別ずつローテーション学習を実行する。
+     - **木曜**: `mansion`（マンション）
+     - **金曜**: `kodate`（戸建て）
+     - **土曜**: `apartment`（投資アパート・一棟）
+     - **日曜**: `tochi`（土地）
+     - **月〜水**: 再学習スキップ（推論・配信のみで高速運用）
+   - 1回あたりの学習データ量・メモリ消費量・所要時間を約 1/4 に削減。
+3. **既存メタデータ保護と個別マージ保存**:
+   - `save_metadata` において、学習対象外の種別の既存モデル・重み（`ensemble_weights.joblib`, `smearing_factors.joblib` 等）を上書き削除せず、既存ファイルを読み込んで安全にマージ保存する。
+4. **学習プロセスの直列化とメモリ解放**:
+   - 一次モデル保存後に即時 `del` ＋ `gc.collect()` を実施し、二次モデルとのメモリ二重保持を解消。
+   - `train_and_compare` 内の各アルゴリズム（LightGBM ➔ XGBoost ➔ CatBoost ➔ RandomForest）学習完了ごとに `gc.collect()` を呼び出し、中間モデル・OOF配列を早期解放。
+   - `build_market_master_from_models` 内の全件レコード中間 DataFrame / Series の即時解放。
+   - スレッド数 `_get_ml_thread_limit()` のデフォルト上限を 2 スレッドに設定し、マルチスレッド・マルチプロセスによるメモリ複製を抑制。
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。
