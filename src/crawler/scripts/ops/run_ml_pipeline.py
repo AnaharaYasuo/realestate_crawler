@@ -370,29 +370,35 @@ def _run_self_healing_recrawl_and_validation(
     maintenance_dir: str,
     debug_tools_dir: str,
     skip_url_check: bool,
+    skip_recrawl: bool = False,
 ) -> None:
-    """日次パイプライン内での異常レコードピンポイント再取得 → データ検証 → 耐障害Auto-Heal指示書生成を一貫実行する (Issue #1410)"""
+    """日次パイプライン内での異常レコードピンポイント再取得 → データ検証 → 耐障害Auto-Heal指示書生成を一貫実行する (Issue #1410, #1495)"""
     failed_steps: list[str] = []
 
-    recrawl_cmd = [
-        sys.executable,
-        os.path.join(maintenance_dir, "recrawl_anomalies.py"),
-        "--include-needs-recrawl",
-        "--skip-same-sha",
-        "--limit",
-        "500",
-    ]
-    try:
-        run_command(
-            recrawl_cmd,
-            "Step 0.9/5: Automated Self-Healing Anomaly Recrawl (SHA-Aware)",
+    if not skip_recrawl:
+        recrawl_cmd = [
+            sys.executable,
+            os.path.join(maintenance_dir, "recrawl_anomalies.py"),
+            "--include-needs-recrawl",
+            "--skip-same-sha",
+            "--limit",
+            "500",
+        ]
+        try:
+            run_command(
+                recrawl_cmd,
+                "Step 0.9/5: Automated Self-Healing Anomaly Recrawl (SHA-Aware)",
+            )
+        except RuntimeError as recrawl_err:
+            logger.warning(
+                "⚠️ Anomaly recrawl finished with partial failures (continuing to validation): %s",
+                recrawl_err,
+            )
+            failed_steps.append(str(recrawl_err))
+    else:
+        logger.info(
+            "⏩ [SKIP] Step 0.9/5: Automated Self-Healing Anomaly Recrawl skipped (--skip-recrawl)."
         )
-    except RuntimeError as recrawl_err:
-        logger.warning(
-            "⚠️ Anomaly recrawl finished with partial failures (continuing to validation): %s",
-            recrawl_err,
-        )
-        failed_steps.append(str(recrawl_err))
 
     validate_cmd = [sys.executable, os.path.join(maintenance_dir, "validate_data.py")]
     if skip_url_check:
@@ -479,6 +485,19 @@ def main(argv=None):
         help="Skip nationwide potentials and statistics sync",
     )
     parser.add_argument(
+        "--skip-recrawl",
+        action="store_true",
+        default=os.getenv("ML_PIPELINE_SKIP_RECRAWL", "").lower() in ("true", "1", "yes"),
+        help="Skip anomaly recrawl in Step 0.9 (Issue #1495)",
+    )
+    parser.add_argument(
+        "--property-type",
+        type=str,
+        default=None,
+        choices=["tochi", "mansion", "kodate", "investmentapartment", "investmentkodate"],
+        help="Explicitly specify property type for ML retraining (overrides weekday rotation, Issue #1495)",
+    )
+    parser.add_argument(
         "--train",
         action="store_true",
         default=False,
@@ -536,6 +555,7 @@ def main(argv=None):
             maintenance_dir=maintenance_dir,
             debug_tools_dir=debug_tools_dir,
             skip_url_check=args.skip_url_check,
+            skip_recrawl=args.skip_recrawl,
         )
 
         # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計・マクロ指標・GSI/実成約等）
@@ -555,11 +575,12 @@ def main(argv=None):
                 sys.executable,
                 os.path.join(crawler_dir, "package", "ml", "train.py"),
             ]
-            rot_type = get_rotation_property_type_for_date()
+            rot_type = args.property_type or get_rotation_property_type_for_date()
             if rot_type:
                 train_cmd.extend(["--property-type", rot_type])
+                mode_desc = "Explicit specification" if args.property_type else "Weekday rotation"
                 logger.info(
-                    f"ML Model Re-Training: Applying weekday rotation for property type: '{rot_type}'"
+                    f"ML Model Re-Training: Applying {mode_desc} for property type: '{rot_type}'"
                 )
             run_command(
                 train_cmd,
