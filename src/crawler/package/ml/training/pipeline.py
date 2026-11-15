@@ -53,7 +53,9 @@ def train_property_type(
     initial_count = len(records)
 
     logger.info("\n=========================================")
-    logger.info("Training models for Property Type: %s (records: %d)", ptype, initial_count)
+    logger.info(
+        "Training models for Property Type: %s (records: %d)", ptype, initial_count
+    )
     logger.info("=========================================")
 
     df = pd.DataFrame(records) if records else pd.DataFrame()
@@ -69,7 +71,11 @@ def train_property_type(
                 f"Insufficient real training data for property type '{ptype}' (found {len(df)} records). "
                 "Dummy data generation is disallowed in production mode."
             )
-        logger.info("Not enough real data for %s in DB (%d records). Generating dummy data (fallback allowed).", ptype, len(df))
+        logger.info(
+            "Not enough real data for %s in DB (%d records). Generating dummy data (fallback allowed).",
+            ptype,
+            len(df),
+        )
         df = generate_dummy_data(ptype)
         used_dummy = True
 
@@ -85,27 +91,45 @@ def train_property_type(
     # 一次モデルの訓練と保存
     first_cols = feature_sets[ptype]["first"]
     first_ensemble = train_and_compare(
-        df, first_cols, f"{ptype} - First Stage (No Image)", sample_weight=sample_weights
+        df,
+        first_cols,
+        f"{ptype} - First Stage (No Image)",
+        sample_weight=sample_weights,
     )
     all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
     all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
     if all_location_encoders is not None:
-        all_location_encoders.setdefault(ptype, {})["first"] = first_ensemble.location_encoder
+        all_location_encoders.setdefault(ptype, {})["first"] = (
+            first_ensemble.location_encoder
+        )
     if all_p10_conformal is not None:
-        all_p10_conformal.setdefault(ptype, {})["first"] = first_ensemble.p10_conformal_offset
+        all_p10_conformal.setdefault(ptype, {})["first"] = (
+            first_ensemble.p10_conformal_offset
+        )
     save_stage_models(first_ensemble, model_dir, ptype, "first")
+    del first_ensemble
+    gc.collect()
 
     # 二次モデルの訓練と保存
     second_cols = feature_sets[ptype]["second"]
     second_ensemble = train_and_compare(
-        df, second_cols, f"{ptype} - Second Stage (With Image)", sample_weight=sample_weights
+        df,
+        second_cols,
+        f"{ptype} - Second Stage (With Image)",
+        sample_weight=sample_weights,
     )
     all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
-    all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
+    all_smearing_factors.setdefault(ptype, {})["second"] = (
+        second_ensemble.smearing_factor
+    )
     if all_location_encoders is not None:
-        all_location_encoders.setdefault(ptype, {})["second"] = second_ensemble.location_encoder
+        all_location_encoders.setdefault(ptype, {})["second"] = (
+            second_ensemble.location_encoder
+        )
     if all_p10_conformal is not None:
-        all_p10_conformal.setdefault(ptype, {})["second"] = second_ensemble.p10_conformal_offset
+        all_p10_conformal.setdefault(ptype, {})["second"] = (
+            second_ensemble.p10_conformal_offset
+        )
     save_stage_models(second_ensemble, model_dir, ptype, "second")
 
     duration = time.perf_counter() - ptype_start
@@ -125,19 +149,50 @@ def train_property_type(
         outliers_count,
         used_dummy,
     )
-    del df, records, first_ensemble, second_ensemble
+    del df, records, second_ensemble
     return summary
 
 
-def run_training(allow_dummy_fallback: bool | None = None) -> None:
-    """全物件種別のストリーミング学習、メタデータ保存、GCSアップロードを実行"""
+def resolve_target_property_types(raw_types: list[str] | str | None) -> list[str]:
+    """CLI引数、環境変数、または既定値から対象種別リストを解決"""
+    if raw_types is not None:
+        if isinstance(raw_types, str):
+            parts = [t.strip().lower() for t in raw_types.split(",") if t.strip()]
+        else:
+            parts = []
+            for item in raw_types:
+                parts.extend([t.strip().lower() for t in item.split(",") if t.strip()])
+        valid = [t for t in parts if t in PROPERTY_TYPES]
+        if valid:
+            return valid
+
+    env_val = os.environ.get("ML_TRAIN_PROPERTY_TYPES", "").strip().lower()
+    if env_val:
+        parts = [t.strip() for t in env_val.split(",") if t.strip()]
+        valid = [t for t in parts if t in PROPERTY_TYPES]
+        if valid:
+            return valid
+
+    return list(PROPERTY_TYPES)
+
+
+def run_training(
+    target_property_types: list[str] | str | None = None,
+    allow_dummy_fallback: bool | None = None,
+) -> None:
+    """指定物件種別のストリーミング学習、メタデータ保存、GCSアップロードを実行 (Issue #1482)"""
+    types_to_train = resolve_target_property_types(target_property_types)
+    logger.info("Target property types for ML training: %s", types_to_train)
+
     eval_map, duplicate_urls = get_evaluation_and_duplicate_caches()
     models_by_type = collect_model_classes_by_type()
 
     # 軽量 values_list 走査により取引事例比較マスタを事前構築
     mkt_master = build_market_master_from_models(models_by_type, duplicate_urls)
 
-    model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+    model_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"
+    )
     os.makedirs(model_dir, exist_ok=True)
 
     metrics = BatchMetrics("ML Model Training")
@@ -147,9 +202,11 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
     all_p10_conformal: dict[str, Any] = {}
     ptype_summaries = []
     any_dummy_used = False
-    max_items = int(os.environ.get("ML_MAX_TRAINING_ITEMS", str(DEFAULT_MAX_TRAINING_ITEMS)))
+    max_items = int(
+        os.environ.get("ML_MAX_TRAINING_ITEMS", str(DEFAULT_MAX_TRAINING_ITEMS))
+    )
 
-    for ptype in PROPERTY_TYPES:
+    for ptype in types_to_train:
         stream = stream_training_features(
             ptype,
             models_by_type,
@@ -173,6 +230,7 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
             any_dummy_used = True
         ptype_summaries.append(summary)
         metrics.record_processed(summary.get("valid_count", 0))
+        del stream
         gc.collect()
 
     save_metadata(
@@ -194,5 +252,12 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
         f"• {s['ptype'].upper():<10}: 有効学習 {s['valid_count']:,} 件 | 除外 {s['outliers_count']:,} 件 | 所要時間: {format_batch_duration(s['duration_sec'])}"
         for s in ptype_summaries
     ]
-    logger.info("\n%s", metrics.build_log_banner(title="ML Model Re-Training Batch", custom_sections=custom_sections))
-    logger.info("\nMachine learning training pipeline completed successfully for all property types!")
+    logger.info(
+        "\n%s",
+        metrics.build_log_banner(
+            title="ML Model Re-Training Batch", custom_sections=custom_sections
+        ),
+    )
+    logger.info(
+        "\nMachine learning training pipeline completed successfully for all property types!"
+    )
