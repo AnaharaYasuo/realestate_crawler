@@ -5,7 +5,6 @@
 従来のスクリプト実行およびテスト互換のための軽量エントリを提供します。
 """
 
-
 import os
 import sys
 
@@ -73,13 +72,15 @@ def _load_company_properties(company, qs, duplicate_urls, eval_map):
             continue
         price_man = float(price) / 10000.0
         interior_score, layout_score = eval_map.get(page_url, (3.0, 3.0))
-        records.append({
-            "obj": p,
-            "price": price_man,
-            "company": company,
-            "interior_score": interior_score,
-            "layout_score": layout_score,
-        })
+        records.append(
+            {
+                "obj": p,
+                "price": price_man,
+                "company": company,
+                "interior_score": interior_score,
+                "layout_score": layout_score,
+            }
+        )
     return records
 
 
@@ -90,6 +91,24 @@ def load_all_properties_from_db():
 
 def main() -> None:
     """CLI エントリポイント: Django 設定初期化後にストリーミング学習パイプラインを実行"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="ML Model Training")
+    parser.add_argument(
+        "--property-type",
+        "-p",
+        action="append",
+        dest="property_types",
+        help="Target property types to train (e.g. mansion, kodate, apartment, tochi)",
+    )
+    parser.add_argument(
+        "--allow-dummy-fallback",
+        action="store_true",
+        default=None,
+        help="Allow dummy fallback if insufficient data",
+    )
+    args, _ = parser.parse_known_args()
+
     try:
         import realestateSettings
 
@@ -97,9 +116,11 @@ def main() -> None:
     except (ImportError, RuntimeError, AttributeError):
         pass
 
-    run_training()
+    run_training(
+        target_property_types=args.property_types,
+        allow_dummy_fallback=args.allow_dummy_fallback,
+    )
 
 
 if __name__ == "__main__":
     main()
-

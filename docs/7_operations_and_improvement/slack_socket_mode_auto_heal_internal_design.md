@@ -179,9 +179,9 @@ def notify_auto_heal_request(heal_targets: list[dict]):
 3. **07:00 JST（Antigravity Scheduled Automation: `issue-driven-auto-heal`）**:
    - 個人の Antigravity 定額トークン枠上で毎日 07:00 JST に起動し、最初に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行する。
    - `count == 0` の場合は 1 コマンドで即時終了する。
-   - **全件順次処理原則**: 対象 Issue が複数存在する場合、1件で停止せず、リストされたすべてのアクション可能な Issue が 0 件になるまで優先順（頻度上位順）に順次ループして修復する。
-   - 各対象 Issue `#N` に対し `--record-attempt N` で試行回数を記録（上限2回超過時は自動で `auto-heal:needs-human` へ昇格して次へ進む）し、`.worktrees/fix-N-auto-heal-...` で SDD 更新 ➔ TDD テスト追加 ➔ パーサー/セレクタ最小修正 ➔ `pytest` & `test_architecture_harness.py` & `check_local_sonar.py --diff` 合格後に `--mark-criteria-done N` を実行する。
-   - **完了定義の明言（Production デプロイ完遂義務）**: 指示書（`action_required`）、GitHub Issue 本文、および Scheduled Automation プロンプトのすべてにおいて、**「各自動修復のゴールは `production` ブランチへのマージと本番デプロイ完了である（PR作成や `master` マージのみで終了してはならない）」** ことを明言し、エージェント自身が Stage 1（`master` マージ）➔ Stage 2（`production` リリースPRマージ）➔ `Deploy Production` 成功確認まで一貫して見届けてから次の Issue へ進む。
+   - **全件バッチ一括処理原則**: 対象 Issue が複数存在する場合、1件ずつ個別に PR/デプロイ待機せず、未解決の全アクション可能 Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で一括して解消する。
+   - 各対象 Issue `#N` に対し `--record-attempt N` で試行回数を記録（上限2回超過時は自動で `auto-heal:needs-human` へ昇格してバッチから除外）し、`.worktrees/fix-auto-heal-batch-<timestamp>` で SDD 更新 ➔ TDD テスト追加 ➔ パーサー/セレクタ最小修正 ➔ `pytest` & `test_architecture_harness.py` & `check_local_sonar.py --diff` 合格後に対象全 Issue に対し `--mark-criteria-done N` を実行する。
+   - **完了定義の明言（Production デプロイ完遂義務）**: 指示書（`action_required`）、GitHub Issue 本文、および Scheduled Automation プロンプトのすべてにおいて、**「各自動修復のゴールは `production` ブランチへのマージと本番デプロイ完了である（PR作成や `master` マージのみで終了してはならない）」** ことを明言し、エージェント自身が Stage 1（`master` マージ）➔ Stage 2（`production` リリースPRマージ）➔ `Deploy Production` 成功確認まで一貫して見届けてから完了とする。
 4. **CI 合格 ➔ `master` ➔ `production` 自動昇格 ➔ 即時再クロール**:
    - `auto-release-pr.yml` と `deploy-production.yml` により本番デプロイおよび `realestate-recrawl-anomalies-pipeline-prod` が即時起動し、データ修復まで無人で完結する。
 

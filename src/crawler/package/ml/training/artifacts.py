@@ -12,7 +12,9 @@ from package.utils.storage import get_storage_manager
 logger = logging.getLogger(__name__)
 
 
-def save_stage_models(models_dict: dict[str, Any], model_dir: str, ptype: str, stage_key: str) -> None:
+def save_stage_models(
+    models_dict: dict[str, Any], model_dir: str, ptype: str, stage_key: str
+) -> None:
     """特定ステージの学習済みモデルファイルおよび P10 分位点モデルを保存"""
     for algo, model in models_dict.items():
         fname = f"{ptype}_{stage_key}_stage_{algo}.joblib"
@@ -23,6 +25,17 @@ def save_stage_models(models_dict: dict[str, Any], model_dir: str, ptype: str, s
         joblib.dump(p10_model, os.path.join(model_dir, p10_fname))
 
 
+def _load_existing_dict(filepath: str) -> dict[str, Any]:
+    if os.path.exists(filepath):
+        try:
+            val = joblib.load(filepath)
+            if isinstance(val, dict):
+                return dict(val)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not load existing metadata %s: %s", filepath, e)
+    return {}
+
+
 def save_metadata(
     model_dir: str,
     all_ensemble_weights: dict[str, Any],
@@ -31,15 +44,31 @@ def save_metadata(
     location_encoders: dict[str, Any] | None = None,
     p10_conformal: dict[str, Any] | None = None,
 ) -> None:
-    """アンサンブル重み、スミアリング補正係数、取引事例比較マスタ、空間ターゲットエンコーダ、P10較正オフセットを保存"""
+    """アンサンブル重み、スミアリング補正係数、取引事例比較マスタ、空間ターゲットエンコーダ、P10較正オフセットを保存 (既存マージ保護)"""
     if mkt_master is not None:
         joblib.dump(mkt_master, os.path.join(model_dir, "mkt_comparison_master.joblib"))
+
+    weights_path = os.path.join(model_dir, "ensemble_weights.joblib")
+    merged_weights = _load_existing_dict(weights_path)
+    merged_weights.update(all_ensemble_weights)
+    joblib.dump(merged_weights, weights_path)
+
+    smearing_path = os.path.join(model_dir, "smearing_factors.joblib")
+    merged_smearing = _load_existing_dict(smearing_path)
+    merged_smearing.update(all_smearing_factors)
+    joblib.dump(merged_smearing, smearing_path)
+
     if location_encoders is not None:
-        joblib.dump(location_encoders, os.path.join(model_dir, "location_encoders.joblib"))
+        loc_path = os.path.join(model_dir, "location_encoders.joblib")
+        merged_loc = _load_existing_dict(loc_path)
+        merged_loc.update(location_encoders)
+        joblib.dump(merged_loc, loc_path)
+
     if p10_conformal is not None:
-        joblib.dump(p10_conformal, os.path.join(model_dir, "p10_conformal.joblib"))
-    joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))
-    joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
+        p10_path = os.path.join(model_dir, "p10_conformal.joblib")
+        merged_p10 = _load_existing_dict(p10_path)
+        merged_p10.update(p10_conformal)
+        joblib.dump(merged_p10, p10_path)
 
 
 def upload_models_to_storage(model_dir: str) -> int:
