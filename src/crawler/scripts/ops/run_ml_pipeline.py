@@ -503,6 +503,12 @@ def main(argv=None):
         default=False,
         help="Explicitly enable ML model training (Issue #809)",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=int(os.getenv("BULK_EVAL_CONCURRENCY", "2")),
+        help="Concurrency for bulk ML evaluation in Step 4 (default: BULK_EVAL_CONCURRENCY or 2, Issue #1507)",
+    )
     args = parser.parse_args(argv)
 
     skip_train = _resolve_skip_train_flag(args)
@@ -599,8 +605,8 @@ def main(argv=None):
             )
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
-        # 2GiB RAM コンテナ環境での OOM 防止のため、評価並行数を 2 に制限 (Issue #1484)
-        eval_concurrency = os.getenv("BULK_EVAL_CONCURRENCY", "2")
+        # 2GiB RAM コンテナ環境での OOM 防止のため、評価並行数はデフォルト 2、CLI/環境変数で動的指定可能 (Issue #1484, #1507)
+        eval_concurrency = args.concurrency
         eval_cmd = [
             sys.executable,
             os.path.join(ops_dir, "run_bulk_ml_evaluation.py"),
