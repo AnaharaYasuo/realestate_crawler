@@ -96,8 +96,14 @@ python src/crawler/scripts/ops/run_bulk_ml_evaluation.py --force --no-skip-porta
 | :--- | :--- | :--- | :--- |
 | **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・`auto_heal_parsers.py` による GCS `auto_heal/latest_instruction.json` 更新 | Gemini Flash 要約のみ |
 | **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) により `auto-heal` ラベル付き Issue を自動起票・重複排除・解決時自動クローズ | **ゼロ** |
-| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を確認し、対象あり時のみ Worktree でパーサー修正・テスト・PR作成・Auto-merge 設定 | **Antigravity 定額枠**（対象0件時は即終了） |
+| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を全件取得し、**未解決の全Issueを順次ループして修復**。各Issueごとに Worktree で修正・テスト・`master` マージ ➔ **`production` マージ＆本番デプロイ成功までを1件の完了要件として完遂**し次へ進む | **Antigravity 定額枠**（対象0件時は即終了） |
 | **PRマージ後** | GitHub Actions (`auto-release-pr` ➔ `deploy-production`) | `production` 自動昇格・Cloud Run 更新・`realestate-recrawl-anomalies-pipeline-prod` 即時起動による異常データ再取得 | **ゼロ** |
+
+### 5.1 スケジュール自動修復の実行原則（全件ループ ＆ Production Done）
+1. **全件順次処理原則**:
+   - スケジュール自動修復は未解決の `auto-heal` Issue を 1 件のみで停止せず、リストされたすべてのアクション可能な Issue が 0 件になるまで優先順に順次ループして修復します。
+2. **Production Done 完了要件**:
+   - 各 Issue の完了要件は「`production` ブランチへのリリース PR マージ完了および本番デプロイ（`Deploy Production`）の成功確認」です。PR作成や `master` マージ時点で処理を停止してはならず、本番反映を見届けてから次の Issue へ進みます。
 
 ### 手動運用コマンド
 ```bash
