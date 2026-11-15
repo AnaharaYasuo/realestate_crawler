@@ -10,6 +10,7 @@ Cloud Run ML Pipeline Job (クローラージョブ終了後に Cloud Scheduler 
 6. 日次予測精度診断 (run_daily_prediction_diagnostics.py)
 7. finally ブロックで ProxySQL MIG を確実に停止 (size: 1 -> 0)
 """
+
 import os
 import sys
 import json
@@ -29,6 +30,7 @@ while True:
         if _parent not in sys.path:
             sys.path.insert(0, _parent)
         import setup_env  # noqa: F401
+
         break
     _cur = _parent
 
@@ -60,9 +62,17 @@ SEPARATOR = "============================================================="
 SLACK_REPORT_TIMEOUT_SEC = 10  # NFR-021: 外部 API 呼び出しの有限タイムアウト上限
 
 
-def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, region: str | None = None, mig_name: str | None = None, dry_run: bool = False) -> bool:
+def scale_proxysql_mig(
+    target_size: int = 0,
+    project_id: str | None = None,
+    region: str | None = None,
+    mig_name: str | None = None,
+    dry_run: bool = False,
+) -> bool:
     """ProxySQL MIG のサイズを変更 (バッチ終了時の停止 size: 1 -> 0)"""
-    token_fn = getattr(sys.modules[__name__], "_get_gcp_access_token", _get_gcp_access_token)
+    token_fn = getattr(
+        sys.modules[__name__], "_get_gcp_access_token", _get_gcp_access_token
+    )
     comp_mod = getattr(sys.modules[__name__], "compute_v1", compute_v1)
     return _gcp_scale_proxysql_mig(
         target_size=target_size,
@@ -105,45 +115,65 @@ def _latest_execution_tasks(target_date: datetime.date) -> list | None:
     rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
     by_execution: dict[str, list] = {}
     for row in rows:
-        if row.execution_id and not row.execution_id.startswith(STANDALONE_EXECUTION_PREFIX):
+        if row.execution_id and not row.execution_id.startswith(
+            STANDALONE_EXECUTION_PREFIX
+        ):
             by_execution.setdefault(row.execution_id, []).append(row)
     if not by_execution:
         return None if rows else []
-    latest_id = max(by_execution, key=lambda k: min(r.created_at for r in by_execution[k]))
+    latest_id = max(
+        by_execution, key=lambda k: min(r.created_at for r in by_execution[k])
+    )
     return by_execution[latest_id]
 
 
-def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
+def verify_barrier_completion(
+    execution_date: datetime.date | None = None, min_success_ratio: float = 0.85
+) -> tuple[bool, list[str]]:
     """DB のタスク状況を点検し、ML 実行基準を満たしているか検証"""
     target_date = execution_date or datetime.datetime.now(datetime.UTC).date()
     try:
         tasks = _latest_execution_tasks(target_date)
         if tasks is None:
-            logger.warning(f"Task records for {target_date} have no identifiable execution_id. Cannot verify barrier.")
+            logger.warning(
+                f"Task records for {target_date} have no identifiable execution_id. Cannot verify barrier."
+            )
             return False, []
         if not tasks:
-            logger.warning(f"No task records found for {target_date}. Proceeding with existing DB data.")
+            logger.warning(
+                f"No task records found for {target_date}. Proceeding with existing DB data."
+            )
             return True, []
 
         total = max(t.task_count for t in tasks)
         if total <= 0:
-            logger.warning(f"Invalid task_count={total} for the latest execution on {target_date}.")
+            logger.warning(
+                f"Invalid task_count={total} for the latest execution on {target_date}."
+            )
             return False, []
         missing = set(range(total)) - {t.task_index for t in tasks}
-        failed_indexes = {t.task_index for t in tasks if t.status in ("FAILED", "PENDING")} | missing
+        failed_indexes = {
+            t.task_index for t in tasks if t.status in ("FAILED", "PENDING")
+        } | missing
         failed = [str(i) for i in sorted(failed_indexes)]
         if missing:
-            logger.warning(f"Task registrations missing for indexes {sorted(missing)} (task_count={total}).")
+            logger.warning(
+                f"Task registrations missing for indexes {sorted(missing)} (task_count={total})."
+            )
             return False, failed
 
         completed = [t for t in tasks if t.status == "COMPLETED"]
         success_ratio = len(completed) / total
-        logger.info(f"Barrier verification: {len(completed)}/{total} tasks completed (ratio: {success_ratio:.2%}).")
+        logger.info(
+            f"Barrier verification: {len(completed)}/{total} tasks completed (ratio: {success_ratio:.2%})."
+        )
 
         if success_ratio >= min_success_ratio:
             return True, failed
         else:
-            logger.warning(f"Completion ratio {success_ratio:.2%} is below threshold {min_success_ratio:.2%}.")
+            logger.warning(
+                f"Completion ratio {success_ratio:.2%} is below threshold {min_success_ratio:.2%}."
+            )
             return False, failed
     except Exception as e:
         logger.warning(f"Could not verify task status in DB: {e}. Proceeding.")
@@ -159,7 +189,9 @@ def send_aggregated_crawl_report(
     try:
         tasks = _latest_execution_tasks(target_date)
         if not tasks:
-            logger.warning(f"⚠️ [Aggregation] No identifiable crawler execution for {target_date}. Skipping aggregated report.")
+            logger.warning(
+                f"⚠️ [Aggregation] No identifiable crawler execution for {target_date}. Skipping aggregated report."
+            )
             return False
         records = sorted(tasks, key=lambda t: t.task_index)
         expected_total = total_jobs if total_jobs is not None else len(CRAWL_JOBS)
@@ -172,27 +204,35 @@ def send_aggregated_crawl_report(
         failed_count = aggregated.get("failed_jobs", 0)
 
         # 1. 日次パイプライン運用レポートとして #dev-agent に送信
-        send_ok = bool(asyncio.run(asyncio.wait_for(
-            send_dev_report(msg),
-            timeout=SLACK_REPORT_TIMEOUT_SEC,
-        )))
+        send_ok = bool(
+            asyncio.run(
+                asyncio.wait_for(
+                    send_dev_report(msg),
+                    timeout=SLACK_REPORT_TIMEOUT_SEC,
+                )
+            )
+        )
 
         # 2. 失敗タスクが存在する場合のみ、障害アラートとして #property_alert に警告発報
         if failed_count > 0:
             try:
-                asyncio.run(asyncio.wait_for(
-                    send_crawling_summary_alert(msg),
-                    timeout=SLACK_REPORT_TIMEOUT_SEC,
-                ))
+                asyncio.run(
+                    asyncio.wait_for(
+                        send_crawling_summary_alert(msg),
+                        timeout=SLACK_REPORT_TIMEOUT_SEC,
+                    )
+                )
             except Exception as ae:
-                logger.warning(f"⚠️ [Alert Warning] Failed to send failure alert to property_alert: {ae}")
+                logger.warning(
+                    f"⚠️ [Alert Warning] Failed to send failure alert to property_alert: {ae}"
+                )
 
         return send_ok
     except Exception as e:
-        logger.warning(f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}")
+        logger.warning(
+            f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}"
+        )
         return False
-
-
 
 
 def _can_stop_shared_proxysql() -> bool:
@@ -204,15 +244,14 @@ def _can_stop_shared_proxysql() -> bool:
         return False
 
     current_execution = os.environ.get("CLOUD_RUN_EXECUTION", "").strip()
-    if has_active_other_cloud_run_executions(
-        current_execution_id=current_execution
-    ):
+    if has_active_other_cloud_run_executions(current_execution_id=current_execution):
         logger.warning(
             "Teardown Guard: Other Cloud Run executions active. Delegating teardown to Safety-Net"
         )
         return False
 
     return True
+
 
 def run_command(cmd: list[str], desc: str):
     """リアルタイムログ付きで外部コマンドを実行"""
@@ -227,7 +266,7 @@ def run_command(cmd: list[str], desc: str):
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1
+        bufsize=1,
     )
 
     if proc.stdout is not None:
@@ -235,13 +274,15 @@ def run_command(cmd: list[str], desc: str):
             line = proc.stdout.readline()
             if not line:
                 break
-            print(line, end='', flush=True)
+            print(line, end="", flush=True)
 
     proc.wait()
     elapsed = time.time() - start_time
 
     if proc.returncode != 0:
-        logger.error(f"=== [FAILED] {desc} (Exit Code: {proc.returncode}, Time: {int(elapsed)}s) ===")
+        logger.error(
+            f"=== [FAILED] {desc} (Exit Code: {proc.returncode}, Time: {int(elapsed)}s) ==="
+        )
         raise RuntimeError(f"Step '{desc}' failed with exit code {proc.returncode}")
 
     logger.info(f"=== [SUCCESS] {desc} (Time: {int(elapsed)}s) ===")
@@ -250,28 +291,49 @@ def run_command(cmd: list[str], desc: str):
 JST = datetime.timezone(datetime.timedelta(hours=9))
 
 
+def get_rotation_property_type_for_date(
+    target_date: datetime.date | None = None,
+) -> str | None:
+    """曜日ごとの再学習対象種別を解決 (木: mansion, 金: kodate, 土: apartment, 日: tochi, 他: None) (Issue #1482)"""
+    d = target_date or datetime.datetime.now(JST).date()
+    wd = d.weekday()
+    if wd == 3:
+        return "mansion"
+    if wd == 4:
+        return "kodate"
+    if wd == 5:
+        return "apartment"
+    if wd == 6:
+        return "tochi"
+    return None
+
+
 def should_run_ml_training(
     cli_skip_train: bool,
     env_skip_train: bool,
     now_dt: datetime.datetime | None = None,
 ) -> bool:
-    """日次パイプラインにおける MLモデル＋LocationEncoder 再学習の実行要否を判定する (Issue #1366)。
+    """日次パイプラインにおける MLモデル＋LocationEncoder 再学習の実行要否を判定する (Issue #1366, #1482)。
 
     - CLI `--skip-train` が明示指定された場合は常にスキップ (`False`)。
     - `env_skip_train` が `False`（例: `--train` 指定や `ML_PIPELINE_SKIP_TRAIN=false`）なら実行 (`True`)。
-    - `env_skip_train` が `True` でも、毎週日曜（`weekday() == 6`）は週次定期再学習として自動実行する
+    - `env_skip_train` が `True` でも、曜日ローテーション対象日（木・金・土・日）は種別単位で自動実行する
       （ただし `ML_PIPELINE_DISABLE_WEEKLY_TRAIN=true` 設定時、または `now_dt` 未指定の pytest 実行時は除外）。
     """
     if cli_skip_train:
         return False
     if not env_skip_train:
         return True
-    if os.getenv("ML_PIPELINE_DISABLE_WEEKLY_TRAIN", "").strip().lower() in ("1", "true", "yes"):
+    if os.getenv("ML_PIPELINE_DISABLE_WEEKLY_TRAIN", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
         return False
     if now_dt is None and os.getenv("PYTEST_CURRENT_TEST"):
         return False
     ref_dt = now_dt or datetime.datetime.now(JST)
-    return ref_dt.weekday() == 6
+    return get_rotation_property_type_for_date(ref_dt.date()) is not None
 
 
 def _resolve_skip_train_flag(args: argparse.Namespace) -> bool:
@@ -292,10 +354,14 @@ def _build_potentials_sync_cmd(scripts_dir: str) -> list[str]:
     cmd = [
         sys.executable,
         os.path.join(scripts_dir, "sync_all_potentials.py"),
-        "--workers", "2",
+        "--workers",
+        "2",
         "--respect-ttl",
     ]
-    if not os.getenv("PYTEST_CURRENT_TEST") and datetime.datetime.now(JST).weekday() == 6:
+    if (
+        not os.getenv("PYTEST_CURRENT_TEST")
+        and datetime.datetime.now(JST).weekday() == 6
+    ):
         cmd.append("--live-crawl-rent")
     return cmd
 
@@ -317,9 +383,15 @@ def _run_self_healing_recrawl_and_validation(
         "500",
     ]
     try:
-        run_command(recrawl_cmd, "Step 0.9/5: Automated Self-Healing Anomaly Recrawl (SHA-Aware)")
+        run_command(
+            recrawl_cmd,
+            "Step 0.9/5: Automated Self-Healing Anomaly Recrawl (SHA-Aware)",
+        )
     except RuntimeError as recrawl_err:
-        logger.warning("⚠️ Anomaly recrawl finished with partial failures (continuing to validation): %s", recrawl_err)
+        logger.warning(
+            "⚠️ Anomaly recrawl finished with partial failures (continuing to validation): %s",
+            recrawl_err,
+        )
         failed_steps.append(str(recrawl_err))
 
     validate_cmd = [sys.executable, os.path.join(maintenance_dir, "validate_data.py")]
@@ -336,16 +408,26 @@ def _run_self_healing_recrawl_and_validation(
         validation_error = val_err
         failed_steps.append(str(val_err))
 
-    auto_heal_cmd = [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")]
+    auto_heal_cmd = [
+        sys.executable,
+        os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+    ]
     if failed_steps:
-        auto_heal_cmd.extend(["--failed-steps", json.dumps(failed_steps, ensure_ascii=False)])
+        auto_heal_cmd.extend(
+            ["--failed-steps", json.dumps(failed_steps, ensure_ascii=False)]
+        )
 
     try:
-        run_command(auto_heal_cmd, "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
+        run_command(
+            auto_heal_cmd, "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent"
+        )
     except RuntimeError as heal_err:
         if validation_error is None:
             raise
-        logger.warning("⚠️ Auto-heal instruction fallback also failed after validation error: %s", heal_err)
+        logger.warning(
+            "⚠️ Auto-heal instruction fallback also failed after validation error: %s",
+            heal_err,
+        )
 
     if validation_error is not None:
         raise validation_error
@@ -367,36 +449,66 @@ def main(argv=None):
         action="store_false",
         help="Do not skip portal sites even on Cloud environment",
     )
-    parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
-    parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
-    parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
-    parser.add_argument("--skip-train", action="store_true", default=None, help="Skip ML model training (deprecated: skipped by default, Issue #809)")
-    parser.add_argument("--skip-potentials-sync", action="store_true", help="Skip nationwide potentials and statistics sync")
-    parser.add_argument("--train", action="store_true", default=False, help="Explicitly enable ML model training (Issue #809)")
+    parser.add_argument(
+        "--skip-uncrawled",
+        action="store_true",
+        help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Dry run without modifying GCP resources"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force ML execution even if barrier ratio is low",
+    )
+    parser.add_argument(
+        "--skip-url-check",
+        action="store_true",
+        help="Skip HTTP URL active checks in validate_data.py",
+    )
+    parser.add_argument(
+        "--skip-train",
+        action="store_true",
+        default=None,
+        help="Skip ML model training (deprecated: skipped by default, Issue #809)",
+    )
+    parser.add_argument(
+        "--skip-potentials-sync",
+        action="store_true",
+        help="Skip nationwide potentials and statistics sync",
+    )
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        default=False,
+        help="Explicitly enable ML model training (Issue #809)",
+    )
     args = parser.parse_args(argv)
 
     skip_train = _resolve_skip_train_flag(args)
 
-    current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
-    scripts_dir = os.path.dirname(current_dir)              # .../scripts
-    crawler_dir = os.path.dirname(scripts_dir)              # .../crawler
+    current_dir = os.path.dirname(os.path.abspath(__file__))  # .../scripts/ops
+    scripts_dir = os.path.dirname(current_dir)  # .../scripts
+    crawler_dir = os.path.dirname(scripts_dir)  # .../crawler
 
     debug_tools_dir = os.path.join(scripts_dir, "debug_tools")
     maintenance_dir = os.path.join(scripts_dir, "maintenance")
     ops_dir = current_dir
 
     logger.info(SEPARATOR)
-    logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals}, skip_url_check={args.skip_url_check}, skip_train={skip_train})")
+    logger.info(
+        f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals}, skip_url_check={args.skip_url_check}, skip_train={skip_train})"
+    )
     logger.info(SEPARATOR)
 
     try:
         # Step 0: Cloud SQL 確認・ProxySQL 起動・疎通確認・DB 待機
         start_on_demand_resources(dry_run=args.dry_run)
-        run_command([
-            sys.executable,
-            os.path.join(debug_tools_dir, "wait_for_db.py")
-        ], "Step 0/5: Database Readiness Pre-flight Check")
+        run_command(
+            [sys.executable, os.path.join(debug_tools_dir, "wait_for_db.py")],
+            "Step 0/5: Database Readiness Pre-flight Check",
+        )
 
         # Step 1: バリア完了検証
         ok, failed = verify_barrier_completion()
@@ -410,10 +522,14 @@ def main(argv=None):
             # テスト等で引数無しのモックが注入された場合の互換フォールバック
             send_aggregated_crawl_report()
         if not ok and not args.force:
-            logger.warning(f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。")
+            logger.warning(
+                f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。"
+            )
             return 1
         if not ok:
-            logger.warning(f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。")
+            logger.warning(
+                f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。"
+            )
 
         # Step 2: 自動異常再取得 & データ検証 & Auto-Heal指示書生成 (耐障害構造)
         _run_self_healing_recrawl_and_validation(
@@ -429,16 +545,30 @@ def main(argv=None):
                 "Step 1.8/5: Nationwide Statistics & Potentials Daily Synchronization",
             )
         else:
-            logger.info("⏩ [SKIP] Step 1.8/5: Nationwide Potentials sync skipped (--skip-potentials-sync).")
+            logger.info(
+                "⏩ [SKIP] Step 1.8/5: Nationwide Potentials sync skipped (--skip-potentials-sync)."
+            )
 
         # Step 3: 最新データによるMLモデル再学習
         if not skip_train:
-            run_command([
+            train_cmd = [
                 sys.executable,
-                os.path.join(crawler_dir, "package", "ml", "train.py")
-            ], "Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
+                os.path.join(crawler_dir, "package", "ml", "train.py"),
+            ]
+            rot_type = get_rotation_property_type_for_date()
+            if rot_type:
+                train_cmd.extend(["--property-type", rot_type])
+                logger.info(
+                    f"ML Model Re-Training: Applying weekday rotation for property type: '{rot_type}'"
+                )
+            run_command(
+                train_cmd,
+                f"Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest){f' [{rot_type}]' if rot_type else ''}",
+            )
         else:
-            logger.info("⏩ [SKIP] Step 2/5: ML Model Re-Training skipped (--skip-train enabled). Running estimation only.")
+            logger.info(
+                "⏩ [SKIP] Step 2/5: ML Model Re-Training skipped (--skip-train enabled). Running estimation only."
+            )
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
@@ -448,20 +578,26 @@ def main(argv=None):
             eval_cmd.append("--no-skip-portals")
         if args.skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
-        run_command(eval_cmd, f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}")
+        run_command(
+            eval_cmd,
+            f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}",
+        )
 
         # Step 5: お宝物件のスクリーニング & Slack通知
-        run_command([
-            sys.executable,
-            os.path.join(ops_dir, "send_recommendations.py")
-        ], "Step 4/5: Slack Notification (Hot Property Recommendation)")
+        run_command(
+            [sys.executable, os.path.join(ops_dir, "send_recommendations.py")],
+            "Step 4/5: Slack Notification (Hot Property Recommendation)",
+        )
 
         # Step 6: 日次予測精度診断 & AIインサイト分析
-        run_command([
-            sys.executable,
-            os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
-            "--notify"
-        ], "Step 5/5: Daily ML Prediction Diagnostics & AI Insights")
+        run_command(
+            [
+                sys.executable,
+                os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
+                "--notify",
+            ],
+            "Step 5/5: Daily ML Prediction Diagnostics & AI Insights",
+        )
 
         logger.info(SEPARATOR)
         logger.info("ML PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
@@ -472,10 +608,14 @@ def main(argv=None):
         # Step 7: 終了フック (他ジョブやローカル本番実行稼働時は停止をスキップし Safety-Net に委譲)
         try:
             if _can_stop_shared_proxysql():
-                logger.info("Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)...")
+                logger.info(
+                    "Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)..."
+                )
                 scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
             else:
-                logger.info("Skipping teardown hook for ProxySQL MIG: safe guard active or delegated to Safety-Net")
+                logger.info(
+                    "Skipping teardown hook for ProxySQL MIG: safe guard active or delegated to Safety-Net"
+                )
         except Exception:
             logger.exception("Failed to scale in ProxySQL MIG in finally block")
 

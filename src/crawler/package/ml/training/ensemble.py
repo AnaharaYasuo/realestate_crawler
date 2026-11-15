@@ -8,7 +8,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from package.ml.constants import ALGOS
-from package.ml.features.land_valuation_extras import refresh_anchor_log_unit_price_column
+from package.ml.features.land_valuation_extras import (
+    refresh_anchor_log_unit_price_column,
+)
 from package.ml.training.metrics import calculate_mape
 from package.ml.training.regressors import get_quantile_p10_regressor, get_regressor
 from package.ml.training.target_encoding import MicroLocationTargetEncoder
@@ -101,7 +103,11 @@ def compute_oof_chome_encoding(
     oof_encoded = np.zeros(n, dtype=float)
     oof_counts = np.zeros(n, dtype=float)
 
-    split_iter = cv.split(df, y_arr, groups) if isinstance(cv, GroupKFold) and groups is not None else cv.split(df)
+    split_iter = (
+        cv.split(df, y_arr, groups)
+        if isinstance(cv, GroupKFold) and groups is not None
+        else cv.split(df)
+    )
     for train_idx, val_idx in split_iter:
         global_mean = float(np.mean(y_arr[train_idx])) if len(train_idx) > 0 else 0.0
         train_df = pd.DataFrame({"key": keys[train_idx], "y": y_arr[train_idx]})
@@ -111,7 +117,9 @@ def compute_oof_chome_encoding(
         smoothed = (counts * means + smoothing * global_mean) / (counts + smoothing)
         mapping = smoothed.to_dict()
 
-        val_encoded = np.array([mapping.get(k, global_mean) for k in keys[val_idx]], dtype=float)
+        val_encoded = np.array(
+            [mapping.get(k, global_mean) for k in keys[val_idx]], dtype=float
+        )
         oof_encoded[val_idx] += val_encoded
         oof_counts[val_idx] += 1.0
 
@@ -119,7 +127,9 @@ def compute_oof_chome_encoding(
     return oof_encoded.astype(np.float32)
 
 
-def prepare_features_and_target(df: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, pd.Series]:
+def prepare_features_and_target(
+    df: pd.DataFrame, feature_cols: list[str]
+) -> tuple[pd.DataFrame, pd.Series]:
     """特徴量 DataFrame と目的変数 Series の生成"""
     for col in feature_cols:
         if col not in df.columns:
@@ -133,7 +143,9 @@ def prepare_features_and_target(df: pd.DataFrame, feature_cols: list[str]) -> tu
             invalid_mask = X[col].notna() & converted.isna()
             if invalid_mask.any():
                 invalid_val = X[col][invalid_mask].iloc[0]
-                raise ValueError(f"ML feature column '{col}' has invalid non-numeric value: {invalid_val!r}")
+                raise ValueError(
+                    f"ML feature column '{col}' has invalid non-numeric value: {invalid_val!r}"
+                )
             X[col] = converted.fillna(0.0)
     return X.astype(np.float32), y
 
@@ -157,18 +169,24 @@ def get_cv_strategy(
     else:
         n_splits = 5
     if groups is not None and len(groups) == df_len:
-        unique_groups = len( pd.unique(groups) )
+        unique_groups = len(pd.unique(groups))
         if unique_groups >= n_splits and unique_groups < df_len:
-            return GroupKFold(n_splits=n_splits), f"{n_splits}-Fold Spatial/Building GroupKFold"
+            return GroupKFold(
+                n_splits=n_splits
+            ), f"{n_splits}-Fold Spatial/Building GroupKFold"
 
     if df_len > 3000:
         return KFold(n_splits=3, shuffle=True, random_state=42), "3-Fold Fast CV"
     if df_len < 50:
         return KFold(n_splits=2, shuffle=True, random_state=42), "2-Fold Quick CV"
-    return RepeatedKFold(n_splits=5, n_repeats=3, random_state=42), "15-Cycle Repeated CV"
+    return RepeatedKFold(
+        n_splits=5, n_repeats=3, random_state=42
+    ), "15-Cycle Repeated CV"
 
 
-def print_feature_importance(model: Any, algo_name: str, feature_cols: list[str]) -> None:
+def print_feature_importance(
+    model: Any, algo_name: str, feature_cols: list[str]
+) -> None:
     """学習済みモデルから特徴量重要度を集計し、上位10項目を出力"""
     try:
         if algo_name in ("lgb", "xgb", "rf"):
@@ -178,7 +196,9 @@ def print_feature_importance(model: Any, algo_name: str, feature_cols: list[str]
         else:
             return
 
-        feat_imp = pd.Series(importances, index=feature_cols).sort_values(ascending=False)
+        feat_imp = pd.Series(importances, index=feature_cols).sort_values(
+            ascending=False
+        )
         logger.info("  [%s] Feature Importance (Top 10):", algo_name)
         for name, val in feat_imp.head(10).items():
             logger.info("    - %s: %.4f", name, val)
@@ -200,7 +220,11 @@ def evaluate_folds(
 ) -> None:
     """CV 各 Fold での評価と OOF 予測の蓄積"""
     mapes, maes, r2s = [], [], []
-    split_iter = rkf.split(X, y, groups) if isinstance(rkf, GroupKFold) and groups is not None else rkf.split(X)
+    split_iter = (
+        rkf.split(X, y, groups)
+        if isinstance(rkf, GroupKFold) and groups is not None
+        else rkf.split(X)
+    )
     for train_idx, val_idx in split_iter:
         x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
@@ -244,12 +268,16 @@ def train_single_algo(
     """単一アルゴリズムのハイパーパラメータ調整・CV評価・全体学習"""
     if len(df) >= 100:
         logger.info("Tuning hyperparameters for %s...", name)
-        params = tune_hyperparameters(X, y, name, sample_weight=sample_weight, groups=groups)
+        params = tune_hyperparameters(
+            X, y, name, sample_weight=sample_weight, groups=groups
+        )
         logger.info("Best params for %s: %s", name, params)
     else:
         params = {}
 
-    evaluate_folds(name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts, groups=groups)
+    evaluate_folds(
+        name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts, groups=groups
+    )
 
     final_model = get_regressor(name, params)
     if sample_weight is not None:
@@ -286,7 +314,9 @@ def optimize_ensemble_weights(
     for name in algos:
         oof_preds[name] /= np.maximum(1, oof_counts[name])
 
-    oof_unit_preds = np.column_stack([np.maximum(0, np.expm1(oof_preds[name])) for name in algos])
+    oof_unit_preds = np.column_stack(
+        [np.maximum(0, np.expm1(oof_preds[name])) for name in algos]
+    )
     val_areas = df["area"].values
     y_actual = df["price"].values
 
@@ -297,14 +327,22 @@ def optimize_ensemble_weights(
             return 9999.0
         w_norm = w / s
         pred_price = val_areas * (oof_unit_preds @ w_norm)
-        return _calculate_weighted_mape(y_actual, pred_price, sample_weight=sample_weight)
+        return _calculate_weighted_mape(
+            y_actual, pred_price, sample_weight=sample_weight
+        )
 
     init_weights = [1.0 / len(algos)] * len(algos)
     bounds = [(0.0, 1.0)] * len(algos)
     constraints = {"type": "eq", "fun": lambda w: np.sum(w) - 1.0}
 
     try:
-        res = minimize(objective, init_weights, method="SLSQP", bounds=bounds, constraints=constraints)
+        res = minimize(
+            objective,
+            init_weights,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=constraints,
+        )
         opt_w = res.x / np.sum(res.x) if res.success else np.array(init_weights)
     except Exception as e:  # noqa: BLE001
         logger.warning("Ensemble weight optimization fallback: %s", e)
@@ -324,7 +362,9 @@ def compute_smearing_factor(
     """Duan's Smearing バイアス補正係数の算出（時間減衰サンプル重み対応）"""
     ensemble_pred_units = oof_unit_preds @ opt_w
     actual_unit_prices = df["price"].values / np.maximum(0.1, df["area"].values)
-    log_residuals = np.log(np.maximum(0.1, actual_unit_prices)) - np.log(np.maximum(0.1, ensemble_pred_units))
+    log_residuals = np.log(np.maximum(0.1, actual_unit_prices)) - np.log(
+        np.maximum(0.1, ensemble_pred_units)
+    )
     weights_arr = (
         np.maximum(1e-6, np.asarray(sample_weight, dtype=float))
         if sample_weight is not None and len(sample_weight) == len(log_residuals)
@@ -344,7 +384,9 @@ def compute_smearing_factor(
     if len(clean_log_res) > 0:
         if clean_w is not None and len(clean_w) == len(clean_log_res):
             mean_bias = float(np.average(clean_log_res, weights=clean_w))
-            var_res = float(np.average((clean_log_res - mean_bias) ** 2, weights=clean_w))
+            var_res = float(
+                np.average((clean_log_res - mean_bias) ** 2, weights=clean_w)
+            )
         else:
             mean_bias = float(np.mean(clean_log_res))
             var_res = float(np.var(clean_log_res))
@@ -375,11 +417,19 @@ def train_quantile_p10_with_conformal(
     oof_p10 = np.zeros(n, dtype=float)
     oof_cnt = np.zeros(n, dtype=float)
 
-    split_iter = rkf.split(X, y, groups) if isinstance(rkf, GroupKFold) and groups is not None else rkf.split(X)
+    split_iter = (
+        rkf.split(X, y, groups)
+        if isinstance(rkf, GroupKFold) and groups is not None
+        else rkf.split(X)
+    )
     for train_idx, val_idx in split_iter:
         fold_q = get_quantile_p10_regressor(alpha=0.10)
         if sample_weight is not None:
-            fold_q.fit(X.iloc[train_idx], y.iloc[train_idx], sample_weight=sample_weight[train_idx])
+            fold_q.fit(
+                X.iloc[train_idx],
+                y.iloc[train_idx],
+                sample_weight=sample_weight[train_idx],
+            )
         else:
             fold_q.fit(X.iloc[train_idx], y.iloc[train_idx])
         oof_p10[val_idx] += fold_q.predict(X.iloc[val_idx])
@@ -390,8 +440,12 @@ def train_quantile_p10_with_conformal(
         oof_pred_log = oof_p10[valid_mask] / oof_cnt[valid_mask]
         nonconformity = oof_pred_log - y.to_numpy(dtype=float)[valid_mask]
         m_valid = len(nonconformity)
-        q_level = min(0.98, max(0.50, float(np.ceil((m_valid + 1) * 0.90) / max(1, m_valid))))
-        conformal_offset = float(np.clip(np.quantile(nonconformity, q_level), -0.25, 0.45))
+        q_level = min(
+            0.98, max(0.50, float(np.ceil((m_valid + 1) * 0.90) / max(1, m_valid)))
+        )
+        conformal_offset = float(
+            np.clip(np.quantile(nonconformity, q_level), -0.25, 0.45)
+        )
     else:
         conformal_offset = 0.0
 
@@ -400,7 +454,9 @@ def train_quantile_p10_with_conformal(
         final_p10.fit(X, y, sample_weight=sample_weight)
     else:
         final_p10.fit(X, y)
-    logger.info("Trained P10 Quantile + Split Conformal offset (q90=%.4f)", conformal_offset)
+    logger.info(
+        "Trained P10 Quantile + Split Conformal offset (q90=%.4f)", conformal_offset
+    )
     return final_p10, conformal_offset
 
 
@@ -425,20 +481,38 @@ def train_and_compare(
     df_work["knn_500m_oof_unit_price"] = ext_oof["knn_500m_oof"]
     df_work["knn_500m_comp_count"] = ext_oof["knn_500m_count"]
     ptype_hint = "tochi" if stage_name.strip().lower().startswith("tochi") else ""
-    df_work["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(df_work, property_type=ptype_hint)
+    df_work["anchor_log_unit_price"] = refresh_anchor_log_unit_price_column(
+        df_work, property_type=ptype_hint
+    )
 
     X, y = prepare_features_and_target(df_work, feature_cols)
     algos = list(ALGOS)
 
-    logger.info("\n--- Tuning & Cross-Validating models for Stage: %s (%s) ---", stage_name, cv_desc)
+    logger.info(
+        "\n--- Tuning & Cross-Validating models for Stage: %s (%s) ---",
+        stage_name,
+        cv_desc,
+    )
+
+    import gc
 
     oof_preds = {name: np.zeros(len(df_work)) for name in algos}
     oof_counts = {name: np.zeros(len(df_work)) for name in algos}
     trained_models = {}
     for name in algos:
         trained_models[name] = train_single_algo(
-            name, X, y, df_work, rkf, sample_weight, feature_cols, oof_preds, oof_counts, groups=groups
+            name,
+            X,
+            y,
+            df_work,
+            rkf,
+            sample_weight,
+            feature_cols,
+            oof_preds,
+            oof_counts,
+            groups=groups,
         )
+        gc.collect()
 
     optimal_weights, opt_w, oof_unit_preds = optimize_ensemble_weights(
         df_work, oof_preds, oof_counts, algos, sample_weight=sample_weight
@@ -446,9 +520,13 @@ def train_and_compare(
     smearing_factor = compute_smearing_factor(
         df_work, oof_unit_preds, opt_w, sample_weight=sample_weight
     )
+    del oof_preds, oof_counts, oof_unit_preds
+    gc.collect()
+
     p10_model, p10_conformal_offset = train_quantile_p10_with_conformal(
         X, y, rkf, sample_weight=sample_weight, groups=groups
     )
+    gc.collect()
 
     return TrainedEnsemble(
         trained_models,
