@@ -21,6 +21,7 @@ from package.ml.training.cleaning import clean_training_data
 from package.ml.training.data_loader import (
     collect_model_classes_by_type,
     get_evaluation_and_duplicate_caches,
+    stream_training_feature_chunks,
     stream_training_features,
 )
 from package.ml.training.dummy_data import generate_dummy_data
@@ -34,7 +35,87 @@ from package.utils.newrelic_helper import _read_cpu_metrics, _read_host_memory_f
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TRAINING_ITEMS = 15000
+DEFAULT_MAX_TRAINING_ITEMS = 50000
+
+
+def _downcast_chunk_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """単一チャンクの数値列を float32 / downcasted int に圧縮"""
+    for col in df.columns:
+        if pd.api.types.is_float_dtype(df[col]):
+            df[col] = df[col].astype("float32")
+        elif pd.api.types.is_integer_dtype(df[col]):
+            df[col] = pd.to_numeric(df[col], downcast="integer")
+    return df
+
+
+def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
+    """
+    特徴量チャンクを逐次 DataFrame 化し、低精度型へ圧縮してメモリ常駐量を最小化 (Issue #1517)
+    """
+    dfs: list[pd.DataFrame] = []
+    for chunk in chunk_stream:
+        if chunk:
+            dfs.append(_downcast_chunk_columns(pd.DataFrame(chunk)))
+            del chunk
+
+    if not dfs:
+        return pd.DataFrame()
+
+    full_df = pd.concat(dfs, ignore_index=True)
+    del dfs
+    gc.collect()
+
+    for col in full_df.columns:
+        if pd.api.types.is_object_dtype(full_df[col]) and col not in ("pageUrl", "url"):
+            try:
+                if full_df[col].nunique() < len(full_df) * 0.5:
+                    full_df[col] = full_df[col].astype("category")
+            except Exception:  # noqa: BLE001
+                pass
+
+    return full_df
+
+
+def _chunk_single_items(first_item: Any, iterator: Any) -> Any:
+    """単一要素イテレータを1000件チャンクのジェネレータに変換"""
+    current_chunk = [first_item]
+    for item in iterator:
+        current_chunk.append(item)
+        if len(current_chunk) >= 1000:
+            yield current_chunk
+            current_chunk = []
+    if current_chunk:
+        yield current_chunk
+
+
+def _resolve_from_list(features_list: list[Any]) -> pd.DataFrame:
+    """リスト入力からメモリ効率の良い DataFrame を解決"""
+    if not features_list:
+        return pd.DataFrame()
+    if isinstance(features_list[0], list):
+        return _build_compact_dataframe(features_list)
+    return _downcast_chunk_columns(pd.DataFrame(features_list))
+
+
+def _resolve_input_dataframe(features_iterator: Any) -> pd.DataFrame:
+    """イテレータまたはリストからメモリ効率の良い DataFrame を解決"""
+    if isinstance(features_iterator, list):
+        return _resolve_from_list(features_iterator)
+
+    if not hasattr(features_iterator, "__iter__"):
+        return pd.DataFrame()
+
+    sample = next(features_iterator, None)
+    if sample is None:
+        return pd.DataFrame()
+
+    if isinstance(sample, list):
+        def _rest_chunks():
+            yield sample
+            yield from features_iterator
+        return _build_compact_dataframe(_rest_chunks())
+
+    return _build_compact_dataframe(_chunk_single_items(sample, features_iterator))
 
 
 def train_property_type(
@@ -53,8 +134,8 @@ def train_property_type(
     mem_start_bytes, _, _ = _read_host_memory_fallback()
     mem_start_mb = round(mem_start_bytes / (1024 * 1024), 1)
 
-    records = list(features_iterator)
-    initial_count = len(records)
+    df = _resolve_input_dataframe(features_iterator)
+    initial_count = len(df)
 
     logger.info("\n=========================================")
     logger.info(
@@ -65,8 +146,6 @@ def train_property_type(
     )
     logger.info("=========================================")
     sys.stdout.flush()
-
-    df = pd.DataFrame(records) if records else pd.DataFrame()
     used_dummy = False
     if len(df) < 10:
         allow_fallback = (
@@ -230,7 +309,7 @@ def run_training(
     )
 
     for ptype in types_to_train:
-        stream = stream_training_features(
+        stream = stream_training_feature_chunks(
             ptype,
             models_by_type,
             eval_map,
