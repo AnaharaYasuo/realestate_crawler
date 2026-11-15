@@ -26,22 +26,22 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 ## 実行ステップ
 
 ### 0. GitHub Issue ドリブン自動修復プロトコル（Scheduled Automation / Issue起点実行時）
-- **【全件処理・自律完遂規約】**: スケジュール自動修復（毎朝 07:00 JST 等）において、対象 Issue を 1 件のみ修正して終了してはならない。未解決の `auto-heal` Issue が存在する限り、優先順（発生頻度順）に **すべてのアクション可能な Issue を順次ループして修復** すること。途中で停止してユーザーに確認を求めてはならない。
+- **【全件バッチ一括処理・自律完遂規約】**: スケジュール自動修復（毎朝 07:00 JST 等）および手動 `/auto-heal` において、未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機して終了してはならない。未解決の `auto-heal` Issue が存在する限り、**すべてのアクション可能な Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で `master` ➔ `production` マージおよび本番デプロイ（`Deploy Production`）まで一気通貫で完遂**すること。途中で停止してユーザーに確認を求めてはならない。
 - **【完了定義】**: 各 Issue の修復は、単体修正・PR作成時点や `master` マージ時点ではなく、**「`production` ブランチへのリリースPRマージ完了および本番デプロイ（`Deploy Production`）の成功確認」をもって初めて完了とする。**
 
-1. **対象 Issue の高速判定と順次ループ**:
+1. **対象 Issue の高速判定とバッチグループ化**:
    - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、未解決 Issue 一覧（`issues`）を取得する。`count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
-   - `count > 0` の場合、リストされた全 Issue を先頭（頻度上位）から順番に1件ずつ以下のステップ 2〜3 で修復・本番デプロイまで完遂し、1件の本番反映が完了したら直ちに次の Issue へ進む。
+   - `count > 0` の場合、リストされた全 Issue（または優先上位バッチ）をまとめて 1 つの修復ブランチで一括処理する。
 2. **試行回数記録とサーキットブレーカー**:
-   - 対象 Issue `#<N>` に着手する前に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった場合はその Issue をスキップして次の Issue へ進む。
-3. **独立 Worktree での SDD × TDD × Parser 修正 ➔ `production` マージ＆本番デプロイ完遂**:
+   - 対象 Issue 群 `#<N>` に対して着手前に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった Issue はバッチから除外して人手対応へ引き継ぐ。
+3. **独立 Worktree での SDD × TDD × Parser 一括修正 ➔ `production` マージ＆本番デプロイ完遂**:
    - **【最重要・完了定義】各自動修復のゴールは「`production` ブランチへのマージ完了および本番デプロイ（`Deploy Production`）の成功確認」である。PR作成時点や `master` マージ時点で作業を終了してはならない。**
-   - 必ず `.worktrees/fix-<N>-auto-heal-<company>-<type>`（ブランチ `fix/<N>-auto-heal-<company>-<type>`）を作成して作業する。
-   - 対象サイトの SDD 正本仕様書（`docs/2_crawlers/sites/` 等）の同期更新、回帰単体テスト（`src/crawler/tests/unit/`）の追加・更新、およびパーサー／セレクタの最小修正を行う。
-   - 検証ゲート（`pytest`、`test_architecture_harness.py`、`check_local_sonar.py --diff`、ライブ疎通検証）がすべて合格したら、`python src/crawler/scripts/ops/sync_auto_heal_issues.py --mark-criteria-done <N>` で Issue の受入基準を `[x]` に更新する。
-   - **Stage 1 (`master` マージ)**: PR（タイトル `[#<N>] fix(<company>): ...`、本文 `Closes #<N>`）を作成し、`check_pr_ci_status.py` で全CI合格を確認して `master` へマージする。
+   - 必ず `.worktrees/fix-auto-heal-batch-<timestamp>`（ブランチ `fix/auto-heal-batch-<timestamp>`）を作成して作業する。
+   - 対象サイト群の SDD 正本仕様書（`docs/2_crawlers/sites/` 等）の同期更新、回帰単体テスト（`src/crawler/tests/unit/`）の追加・更新、およびパーサー／セレクタの最小修正を行う。
+   - 検証ゲート（`pytest`、`test_architecture_harness.py`、`check_local_sonar.py --diff`、ライブ疎通検証）がすべて合格したら、対象全 Issue に対して `python src/crawler/scripts/ops/sync_auto_heal_issues.py --mark-criteria-done <N>` で受入基準を `[x]` に更新する。
+   - **Stage 1 (`master` マージ)**: PR（タイトル `fix(auto-heal): resolve batch parser anomalies (#<N1>, #<N2>, ...)`、本文 `Closes #<N1>\nCloses #<N2>...`）を作成し、`check_pr_ci_status.py` で全CI合格を確認して `master` へマージする。
    - **Stage 2 (`production` マージ ＆ デプロイ完了確認)**: 自動生成（または手動作成）された `master` ➔ `production` リリースPR の CI 合格を確認して `production` へマージし、GitHub Actions `Deploy Production` ワークフローが `success` で完了（Cloud Run 本番反映 ＆ 異常物件再クロール起動）するところまで必ず見届けてから Worktree をクリーンアップする。
-   - サイト側の大規模仕様変更・CAPTCHA遮断等で自動修正不能な場合は `python src/crawler/scripts/ops/sync_auto_heal_issues.py --escalate <N> --reason "<根本原因>"` を実行して人手対応へ引き継ぎ、次の Issue へ進む。
+   - サイト側の大規模仕様変更・CAPTCHA遮断等で自動修正不能なものは `python src/crawler/scripts/ops/sync_auto_heal_issues.py --escalate <N> --reason "<根本原因>"` を実行して人手対応へ引き継ぐ。
 
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
 * まず `python src/crawler/scripts/debug_tools/auto_heal_parsers.py --pull-from-gcs` でクラウド最新の `Temp/auto_heal_instruction.json` を同期する（ローカルDB接続済みの場合は引数なしで直接再集計も可能）。指示書に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。

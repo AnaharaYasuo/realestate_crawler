@@ -39,6 +39,7 @@ class GhClientProtocol(Protocol):
 
     def ensure_labels(self) -> None: ...
     def list_open_auto_heal_issues(self) -> list[dict[str, Any]]: ...
+    def list_all_auto_heal_issues(self, limit: int = 300) -> list[dict[str, Any]]: ...
     def list_open_prs(self) -> list[dict[str, Any]]: ...
     def get_issue(self, number: int) -> dict[str, Any]: ...
     def create_issue(self, title: str, body: str, labels: list[str]) -> int: ...
@@ -105,6 +106,28 @@ class SubprocessGhClient:
                 "open",
                 "--limit",
                 "200",
+                "--json",
+                "number,title,body,state,labels,comments",
+            ]
+        )
+        items = json.loads(out) if out else []
+        matched: list[dict[str, Any]] = []
+        for iss in items:
+            labels = self._normalize_labels(iss.get("labels", []))
+            if AUTO_HEAL_LABEL in labels or NEEDS_HUMAN_LABEL in labels:
+                iss["labels"] = labels
+                matched.append(iss)
+        return matched
+
+    def list_all_auto_heal_issues(self, limit: int = 300) -> list[dict[str, Any]]:
+        out = self._run_gh(
+            [
+                "issue",
+                "list",
+                "--state",
+                "all",
+                "--limit",
+                str(limit),
                 "--json",
                 "number,title,body,state,labels,comments",
             ]
@@ -321,6 +344,7 @@ def _sync_single_active_group(
     group: dict[str, Any],
     instruction: dict[str, Any],
     existing_by_key: dict[str, dict[str, Any]],
+    all_by_key: dict[str, dict[str, Any]],
     gh: GhClientProtocol,
     *,
     dry_run: bool,
@@ -329,6 +353,25 @@ def _sync_single_active_group(
     generated_at = str(instruction.get("generated_at") or "")
     existing = existing_by_key.get(key)
     if existing is None:
+        # 重複起票の完全防止: 既にCLOSEDされたIssueや過去の同一キーIssueが存在するか確認
+        closed_existing = all_by_key.get(key)
+        if closed_existing is not None:
+            c_num = int(closed_existing["number"])
+            c_state = str(closed_existing.get("state", "CLOSED")).upper()
+            if c_state != "OPEN":
+                # 同一内容・キーで過去に起票されている場合は新規作成を抑止し、既存Issueへ再検知コメント追記
+                if _has_sync_timestamp(closed_existing, generated_at):
+                    logger.info("Skipping duplicate Issue creation for %s: already recorded on #%d", key, c_num)
+                    return
+                comment = _build_refresh_comment(key, group, generated_at)
+                if dry_run:
+                    logger.info("[DRY-RUN] Would re-open / comment on existing Issue #%d (%s) instead of creating duplicate", c_num, key)
+                    return
+                gh.comment_issue(c_num, comment)
+                summary["updated"].append(c_num)
+                logger.info("Re-linked telemetry to existing Issue #%d for %s (prevented duplicate issue creation)", c_num, key)
+                return
+
         title = f"[Auto-Heal] {group['company']}/{group['property_type']} パーサー不整合・取得異常の自動修復"
         body = build_issue_body(key, group, instruction)
         if dry_run:
@@ -397,6 +440,7 @@ def sync_instruction_to_issues(
         gh.ensure_labels()
 
     open_issues = gh.list_open_auto_heal_issues()
+    all_issues = gh.list_all_auto_heal_issues() if hasattr(gh, "list_all_auto_heal_issues") else open_issues
     open_prs = gh.list_open_prs()
     linked_pr_issues = _collect_issue_numbers_with_open_prs(open_prs)
 
@@ -405,6 +449,12 @@ def sync_instruction_to_issues(
         key = _extract_issue_key(str(iss.get("body") or ""))
         if key and key not in existing_by_key:
             existing_by_key[key] = iss
+
+    all_by_key: dict[str, dict[str, Any]] = {}
+    for iss in all_issues:
+        key = _extract_issue_key(str(iss.get("body") or ""))
+        if key and key not in all_by_key:
+            all_by_key[key] = iss
 
     active_groups = group_instruction_targets(instruction)
     summary: dict[str, list[int]] = {
@@ -420,6 +470,7 @@ def sync_instruction_to_issues(
             group,
             instruction,
             existing_by_key,
+            all_by_key,
             gh,
             dry_run=dry_run,
             summary=summary,

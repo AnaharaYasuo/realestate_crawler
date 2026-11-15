@@ -35,6 +35,13 @@ class FakeGhClient:
             and any(lbl in ("auto-heal", "auto-heal:needs-human") for lbl in iss.get("labels", []))
         ]
 
+    def list_all_auto_heal_issues(self, limit: int = 300) -> list[dict]:
+        return [
+            iss
+            for iss in self.issues.values()
+            if any(lbl in ("auto-heal", "auto-heal:needs-human") for lbl in iss.get("labels", []))
+        ]
+
     def list_open_prs(self) -> list[dict]:
         return list(self.open_prs)
 
@@ -552,4 +559,60 @@ def test_pull_instruction_from_gcs_direct():
     mock_blob.exists.return_value = False
     with patch("google.cloud.storage.Client", return_value=mock_client):
         assert sync_auto_heal_issues.pull_instruction_from_gcs_direct("test-bucket", "missing.json") is None
+
+
+def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
+    """Verify that sync_auto_heal_issues suppresses creating duplicate issues for existing closed/open keys (Issue #1477)."""
+    from scripts.ops import sync_auto_heal_issues
+
+    instruction = {
+        "generated_at": "2026-11-15 01:00:00",
+        "targets": [
+            {
+                "company": "toho",
+                "property_type": "mansion",
+                "url": "https://example.com/toho/1",
+                "reason": "必須項目欠損 (所在階が未抽出)",
+                "frequency": 10,
+            }
+        ],
+        "failed_pipeline_steps": [],
+    }
+
+    # toho:mansion is already CLOSED as #1442
+    fake_gh = FakeGhClient(
+        issues=[
+            {
+                "number": 1442,
+                "title": "[Auto-Heal] toho/mansion パーサー不整合・取得異常の自動修復",
+                "body": "<!-- auto-heal-key:toho:mansion -->\n<!-- auto-heal-sync-ts:2026-11-14 20:34:41 -->\nBody",
+                "state": "CLOSED",
+                "labels": ["auto-heal"],
+                "comments": [],
+            }
+        ]
+    )
+
+    summary = sync_auto_heal_issues.sync_instruction_to_issues(instruction, fake_gh, dry_run=False)
+    # Must NOT create a new issue; should link to existing #1442
+    assert summary["created"] == []
+    assert summary["updated"] == [1442]
+    assert len(fake_gh.created_issues) == 0
+    assert len(fake_gh.comments) == 1
+    assert fake_gh.comments[0][0] == 1442
+
+
+def test_run_pipeline_post_crawl_auto_heal_step():
+    """Verify that run_pipeline triggers post-crawl auto-heal inspection and sync (Issue #1477)."""
+    from scripts.ops import run_pipeline
+
+    with (
+        patch.object(run_pipeline, "run_command") as mock_run_cmd,
+    ):
+        run_pipeline._run_post_crawl_auto_heal_step("debug_tools_dir", "ops_dir")
+        assert mock_run_cmd.call_count == 2
+        calls = [c[0][1] for c in mock_run_cmd.call_args_list]
+        assert "Step 1.1a: Post-Crawl Anomaly Inspection & Instruction Generation" in calls
+        assert "Step 1.1b: Post-Crawl Auto-Heal Issue Deduplicated Sync" in calls
+
 
