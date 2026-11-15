@@ -913,4 +913,5 @@ Cloud Run（2 vCPU / 2 GiB RAM）環境下でのモデル再学習において�
 
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
+- `run_ml_pipeline.py` に `--concurrency` 引数を新設し、CLI から動的に並列度（例: `--concurrency 4`）を指定可能とする (Issue #1507)。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。
