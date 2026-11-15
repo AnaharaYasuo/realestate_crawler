@@ -250,7 +250,7 @@ def train_property_type(
         proc_cpu_pct,
     )
     sys.stdout.flush()
-    del df, records, second_ensemble
+    del df, second_ensemble
     gc.collect()
     return summary
 

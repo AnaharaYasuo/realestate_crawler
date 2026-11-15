@@ -119,3 +119,12 @@ class TestPhase6MlValuationUpgrade:
         assert df['price'].dtype == 'float32'
         assert df['area'].dtype == 'float32'
 
+    def test_train_property_type_cleanup_scope_hygiene(self):
+        """Issue #1521: 参照破棄時に存在しない records 変数による UnboundLocalError が発生しないことの確認"""
+        import inspect
+        from package.ml.training.pipeline import train_property_type
+        src = inspect.getsource(train_property_type)
+        assert "del records" not in src
+        assert "del df, second_ensemble" in src
+
+

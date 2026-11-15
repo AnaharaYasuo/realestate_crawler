@@ -935,6 +935,8 @@ Cloud Run ジョブ（2 vCPU / 2 GiB RAM）において全種別 ML 再学習（
    - 各アルゴリズム完了時、および 1次・2次ステージ完了時に明示的 `gc.collect()` を呼出し。
 5. **リアルタイム標準出力フラッシュ**:
    - 各モデル学習開始・終了、CVスコア出力、メモリ推移ログ出力時に `sys.stdout.flush()` を実行し、Cloud Logging でのリアルタイム可視性を担保。
+6. **不要スコープ変数の安全な破棄規約 (Issue #1521)**:
+   - `stream_training_feature_chunks` への移行に伴い、旧来の一括 `records` リスト変数は廃止されチャンク単位処理となったため、関数クリーンアップ時の明示的 `del` 対象を現行スコープに存在する変数（`df`, `second_ensemble` 等）のみに厳密化し、`UnboundLocalError` を防止する。
 
 
 ## バルクML評価の並列実行数（OOM防止）
