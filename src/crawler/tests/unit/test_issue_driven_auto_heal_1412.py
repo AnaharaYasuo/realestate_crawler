@@ -160,6 +160,29 @@ def test_scan_anomalies_action_required_mandates_production_merge_and_deploy(tmp
     assert "Deploy Production" in uploaded["action_required"]
 
 
+def test_auto_heal_skill_and_manual_mandate_all_issues_loop_and_production_done():
+    repo_root = Path(__file__).resolve().parents[4]
+    skill_path = repo_root / ".agents" / "skills" / "auto-healing" / "SKILL.md"
+    manual_path = (
+        repo_root
+        / "docs"
+        / "7_operations_and_improvement"
+        / "operation_manual_master.md"
+    )
+
+    skill_text = skill_path.read_text(encoding="utf-8")
+    assert "全件処理・自律完遂規約" in skill_text
+    assert "すべてのアクション可能な Issue を順次ループして修復" in skill_text
+    assert "production" in skill_text
+    assert "Deploy Production" in skill_text
+
+    manual_text = manual_path.read_text(encoding="utf-8")
+    assert "全件順次処理原則" in manual_text
+    assert "Production Done 完了要件" in manual_text
+    assert "0 件になるまで優先順に順次ループして修復" in manual_text
+
+
+
 def test_group_instruction_targets_and_build_compliant_issue_body():
     from scripts.ops.sync_auto_heal_issues import build_issue_body, group_instruction_targets
 
