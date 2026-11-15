@@ -5,6 +5,7 @@
 import gc
 import logging
 import os
+import sys
 import time
 from typing import Any
 
@@ -33,7 +34,7 @@ from package.utils.newrelic_helper import _read_cpu_metrics, _read_host_memory_f
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TRAINING_ITEMS = 50000
+DEFAULT_MAX_TRAINING_ITEMS = 15000
 
 
 def train_property_type(
@@ -63,6 +64,7 @@ def train_property_type(
         mem_start_mb,
     )
     logger.info("=========================================")
+    sys.stdout.flush()
 
     df = pd.DataFrame(records) if records else pd.DataFrame()
     used_dummy = False
@@ -168,7 +170,9 @@ def train_property_type(
         mem_end_mb,
         proc_cpu_pct,
     )
+    sys.stdout.flush()
     del df, records, second_ensemble
+    gc.collect()
     return summary
 
 

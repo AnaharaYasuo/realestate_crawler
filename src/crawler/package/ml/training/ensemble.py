@@ -2,7 +2,9 @@
 アンサンブル学習および評価モジュール (Issue #715, #1151)
 """
 
+import gc
 import logging
+import sys
 from typing import Any
 
 import numpy as np
@@ -247,10 +249,15 @@ def evaluate_folds(
         maes.append(mean_absolute_error(y_val_actual, preds_actual))
         r2s.append(r2_score(y_val_actual, preds_actual))
 
+        # 中間モデル・配列を即座に破棄してメモリリーク・ピーク肥大化を防止 (Issue #1513)
+        del fold_model, x_train, x_val, y_train, y_val, preds_log, val_areas, preds_actual, y_val_actual
+        gc.collect()
+
     logger.info("[%s] CV Scores:", name)
     logger.info("  - MAPE: %.2f%%", float(np.mean(mapes)))
     logger.info("  - MAE:  %.2f万円", float(np.mean(maes)))
     logger.info("  - R2:   %.4f", float(np.mean(r2s)))
+    sys.stdout.flush()
 
 
 def train_single_algo(
@@ -350,6 +357,7 @@ def optimize_ensemble_weights(
 
     optimal_weights = {algos[i]: float(opt_w[i]) for i in range(len(algos))}
     logger.info("Optimized Ensemble Weights: %s", optimal_weights)
+    sys.stdout.flush()
     return optimal_weights, opt_w, oof_unit_preds
 
 
@@ -402,6 +410,7 @@ def compute_smearing_factor(
         var_res,
         smearing_factor,
     )
+    sys.stdout.flush()
     return smearing_factor
 
 
@@ -434,6 +443,8 @@ def train_quantile_p10_with_conformal(
             fold_q.fit(X.iloc[train_idx], y.iloc[train_idx])
         oof_p10[val_idx] += fold_q.predict(X.iloc[val_idx])
         oof_cnt[val_idx] += 1.0
+        del fold_q
+        gc.collect()
 
     valid_mask = oof_cnt > 0
     if np.any(valid_mask):
