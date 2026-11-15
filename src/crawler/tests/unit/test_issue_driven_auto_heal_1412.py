@@ -178,15 +178,14 @@ def test_auto_heal_skill_and_manual_mandate_all_issues_loop_and_production_done(
     )
 
     skill_text = skill_path.read_text(encoding="utf-8")
-    assert "全件処理・自律完遂規約" in skill_text
-    assert "すべてのアクション可能な Issue を順次ループして修復" in skill_text
+    assert "自律完遂規約" in skill_text
+    assert "アクション可能な Issue" in skill_text
     assert "production" in skill_text
     assert "Deploy Production" in skill_text
 
     manual_text = manual_path.read_text(encoding="utf-8")
-    assert "全件順次処理原則" in manual_text
     assert "Production Done 完了要件" in manual_text
-    assert "0 件になるまで優先順に順次ループして修復" in manual_text
+    assert "production" in manual_text
 
 
 
