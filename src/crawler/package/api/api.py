@@ -1573,6 +1573,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _process_middle_page_stream(self, response, current_url: str, all_results: list[Any]) -> str:
         try:
+            check_site_maintenance(response, site_name=self.__class__.__name__)
             parser_func = self._getParserFunc()
             chunk_buffer = []
             total_streamed_items = 0
@@ -1600,6 +1601,9 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 )
 
             return await self._extract_next_page_url(response, current_url)
+        except SkipPropertyException:
+            # サイトメンテナンスやアクセスブロック等のスキップ時はエラーログやエラーHTML保存を行わず上位へ伝播
+            raise
         except Exception as e:
             logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
             raw_html_content = str(response) if response is not None else None

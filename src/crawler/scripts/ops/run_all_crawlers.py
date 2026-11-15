@@ -1249,6 +1249,29 @@ def main():
                 logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
             except Exception as dte:  # noqa: BLE001
                 logger.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
+
+            # 機械的自動修復パイプライン連動 (Issue #1536):
+            # auto_heal_parsers.py に failed_steps を渡し、sync_auto_heal_issues.py で GitHub Issue を同期・再オープン
+            try:
+                failed_steps_payload = [f"{f['company']}-{f['property_type']}" for f in failed_list]
+                auto_heal_script = os.path.join(_project_root, "src", "crawler", "scripts", "debug_tools", "auto_heal_parsers.py")
+                sync_issues_script = os.path.join(_project_root, "src", "crawler", "scripts", "ops", "sync_auto_heal_issues.py")
+                inst_path = os.path.join(_project_root, "Temp", "auto_heal_instruction.json")
+
+                if os.path.exists(auto_heal_script):
+                    logger.info("Executing auto_heal_parsers.py with failed_steps: %s", failed_steps_payload)
+                    subprocess.run(
+                        [sys.executable, auto_heal_script, "--failed-steps", json.dumps(failed_steps_payload)],
+                        check=False,
+                    )
+                if os.path.exists(sync_issues_script) and os.path.exists(inst_path):
+                    logger.info("Synchronizing auto_heal issues to GitHub via sync_auto_heal_issues.py...")
+                    subprocess.run(
+                        [sys.executable, sync_issues_script, "--instruction-file", inst_path],
+                        check=False,
+                    )
+            except Exception as ahe:  # noqa: BLE001
+                logger.warning(f"Failed to execute automated issue sync pipeline: {ahe}")
     except Exception as ex:
         logging.exception(f"Failed to generate/send Slack crawl summary: {ex}")
         

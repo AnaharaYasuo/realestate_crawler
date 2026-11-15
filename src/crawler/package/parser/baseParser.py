@@ -140,6 +140,8 @@ ACCESS_BLOCKED_BODY_SPECIFIC_PHRASES = (
     "attention required! | cloudflare",
     "cf-browser-verification",
     "please complete the security check to access",
+    "token.awswaf.com",
+    "awswaf",
 )
 
 
@@ -183,6 +185,11 @@ def check_access_blocked_or_maintenance(response, status_code: int = 200, url: s
         body_text = response.body.get_text()[:4000].lower()
     elif hasattr(response, "get_text"):
         body_text = response.get_text()[:4000].lower()
+
+    # 1.1 メンテナンス判定 (本文冒頭の明示的メンテナンス文言)
+    for kw in ("緊急メンテナンス", "現在、緊急メンテナンス", "システムメンテナンス中", "ただいまメンテナンス中"):
+        if kw in body_text:
+            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance (detected in body): {kw}")
 
     for phrase in ACCESS_BLOCKED_BODY_SPECIFIC_PHRASES:
         if phrase in body_text:
