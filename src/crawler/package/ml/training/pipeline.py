@@ -29,6 +29,7 @@ from package.ml.training.market_master import (
 )
 from package.ml.training.sample_weights import calculate_time_decay_weights
 from package.utils.batch_metrics import BatchMetrics, format_batch_duration
+from package.utils.newrelic_helper import _read_cpu_metrics, _read_host_memory_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,18 @@ def train_property_type(
 ) -> dict[str, Any]:
     """単一種別のデータクレンジング、一次/二次アンサンブル学習、モデル保存を実行"""
     ptype_start = time.perf_counter()
+    mem_start_bytes, _, _ = _read_host_memory_fallback()
+    mem_start_mb = round(mem_start_bytes / (1024 * 1024), 1)
 
     records = list(features_iterator)
     initial_count = len(records)
 
     logger.info("\n=========================================")
     logger.info(
-        "Training models for Property Type: %s (records: %d)", ptype, initial_count
+        "Training models for Property Type: %s (records: %d, start RSS: %.1f MB)",
+        ptype,
+        initial_count,
+        mem_start_mb,
     )
     logger.info("=========================================")
 
@@ -133,6 +139,12 @@ def train_property_type(
     save_stage_models(second_ensemble, model_dir, ptype, "second")
 
     duration = time.perf_counter() - ptype_start
+    mem_end_bytes, _, _ = _read_host_memory_fallback()
+    mem_end_mb = round(mem_end_bytes / (1024 * 1024), 1)
+    cpu_metrics = _read_cpu_metrics() or {}
+    proc_cpu_pct = cpu_metrics.get("cpuPercent", 0.0)
+    sys_cpu_pct = cpu_metrics.get("systemCpuPercent", 0.0)
+
     summary = {
         "ptype": ptype,
         "input_count": initial_count,
@@ -140,14 +152,21 @@ def train_property_type(
         "outliers_count": outliers_count,
         "duration_sec": duration,
         "used_dummy": used_dummy,
+        "mem_start_mb": mem_start_mb,
+        "mem_end_mb": mem_end_mb,
+        "proc_cpu_pct": proc_cpu_pct,
+        "sys_cpu_pct": sys_cpu_pct,
     }
     logger.info(
-        "[%s] Completed in %s (Valid: %d, Filtered: %d, Dummy: %s)",
+        "[%s] Completed in %s (Valid: %d, Filtered: %d, Dummy: %s, RSS: %.1f MB -> %.1f MB, CPU: %.1f%%)",
         ptype,
         format_batch_duration(duration),
         after_clean,
         outliers_count,
         used_dummy,
+        mem_start_mb,
+        mem_end_mb,
+        proc_cpu_pct,
     )
     del df, records, second_ensemble
     return summary
@@ -249,7 +268,7 @@ def run_training(
 
     metrics.finish()
     custom_sections = [
-        f"• {s['ptype'].upper():<10}: 有効学習 {s['valid_count']:,} 件 | 除外 {s['outliers_count']:,} 件 | 所要時間: {format_batch_duration(s['duration_sec'])}"
+        f"• {s['ptype'].upper():<10}: 有効 {s['valid_count']:,} 件 | 除外 {s['outliers_count']:,} 件 | RSS: {s.get('mem_start_mb', 0.0):.1f}MB->{s.get('mem_end_mb', 0.0):.1f}MB | CPU: {s.get('proc_cpu_pct', 0.0):.1f}% | 時間: {format_batch_duration(s['duration_sec'])}"
         for s in ptype_summaries
     ]
     logger.info(

@@ -494,8 +494,8 @@ def main(argv=None):
         "--property-type",
         type=str,
         default=None,
-        choices=["tochi", "mansion", "kodate", "investmentapartment", "investmentkodate"],
-        help="Explicitly specify property type for ML retraining (overrides weekday rotation, Issue #1495)",
+        choices=["all", "tochi", "mansion", "kodate", "apartment", "investmentapartment", "investmentkodate"],
+        help="Explicitly specify property type for ML retraining ('all' trains mansion, kodate, apartment, tochi; overrides weekday rotation, Issue #1495, #1504)",
     )
     parser.add_argument(
         "--train",
@@ -577,11 +577,18 @@ def main(argv=None):
             ]
             rot_type = args.property_type or get_rotation_property_type_for_date()
             if rot_type:
-                train_cmd.extend(["--property-type", rot_type])
-                mode_desc = "Explicit specification" if args.property_type else "Weekday rotation"
-                logger.info(
-                    f"ML Model Re-Training: Applying {mode_desc} for property type: '{rot_type}'"
-                )
+                if rot_type.lower() == "all":
+                    # 全物件種別を明示的に直列学習 (Issue #1504)
+                    for pt in ["mansion", "kodate", "apartment", "tochi"]:
+                        train_cmd.extend(["--property-type", pt])
+                    mode_desc = "Explicit specification"
+                    logger.info("ML Model Re-Training: Applying Explicit specification for ALL property types: ['mansion', 'kodate', 'apartment', 'tochi']")
+                else:
+                    train_cmd.extend(["--property-type", rot_type])
+                    mode_desc = "Explicit specification" if args.property_type else "Weekday rotation"
+                    logger.info(
+                        f"ML Model Re-Training: Applying {mode_desc} for property type: '{rot_type}'"
+                    )
             run_command(
                 train_cmd,
                 f"Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest){f' [{rot_type}]' if rot_type else ''}",
