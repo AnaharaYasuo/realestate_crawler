@@ -369,6 +369,15 @@ class PropertyTypeDetector:
         return bool(has_land and not has_bldg and not has_senyu)
 
     @classmethod
+    def _is_kodate_from_spec_areas(cls, specs: dict[str, Any]) -> bool:
+        has_land = cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
+        has_bldg = cls._is_positive_area_value(
+            specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積")
+        )
+        has_senyu = cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
+        return bool(has_land and has_bldg and not has_senyu)
+
+    @classmethod
     def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
         """スペック表の特定キーおよび自由記述ノイズを除外した値から種別判定"""
         priority_hit = cls._detect_from_priority_spec_keys(specs)
@@ -384,13 +393,7 @@ class PropertyTypeDetector:
         if cls._is_pure_land_from_spec_areas(specs):
             return "tochi"
 
-        # 土地面積と建物面積（または延床面積）の双方が存在し、専有面積がない場合は戸建
-        has_land = cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
-        has_bldg = cls._is_positive_area_value(
-            specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積")
-        )
-        has_senyu = cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
-        if has_land and has_bldg and not has_senyu:
+        if cls._is_kodate_from_spec_areas(specs):
             return "kodate"
 
         for k, val in specs.items():

@@ -2690,8 +2690,6 @@ class ParserBase(metaclass=ABCMeta):
             property_type=detected_type,
         )
         if not target_parser or target_parser.__class__ == self.__class__:
-            # サイト側に該当種別パーサーが存在しない（例: 一棟アパート/一棟マンション取り扱いなし）場合、
-            # 区分マンションや戸建として無理にパースして必須項目欠損エラーにするのではなく、種別不適合としてスキップする
             raise IncompatiblePropertyTypeException(
                 f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' but detected '{detected_type}', and no suitable parser exists."
             )
