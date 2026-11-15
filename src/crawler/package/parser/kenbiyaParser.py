@@ -110,9 +110,38 @@ class KenbiyaParserBase(ParserBase):
     _last_request_time: float = 0.0
 
     @classmethod
+    def get_proxy_url(cls) -> str | None:
+        """健美家専用Proxy設定、または住宅用Proxy共通設定からURLを取得（未設定時はNone）"""
+        return os.getenv("KENBIYA_PROXY_URL") or os.getenv("RESIDENTIAL_PROXY_URL") or None
+
+    @classmethod
+    def _build_playwright_proxy_config(cls) -> dict[str, str] | None:
+        """Playwright用プロキシ設定辞書を構築（認証情報含む）"""
+        raw_proxy = cls.get_proxy_url()
+        if not raw_proxy:
+            return None
+        from urllib.parse import urlparse
+        parsed = urlparse(raw_proxy)
+        if not parsed.hostname:
+            return None
+        server = f"{parsed.scheme or 'http'}://{parsed.hostname}"
+        if parsed.port:
+            server += f":{parsed.port}"
+        cfg: dict[str, str] = {"server": server}
+        if parsed.username:
+            cfg["username"] = parsed.username
+        if parsed.password:
+            cfg["password"] = parsed.password
+        return cfg
+
+    @classmethod
     async def _throttle_before_request(cls) -> None:
         """Cloud環境または設定時にリクエスト送信間隔を全パーサー共通の共有ロックで担保"""
-        if not (os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB") or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")):
+        if not (
+            os.getenv("K_SERVICE")
+            or os.getenv("CLOUD_RUN_JOB")
+            or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")
+        ):
             return
         min_interval = 2.0
         async with KenbiyaParserBase._request_lock:
@@ -126,16 +155,22 @@ class KenbiyaParserBase(ParserBase):
         from playwright.async_api import async_playwright
 
         logging.info(f"Kenbiya Playwright fallback fetching: {url}")
+        pw_proxy = self._build_playwright_proxy_config()
+        launch_kwargs: dict[str, Any] = {
+            "headless": True,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        }
+        if pw_proxy:
+            launch_kwargs["proxy"] = pw_proxy
+            logging.info("Kenbiya Playwright launched with residential proxy")
+
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                ],
-            )
+            browser = await p.chromium.launch(**launch_kwargs)
             try:
                 context = await browser.new_context(
                     user_agent=self._get_next_user_agent(),
@@ -148,8 +183,32 @@ class KenbiyaParserBase(ParserBase):
                         "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
                     )
                     page = await context.new_page()
+
+                    # ギガ浪費防止・高速化: 画像、フォント、メディア、スタイルシート等の不要アセットをルート遮断 (Issue #1484, #1486)
+                    STATIC_ASSET_PATTERN = re.compile(
+                        r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$",
+                        re.IGNORECASE,
+                    )
+
+                    async def _block_unnecessary_resources(route):
+                        req = route.request
+                        res_type = getattr(req, "resource_type", "")
+                        req_url = getattr(req, "url", "")
+                        if res_type in {"image", "media", "font", "stylesheet", "other"}:
+                            await route.abort()
+                        elif isinstance(req_url, str) and STATIC_ASSET_PATTERN.search(req_url):
+                            await route.abort()
+                        else:
+                            await route.continue_()
+
+                    await page.route(
+                        STATIC_ASSET_PATTERN,
+                        _block_unnecessary_resources,
+                    )
                     try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                        await page.goto(
+                            url, wait_until="domcontentloaded", timeout=20000
+                        )
                         await page.wait_for_timeout(1500)
                         content_str = await page.content()
                         return content_str.encode("utf-8")
@@ -160,7 +219,9 @@ class KenbiyaParserBase(ParserBase):
             finally:
                 await browser.close()
 
-    async def _try_playwright_on_403(self, session: aiohttp.ClientSession, status: int, url: str) -> bytes | None:
+    async def _try_playwright_on_403(
+        self, session: aiohttp.ClientSession, status: int, url: str
+    ) -> bytes | None:
         if status != 403 or not isinstance(session, aiohttp.ClientSession):
             return None
         try:
@@ -198,13 +259,18 @@ class KenbiyaParserBase(ParserBase):
         }
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
+        proxy_url = self.get_proxy_url()
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
             await self._throttle_before_request()
             try:
-                async with session.get(
-                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
+                get_kwargs: dict[str, Any] = {
+                    "headers": headers,
+                    "timeout": aiohttp.ClientTimeout(total=15),
+                }
+                if proxy_url:
+                    get_kwargs["proxy"] = proxy_url
+                async with session.get(url, **get_kwargs) as response:
                     last_status = response.status
                     content = await self._handle_response_or_403(
                         session, response, url, attempt, max_timeouts
@@ -219,7 +285,7 @@ class KenbiyaParserBase(ParserBase):
                 ServerDownException,
             ):
                 raise
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(
@@ -272,7 +338,9 @@ class KenbiyaParserBase(ParserBase):
             yielded += 1
             yield item
         if yielded == 0:
-            raise ServerBusyException("Kenbiya root page returned 0 items (WAF/blocked)")
+            raise ServerBusyException(
+                "Kenbiya root page returned 0 items (WAF/blocked)"
+            )
 
     @staticmethod
     def _clean_spec_value(text: str) -> str:
@@ -297,10 +365,13 @@ class KenbiyaParserBase(ParserBase):
                 continue
             p_classes = " ".join(parent.get("class", []) or [])
             p_id = parent.get("id", "") or ""
-            if any(
-                k in p_classes
-                for k in ["guide", "help", "glossary", "explanation", "box_outline"]
-            ) or "guide" in p_id:
+            if (
+                any(
+                    k in p_classes
+                    for k in ["guide", "help", "glossary", "explanation", "box_outline"]
+                )
+                or "guide" in p_id
+            ):
                 return True
         return False
 
@@ -347,10 +418,14 @@ class KenbiyaParserBase(ParserBase):
         if not response:
             return ""
         # 対象物件の詳細領域 (div.property, #property_detail 等) を特定して探索
-        container = response.select_one("div.property, #property_detail, .property-header, .property_detail")
+        container = response.select_one(
+            "div.property, #property_detail, .property-header, .property_detail"
+        )
         if not container:
             return ""
-        price_el = container.select_one(".price, .mod-price, span.price, .property_price, em.price")
+        price_el = container.select_one(
+            ".price, .mod-price, span.price, .property_price, em.price"
+        )
         return price_el.get_text(strip=True) if price_el else ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
@@ -489,12 +564,16 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = self._extract_kenpei_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
+        raw = self._extract_kenpei_from_specs(specs) or specs.get(
+            KENPEI_YOUSEKI_SLASH, ""
+        )
         return converter.parse_ratio(raw)
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = self._extract_youseki_from_specs(specs) or specs.get(KENPEI_YOUSEKI_SLASH, "")
+        raw = self._extract_youseki_from_specs(specs) or specs.get(
+            KENPEI_YOUSEKI_SLASH, ""
+        )
         if raw and _KENBIYA_RATIO_SPLIT_RE.search(raw):
             parts = _KENBIYA_RATIO_SPLIT_RE.split(raw)
             if len(parts) >= 2:
@@ -508,7 +587,11 @@ class KenbiyaParserBase(ParserBase):
             parsed = self._extract_maguchi_decimal(direct, allow_bare_meter=True)
             if parsed is not None:
                 return parsed
-        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        setsudou_val = (
+            specs.get("接道状況", "")
+            or specs.get("道路付け", "")
+            or specs.get("接道", "")
+        )
         if setsudou_val:
             m = _KENBIYA_MAGUCHI_RE.search(setsudou_val)
             if m:
@@ -523,11 +606,15 @@ class KenbiyaParserBase(ParserBase):
                 m_dir = re.search(r"(\d{1,4}(?:\.\d{1,3})?)", direct)
                 if m_dir:
                     return Decimal(m_dir.group(1))
-        setsudou_val = specs.get("接道状況", "") or specs.get("道路付け", "") or specs.get("接道", "")
+        setsudou_val = (
+            specs.get("接道状況", "")
+            or specs.get("道路付け", "")
+            or specs.get("接道", "")
+        )
         if setsudou_val:
-            m = _KENBIYA_WIDTH_LABEL_RE.search(setsudou_val) or _KENBIYA_WIDTH_DIR_RE.search(
+            m = _KENBIYA_WIDTH_LABEL_RE.search(
                 setsudou_val
-            )
+            ) or _KENBIYA_WIDTH_DIR_RE.search(setsudou_val)
             if m:
                 return Decimal(m.group(1))
         return None
