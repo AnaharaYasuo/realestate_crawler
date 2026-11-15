@@ -557,6 +557,30 @@ def _run_crawler_step(
     return True, crawler_ok
 
 
+def _run_post_crawl_auto_heal_step(debug_tools_dir: str, ops_dir: str) -> None:
+    """クローリング直後に材料探索・指示書更新・Issue同期および即時自動修復トリガーを実行する (Issue #1477)"""
+    try:
+        logger.info(BORDER_LINE)
+        logger.info("🔍 Step 1.1: Post-Crawl Instant Auto-Heal Telemetry & Issue Sync")
+        logger.info(BORDER_LINE)
+        # 1. auto_heal_parsers.py による材料探索 & GCS 指示書更新
+        heal_cmd = [
+            sys.executable,
+            os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+        ]
+        run_command(heal_cmd, "Step 1.1a: Post-Crawl Anomaly Inspection & Instruction Generation")
+
+        # 2. sync_auto_heal_issues.py による Issue 重複排除同期
+        sync_cmd = [
+            sys.executable,
+            os.path.join(ops_dir, "sync_auto_heal_issues.py"),
+            "--pull-from-gcs",
+        ]
+        run_command(sync_cmd, "Step 1.1b: Post-Crawl Auto-Heal Issue Deduplicated Sync")
+    except Exception as e:
+        logger.warning(f"⚠️ [Step 1.1 Warning] Post-crawl auto-heal inspection/sync encountered an error: {e}")
+
+
 def _run_post_crawl_pipeline(
     crawler_dir: str,
     ops_dir: str,
@@ -860,6 +884,9 @@ def main():
             # タスクアレイ完了時は不要な待機を回避し確実に exit(0) / return でコンテナを終了する (Issue #823)
             logger.info(f"✔ Task {task_index}/{task_count} の処理がすべて完了しました。プロセスを正常終了します。")
             return
+
+        # クローリング終了直後の材料探索・指示書更新・Issue起票・即時自動修復トリガー (Issue #1477)
+        _run_post_crawl_auto_heal_step(debug_tools_dir, ops_dir)
 
         failed_steps = _run_post_crawl_pipeline(
             crawler_dir,
