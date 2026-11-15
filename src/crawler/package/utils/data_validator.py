@@ -70,7 +70,7 @@ class PropertyDataValidator:
                 return True
 
         traffic_str = str(getattr(item, "traffic", "") or "")
-        return any(kw in traffic_str for kw in ("徒歩", "歩", "バス", "分", "車", "min", "walk"))
+        return any(kw in traffic_str for kw in ("徒歩", "歩", "バス", "分", "車", "min", "walk", "km", "ｋｍ", "m", "ｍ"))
 
     @classmethod
     def _check_common_required(cls, item: Any, ptype: str, reasons: list[str]) -> None:
@@ -359,7 +359,7 @@ class PropertyDataValidator:
             )
         if len(tokens) == 1:
             tok = tokens[0]
-            if '階' in tok and not ('地上' in tok or '地下' in tok or '建' in tok or '総' in tok):
+            if '階' in tok and not ('地上' in tok or '建' in tok or '総' in tok):
                 return any(ch.isdigit() for ch in tok)
         return False
 

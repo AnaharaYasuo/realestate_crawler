@@ -48,6 +48,7 @@
 | **総戸数** | `total_units` | th="総戸数" |
 | **管理費** | `management_fee` | th="管理費" |
 | **修繕積立金** | `repair_reserve` | th="修繕積立金" |
+| **建ぺい率 / 容積率** | `kenpeiStr` / `yousekiStr` | th="建ぺい率" / th="容積率"（未指定時は記号文字列を保持） |
 | **管理方式** | `management_type` | th="管理方式", "管理形態" |
 | **現況** | `current_status` | th="現況" |
 | **引渡** | `delivery` | th="引渡" |
