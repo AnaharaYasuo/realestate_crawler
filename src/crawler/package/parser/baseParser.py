@@ -157,6 +157,32 @@ def _get_page_header_text(response) -> tuple[str, str]:
     return title_text, h1_text
 
 
+def _get_page_body_text(response) -> str:
+    if hasattr(response, "body") and response.body:
+        return response.body.get_text()[:4000].lower()
+    if hasattr(response, "get_text"):
+        return response.get_text()[:4000].lower()
+    return ""
+
+
+def _check_maintenance_presence(combined_header: str, body_text: str, name_str: str, title_text: str, h1_text: str) -> None:
+    for kw in MAINTENANCE_KEYWORDS:
+        if kw.lower() in combined_header:
+            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {title_text} {h1_text}")
+    for kw in ("緊急メンテナンス", "現在、緊急メンテナンス", "システムメンテナンス中", "ただいまメンテナンス中"):
+        if kw in body_text:
+            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance (detected in body): {kw}")
+
+
+def _check_access_blocked_presence(combined_header: str, body_text: str, name_str: str, url: str) -> None:
+    for kw in ACCESS_BLOCKED_TITLE_H1_KEYWORDS:
+        if kw in combined_header:
+            raise AccessBlockedException(f"Access blocked / challenge detected in header{name_str} ({kw}) for URL: {url}")
+    for phrase in ACCESS_BLOCKED_BODY_SPECIFIC_PHRASES:
+        if phrase in body_text:
+            raise AccessBlockedException(f"Access blocked / challenge detected in body{name_str} ({phrase}) for URL: {url}")
+
+
 def check_access_blocked_or_maintenance(response, status_code: int = 200, url: str = "", site_name: str = ""):
     """Check if the response represents an access blocked (403/CAPTCHA/WAF) or maintenance page."""
     if status_code in (403, 429):
@@ -168,32 +194,10 @@ def check_access_blocked_or_maintenance(response, status_code: int = 200, url: s
     title_text, h1_text = _get_page_header_text(response)
     name_str = f" ({site_name})" if site_name else ""
     combined_header = f"{title_text} {h1_text}".lower()
+    body_text = _get_page_body_text(response)
 
-    # 1. メンテナンス判定 (タイトル・h1)
-    for kw in MAINTENANCE_KEYWORDS:
-        if kw.lower() in combined_header:
-            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {title_text} {h1_text}")
-
-    # 2. アクセスブロック・CAPTCHA判定 (タイトル・h1のキーワード)
-    for kw in ACCESS_BLOCKED_TITLE_H1_KEYWORDS:
-        if kw in combined_header:
-            raise AccessBlockedException(f"Access blocked / challenge detected in header{name_str} ({kw}) for URL: {url}")
-
-    # 3. 本文固有フレーズの検査（一般的な単語の誤検知を防ぐため厳格なフレーズに限定）
-    body_text = ""
-    if hasattr(response, "body") and response.body:
-        body_text = response.body.get_text()[:4000].lower()
-    elif hasattr(response, "get_text"):
-        body_text = response.get_text()[:4000].lower()
-
-    # 1.1 メンテナンス判定 (本文冒頭の明示的メンテナンス文言)
-    for kw in ("緊急メンテナンス", "現在、緊急メンテナンス", "システムメンテナンス中", "ただいまメンテナンス中"):
-        if kw in body_text:
-            raise SiteMaintenanceException(f"Target site{name_str} is under maintenance (detected in body): {kw}")
-
-    for phrase in ACCESS_BLOCKED_BODY_SPECIFIC_PHRASES:
-        if phrase in body_text:
-            raise AccessBlockedException(f"Access blocked / challenge detected in body{name_str} ({phrase}) for URL: {url}")
+    _check_maintenance_presence(combined_header, body_text, name_str, title_text, h1_text)
+    _check_access_blocked_presence(combined_header, body_text, name_str, url)
 
 
 def check_site_maintenance(response, site_name: str = ""):
