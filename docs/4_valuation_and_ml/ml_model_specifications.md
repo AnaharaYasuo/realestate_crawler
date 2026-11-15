@@ -872,6 +872,17 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
    - `build_market_master_from_models` 内の全件レコード中間 DataFrame / Series の即時解放。
    - スレッド数 `_get_ml_thread_limit()` のデフォルト上限を 2 スレッドに設定し、マルチスレッド・マルチプロセスによるメモリ複製を抑制。
 
+## 18. ML パイプラインにおける異常再取得スキップ ＆ 明示的物件種別指定 (Issue #1495)
+
+日次 ML パイプライン実行（`run_ml_pipeline.py`）において、異常レコード再取得（Step 0.9: `recrawl_anomalies.py`）を任意にスキップ可能とし、かつ特定物件種別のモデルのみを最上位 CLI から直接再学習可能とするため、以下の仕様を規定する：
+
+1. **`--skip-recrawl` フラグおよび環境変数 `ML_PIPELINE_SKIP_RECRAWL`**:
+   - `python run_ml_pipeline.py --skip-recrawl` または `ML_PIPELINE_SKIP_RECRAWL=true` 指定時、Step 0.9（過去エラー物件のスクレイピング再取得）を完全にバイパスし、即座にデータ検証・ML学習・推論フェーズへ進む。
+   - モデル再学習検証時や高速推論・緊急通知配信時における無駄な HTTP リクエスト待機時間をゼロにする。
+2. **最上位 CLI 引数 `--property-type`**:
+   - `run_ml_pipeline.py --property-type <type>` を受け付け、指定時は曜日ローテーション判定をオーバーライドして該当物件種別の `train.py --property-type <type>` を実行する。
+   - 未指定時は従来どおり曜日ローテーション（木: mansion, 金: kodate, 土: apartment, 日: tochi）に従う。
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。
