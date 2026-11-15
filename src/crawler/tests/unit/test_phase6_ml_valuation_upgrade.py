@@ -104,3 +104,18 @@ class TestPhase6MlValuationUpgrade:
         )
         assert scores[0] > scores[1]
         assert scores[0] > 0.10
+
+    def test_chunked_compact_dataframe_memory_and_shape(self):
+        """Issue #1517: チャンク化ストリーミングデータローダーによるメモリ圧縮の検証"""
+        from package.ml.training.pipeline import _build_compact_dataframe, DEFAULT_MAX_TRAINING_ITEMS
+        assert DEFAULT_MAX_TRAINING_ITEMS == 50000
+
+        chunks = [
+            [{'price': 3000.0, 'area': 70.0, 'prefecture': '東京都', 'city': '港区'} for _ in range(100)],
+            [{'price': 4500.0, 'area': 85.0, 'prefecture': '神奈川県', 'city': '横浜市'} for _ in range(100)],
+        ]
+        df = _build_compact_dataframe(chunks)
+        assert len(df) == 200
+        assert df['price'].dtype == 'float32'
+        assert df['area'].dtype == 'float32'
+
