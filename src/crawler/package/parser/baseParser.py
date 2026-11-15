@@ -148,20 +148,24 @@ ACCESS_BLOCKED_BODY_SPECIFIC_PHRASES = (
 def _get_page_header_text(response) -> tuple[str, str]:
     title_text = ""
     h1_text = ""
-    if hasattr(response, "title") and response.title:
-        title_text = response.title.get_text().strip()
+    title_attr = getattr(response, "title", None)
+    if title_attr and hasattr(title_attr, "get_text"):
+        title_text = title_attr.get_text().strip()
     if hasattr(response, "select_one"):
         h1_el = response.select_one("h1")
-        if h1_el:
+        if h1_el and hasattr(h1_el, "get_text"):
             h1_text = h1_el.get_text().strip()
     return title_text, h1_text
 
 
 def _get_page_body_text(response) -> str:
-    if hasattr(response, "body") and response.body:
-        return response.body.get_text()[:4000].lower()
+    body_attr = getattr(response, "body", None)
+    if body_attr and hasattr(body_attr, "get_text"):
+        return body_attr.get_text()[:4000].lower()
     if hasattr(response, "get_text"):
         return response.get_text()[:4000].lower()
+    if isinstance(response, str):
+        return response[:4000].lower()
     return ""
 
 
