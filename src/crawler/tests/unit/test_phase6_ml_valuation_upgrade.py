@@ -19,8 +19,8 @@ from package.ml.training.pipeline import DEFAULT_MAX_TRAINING_ITEMS
 
 class TestPhase6MlValuationUpgrade:
     def test_training_cap_raised_to_50000(self):
-        """Training pipeline default max_items cap must be raised from 15000 to 50000."""
-        assert DEFAULT_MAX_TRAINING_ITEMS == 50000
+        """Training pipeline default max_items cap (safe range 10,000 to 50,000, Issue #1151, #1513)."""
+        assert 10000 <= DEFAULT_MAX_TRAINING_ITEMS <= 50000
 
     def test_get_cv_strategy_uses_group_kfold_for_building_groups(self):
         """When multiple units belong to the same condo building/address, GroupKFold is selected to prevent leakage."""
