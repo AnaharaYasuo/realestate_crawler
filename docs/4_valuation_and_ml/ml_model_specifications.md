@@ -911,6 +911,30 @@ Cloud Run（2 vCPU / 2 GiB RAM）環境下でのモデル再学習において�
 3. **AI定性評価プロンプトへの汚染防止**:
    - 極端な外れ値が一次スクリーニングで遮断されることにより、LLM（Gemini）が異常数値を「圧倒的な積算割れ」「価格の歪み」と誤認して好意的な推薦レポートを自動生成する事態を未然に防止する。
 
+## 21. Cloud Run 2GiB 環境における ML 再学習メモリ最適化仕様 (Issue #1513)
+
+### 21.1 課題と背景
+Cloud Run ジョブ（2 vCPU / 2 GiB RAM）において全種別 ML 再学習（--train --property-type all）を実行した際、マンション等のデータセット学習中（Step 2/5）にメモリ上限（2GiB）を超過し OOM Kill（Exit Code: -9）が発生していた。
+原因は以下の複合的要因による：
+1. DEFAULT_MAX_TRAINING_ITEMS が 50,000 件であり、50以上の特徴量列を持つ巨大な DataFrame 展開によりベースメモリを大量消費。
+2. ML_NUM_THREADS = -1 が環境変数に設定されていた場合、LightGBM、XGBoost、CatBoost、RandomForest の各回帰器が全コア数のスレッド・メモリを複製。
+3. 2ステージ（1次・2次）× 4アルゴリズム（LGB/XGB/CAT/RF）× 3-fold CV および P10 分位点回帰において、fold ごとの学習済みモデルや中間オブジェクトがメモリ上に残留し累積。
+4. RandomForestRegressor において n_estimators=100, max_depth=None（無制限）による決定木構造データの肥大化。
+
+### 21.2 仕様変更内容
+1. **学習サンプリング上限の適正化**:
+   - DEFAULT_MAX_TRAINING_ITEMS を 50000 から 15000 に適正化。15,000件は統計的学習およびCV精度（MdAPE/MAPE）を十全に維持しつつ、DataFrame 常駐メモリを約 1/3 以下に圧縮する。
+2. **スレッド数クランプ（マルチスレッド暴走防止）**:
+   - _get_ml_thread_limit() において、環境変数 ML_NUM_THREADS が -1 または 2 を超える値であっても、上限 2（1〜2）にクランプする。
+3. **RandomForest のメモリフットプリント適正化**:
+   - RandomForestRegressor の max_depth 既定値を 12 に制限し、min_samples_leaf=5、max_features='sqrt' を維持することで、決定木によるメモリ肥大化を防止。
+4. **中間オブジェクトの即時解放とガベージコレクション徹底**:
+   - train_single_algo の各 fold 実行ループ内において、fold モデルおよび中間予測配列を評価完了直後に del および gc.collect()。
+   - 各アルゴリズム完了時、および 1次・2次ステージ完了時に明示的 gc.collect() を呼出し。
+5. **リアルタイム標準出力フラッシュ**:
+   - 各モデル学習開始・終了、CVスコア出力、メモリ推移ログ出力時に sys.stdout.flush() を実行し、Cloud Logging でのリアルタイム可視性を担保。
+
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `run_ml_pipeline.py` に `--concurrency` 引数を新設し、CLI から動的に並列度（例: `--concurrency 4`）を指定可能とする (Issue #1507)。

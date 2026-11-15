@@ -159,7 +159,7 @@ class TestArchitectureHarness:
         assert unresolved == [], f"SiteRegistry.resolve_model_class failed for jobs: {unresolved}"
 
     def test_gate4_property_type_defense_and_ml_invariants(self):
-        """Gate 4: 4-Layer PropertyTypeDetector defense and ML P10 / 50k cap invariants hold."""
+        """Gate 4: 4-Layer PropertyTypeDetector defense and ML P10 / training cap invariants hold."""
         soup = BeautifulSoup(
             "<html><body><nav>マンション 戸建て 土地</nav><main><h1>売地 120㎡</h1></main></body></html>",
             "html.parser",
@@ -173,7 +173,8 @@ class TestArchitectureHarness:
         )
         assert ok is False and actual_type == "mansion" and bool(reason)
 
-        assert DEFAULT_MAX_TRAINING_ITEMS >= 50000
+        # 2GiB RAM コンテナ環境下での OOM 防止のため安全上限は 10,000〜50,000 件の範囲 (Issue #1513)
+        assert 10000 <= DEFAULT_MAX_TRAINING_ITEMS <= 50000
         pts, p10s = compute_prediction_interval_p10(
             {"lgb": np.array([np.log1p(100.0)]), "xgb": np.array([np.log1p(110.0)])},
             {"lgb": 0.5, "xgb": 0.5},
