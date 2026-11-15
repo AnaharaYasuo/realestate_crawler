@@ -44,14 +44,15 @@ def _get_ml_thread_limit() -> int:
     if env_threads:
         try:
             val = int(env_threads)
-            # 2GiB 環境でのメモリ爆発・プロセス複製を防ぐため、-1 または 2 を超える値は最大 2 スレッドにクランプ (Issue #1513)
-            if val < 1 or val > 2:
-                return 2
+            # チャンク化ストリーミングロードとfloat32圧縮によりメモリフットプリントを極小化したため、
+            # 最大 4 スレッドまでの並列実行を安全に許可 (Issue #1517)
+            if val < 1 or val > 4:
+                return 4
             return val
         except ValueError:
             pass
-    # デフォルトを全コア(-1)ではなく2スレッドに抑制（マルチプロセス/マルチスレッドによるメモリ複製防止）
-    return 2
+    # デフォルトを4スレッドに設定（高速並列学習を可能に）
+    return 4
 
 
 def get_regressor(
