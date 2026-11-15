@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -123,16 +124,20 @@ async def test_fetch_with_playwright_uses_proxy_and_routes_blocked(monkeypatch):
     # Check route abortion registered
     mock_page.route.assert_called_once()
     route_pattern, route_handler = mock_page.route.call_args.args
-    assert route_pattern == "**/*"
+    assert isinstance(route_pattern, re.Pattern)
+    assert route_pattern.search("https://www.kenbiya.com/images/sample.jpg") is not None
+    assert route_pattern.search("https://www.kenbiya.com/css/main.css") is not None
 
     # Test route handler blocks non-HTML resources
     mock_route = AsyncMock()
     mock_route.request.resource_type = "image"
+    mock_route.request.url = "https://www.kenbiya.com/images/sample.jpg"
     await route_handler(mock_route)
     mock_route.abort.assert_called_once()
 
     # Test route handler allows document/fetch
     mock_route_doc = AsyncMock()
     mock_route_doc.request.resource_type = "document"
+    mock_route_doc.request.url = "https://www.kenbiya.com/pp1/s/tokyo/test/"
     await route_handler(mock_route_doc)
     mock_route_doc.continue_.assert_called_once()

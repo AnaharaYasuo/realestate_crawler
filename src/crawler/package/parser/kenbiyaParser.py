@@ -185,18 +185,26 @@ class KenbiyaParserBase(ParserBase):
                     page = await context.new_page()
 
                     # ギガ浪費防止・高速化: 画像、フォント、メディア、スタイルシート等の不要アセットをルート遮断 (Issue #1484, #1486)
+                    STATIC_ASSET_PATTERN = re.compile(
+                        r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$",
+                        re.IGNORECASE,
+                    )
+
                     async def _block_unnecessary_resources(route):
                         req = route.request
                         res_type = getattr(req, "resource_type", "")
                         req_url = getattr(req, "url", "")
                         if res_type in {"image", "media", "font", "stylesheet", "other"}:
                             await route.abort()
-                        elif isinstance(req_url, str) and re.search(r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$", req_url, re.IGNORECASE):
+                        elif isinstance(req_url, str) and STATIC_ASSET_PATTERN.search(req_url):
                             await route.abort()
                         else:
                             await route.continue_()
 
-                    await page.route("**/*", _block_unnecessary_resources)
+                    await page.route(
+                        STATIC_ASSET_PATTERN,
+                        _block_unnecessary_resources,
+                    )
                     try:
                         await page.goto(
                             url, wait_until="domcontentloaded", timeout=20000
