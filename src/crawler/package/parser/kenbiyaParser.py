@@ -110,6 +110,31 @@ class KenbiyaParserBase(ParserBase):
     _last_request_time: float = 0.0
 
     @classmethod
+    def get_proxy_url(cls) -> str | None:
+        """健美家専用Proxy設定、または住宅用Proxy共通設定からURLを取得（未設定時はNone）"""
+        return os.getenv("KENBIYA_PROXY_URL") or os.getenv("RESIDENTIAL_PROXY_URL") or None
+
+    @classmethod
+    def _build_playwright_proxy_config(cls) -> dict[str, str] | None:
+        """Playwright用プロキシ設定辞書を構築（認証情報含む）"""
+        raw_proxy = cls.get_proxy_url()
+        if not raw_proxy:
+            return None
+        from urllib.parse import urlparse
+        parsed = urlparse(raw_proxy)
+        if not parsed.hostname:
+            return None
+        server = f"{parsed.scheme or 'http'}://{parsed.hostname}"
+        if parsed.port:
+            server += f":{parsed.port}"
+        cfg: dict[str, str] = {"server": server}
+        if parsed.username:
+            cfg["username"] = parsed.username
+        if parsed.password:
+            cfg["password"] = parsed.password
+        return cfg
+
+    @classmethod
     async def _throttle_before_request(cls) -> None:
         """Cloud環境または設定時にリクエスト送信間隔を全パーサー共通の共有ロックで担保"""
         if not (
@@ -130,16 +155,22 @@ class KenbiyaParserBase(ParserBase):
         from playwright.async_api import async_playwright
 
         logging.info(f"Kenbiya Playwright fallback fetching: {url}")
+        pw_proxy = self._build_playwright_proxy_config()
+        launch_kwargs: dict[str, Any] = {
+            "headless": True,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        }
+        if pw_proxy:
+            launch_kwargs["proxy"] = pw_proxy
+            logging.info("Kenbiya Playwright launched with residential proxy")
+
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                ],
-            )
+            browser = await p.chromium.launch(**launch_kwargs)
             try:
                 context = await browser.new_context(
                     user_agent=self._get_next_user_agent(),
@@ -152,13 +183,27 @@ class KenbiyaParserBase(ParserBase):
                         "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
                     )
                     page = await context.new_page()
-                    # 静的アセット（画像、CSS、フォント、メディア等）の取得を遮断して高速化・WAF負荷軽減 (Issue #1484)
+
+                    # ギガ浪費防止・高速化: 画像、フォント、メディア、スタイルシート等の不要アセットをルート遮断 (Issue #1484, #1486)
+                    STATIC_ASSET_PATTERN = re.compile(
+                        r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$",
+                        re.IGNORECASE,
+                    )
+
+                    async def _block_unnecessary_resources(route):
+                        req = route.request
+                        res_type = getattr(req, "resource_type", "")
+                        req_url = getattr(req, "url", "")
+                        if res_type in {"image", "media", "font", "stylesheet", "other"}:
+                            await route.abort()
+                        elif isinstance(req_url, str) and STATIC_ASSET_PATTERN.search(req_url):
+                            await route.abort()
+                        else:
+                            await route.continue_()
+
                     await page.route(
-                        re.compile(
-                            r"\.(png|jpg|jpeg|gif|webp|svg|ico|css|woff2?|ttf|eot)(\?.*)?$",
-                            re.IGNORECASE,
-                        ),
-                        lambda route: route.abort(),
+                        STATIC_ASSET_PATTERN,
+                        _block_unnecessary_resources,
                     )
                     try:
                         await page.goto(
@@ -214,13 +259,18 @@ class KenbiyaParserBase(ParserBase):
         }
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
+        proxy_url = self.get_proxy_url()
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
             await self._throttle_before_request()
             try:
-                async with session.get(
-                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
+                get_kwargs: dict[str, Any] = {
+                    "headers": headers,
+                    "timeout": aiohttp.ClientTimeout(total=15),
+                }
+                if proxy_url:
+                    get_kwargs["proxy"] = proxy_url
+                async with session.get(url, **get_kwargs) as response:
                     last_status = response.status
                     content = await self._handle_response_or_403(
                         session, response, url, attempt, max_timeouts
