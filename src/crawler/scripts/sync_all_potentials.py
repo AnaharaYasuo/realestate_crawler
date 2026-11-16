@@ -40,6 +40,7 @@ from package.models.evaluation import (
     UrbanInductionZoneMaster,
     UrbanPlanningZonePotential,
 )
+from package.models.external_data_sync_audit import ExternalDataSyncAudit
 from scripts.data_import.generate_building_master import (
     generate_and_sync_building_master,
 )
@@ -93,6 +94,70 @@ def _is_updated_within_days(model_cls: Any, max_age_days: int, min_rows: int = 1
         return False
 
 
+def _is_dataset_fresh_by_audit(
+    dataset_key: str,
+    max_age_days: int,
+    model_cls: Any | None = None,
+    min_rows: int = 1,
+) -> bool:
+    """ExternalDataSyncAudit または既存テーブルのレコード件数と最終同期日時から TTL 鮮度を判定する (Issue #1538)."""
+    try:
+        # テーブルが存在し、指定行数以上あることを確認
+        if model_cls is not None and not _has_min_rows(model_cls, min_rows):
+            return False
+
+        audit = ExternalDataSyncAudit.objects.filter(
+            dataset_key=dataset_key,
+            status="SUCCESS",
+        ).first()
+        if audit is None:
+            # 監査レコードがまだ未作成の場合:
+            # 既存テーブルに既に必要件数以上のデータが入っていれば初回の初期監査レコードを自動補完し、
+            # 次回以降の TTL 判定に備える（既存データを無駄に再取得しない安全策）
+            if model_cls is not None and _has_min_rows(model_cls, min_rows):
+                count = model_cls.objects.count()
+                ExternalDataSyncAudit.objects.update_or_create(
+                    dataset_key=dataset_key,
+                    defaults={
+                        "dataset_name": dataset_key,
+                        "last_synced_at": timezone.now(),
+                        "record_count": count,
+                        "status": "SUCCESS",
+                        "duration_seconds": 0,
+                    },
+                )
+                logger.info(
+                    "📌 [Audit Init] Initialized sync audit for existing dataset '%s' (%d records).",
+                    dataset_key,
+                    count,
+                )
+                return True
+            return False
+
+        cutoff = timezone.now() - datetime.timedelta(days=max_age_days)
+        return audit.last_synced_at >= cutoff
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to check dataset fresh for '%s': %s", dataset_key, e)
+        return False
+
+
+def _record_sync_audit(dataset_key: str, status: str, count: int, duration_sec: int = 0) -> None:
+    """同期実行結果を ExternalDataSyncAudit に保存する (Issue #1538)."""
+    try:
+        ExternalDataSyncAudit.objects.update_or_create(
+            dataset_key=dataset_key,
+            defaults={
+                "dataset_name": dataset_key,
+                "last_synced_at": timezone.now(),
+                "record_count": max(0, count) if isinstance(count, int) else 0,
+                "status": status,
+                "duration_seconds": duration_sec,
+            },
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to record sync audit for '%s': %s", dataset_key, e)
+
+
 def _resolve_effective_skip_flags(raw_flags: dict[str, bool], respect_ttl: bool, force: bool) -> dict[str, bool]:
     flags = dict(raw_flags)
     if force:
@@ -101,14 +166,14 @@ def _resolve_effective_skip_flags(raw_flags: dict[str, bool], respect_ttl: bool,
         return flags
 
     ttl_checks: dict[str, Callable[[], bool]] = {
-        "estat": lambda: _has_min_rows(MunicipalPotential, 1500),
-        "stations": lambda: _has_min_rows(StationPotential, 5000),
-        "urban_zones": lambda: _has_min_rows(UrbanPlanningZonePotential, 10),
+        "estat": lambda: _is_dataset_fresh_by_audit("estat", max_age_days=30, model_cls=MunicipalPotential, min_rows=1500),
+        "stations": lambda: _is_dataset_fresh_by_audit("stations", max_age_days=30, model_cls=StationPotential, min_rows=5000),
+        "urban_zones": lambda: _is_dataset_fresh_by_audit("urban_zones", max_age_days=30, model_cls=UrbanPlanningZonePotential, min_rows=10),
         "land_prices": lambda: _is_updated_within_days(LandPricePointPotential, max_age_days=14, min_rows=20000),
-        "hazard_map": lambda: _has_min_rows(HazardMapPotential, 1500),
-        "future_pop": lambda: _has_min_rows(MunicipalFuturePotential, 5000),
-        "induction_zones": lambda: _has_min_rows(UrbanInductionZoneMaster, 500),
-        "historical": lambda: _has_min_rows(MunicipalYearlyPotential, 5000),
+        "hazard_map": lambda: _is_dataset_fresh_by_audit("hazard_map", max_age_days=30, model_cls=HazardMapPotential, min_rows=1500),
+        "future_pop": lambda: _is_dataset_fresh_by_audit("future_pop", max_age_days=90, model_cls=MunicipalFuturePotential, min_rows=5000),
+        "induction_zones": lambda: _is_dataset_fresh_by_audit("induction_zones", max_age_days=30, model_cls=UrbanInductionZoneMaster, min_rows=500),
+        "historical": lambda: _is_dataset_fresh_by_audit("historical", max_age_days=30, model_cls=MunicipalYearlyPotential, min_rows=5000),
         "building_master": lambda: _is_updated_within_days(BuildingMaster, max_age_days=7, min_rows=500),
         "rent_cap_rates": lambda: _is_updated_within_days(CapRateBenchmarkPotential, max_age_days=7, min_rows=50),
         "macro": _is_macro_fresh,
@@ -132,16 +197,21 @@ def _execute_parallel_sync_phase(
     logger.info("%s: Running %d tasks in parallel (workers=%d)...", phase_label, len(tasks), max_workers)
     logger.info("=" * 60)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        t0_map = {name: timezone.now() for name, _ in tasks}
         future_to_name = {executor.submit(func): name for name, func in tasks}
         for fut in as_completed(future_to_name):
             name = future_to_name[fut]
+            duration = int((timezone.now() - t0_map[name]).total_seconds())
             try:
                 cnt = fut.result()
                 results[name] = {"status": "success", "count": cnt}
                 logger.info("✅ %s Task '%s' completed: %s records", phase_label, name, cnt)
+                # 監査ログを永続化 (Issue #1538)
+                _record_sync_audit(dataset_key=name, status="SUCCESS", count=cnt, duration_sec=duration)
             except Exception as e:
                 logger.exception("❌ %s Task '%s' failed", phase_label, name)
                 results[name] = {"status": "error", "error": str(e)}
+                _record_sync_audit(dataset_key=name, status="ERROR", count=0, duration_sec=duration)
 
 
 def _build_derived_sync_tasks(
@@ -151,15 +221,15 @@ def _build_derived_sync_tasks(
     specs: list[tuple[bool, str, Callable[..., Any]]] = [
         (skip_flags["land_prices"], "land_prices", import_land_prices),
         (skip_flags["hazard_map"], "hazard_map", import_hazard_map),
-        (skip_flags["future_pop"], "future_population", sync_ipss_future_population),
-        (skip_flags["induction_zones"], "urban_induction_zones", sync_urban_induction_zones),
+        (skip_flags["future_pop"], "future_pop", sync_ipss_future_population),
+        (skip_flags["induction_zones"], "induction_zones", sync_urban_induction_zones),
         (skip_flags["historical"], "muni_yearly", sync_municipal_yearly_potentials),
         (skip_flags["historical"], "station_yearly", sync_station_yearly_potentials),
         (skip_flags["building_master"], "building_master", generate_and_sync_building_master),
-        (skip_flags["macro"], "macro_economic_indices", sync_macro_economic_indices),
+        (skip_flags["macro"], "macro", sync_macro_economic_indices),
         (
             skip_flags["rent_cap_rates"],
-            "rent_and_cap_rates",
+            "rent_cap_rates",
             lambda: sync_rent_and_cap_rate_potentials(enable_live_crawl=live_crawl_rent),
         ),
     ]
@@ -210,7 +280,7 @@ def run_all_syncs(
     )
 
     base_specs: list[tuple[bool, str, Callable[..., Any]]] = [
-        (eff["estat"], "municipalities", sync_municipalities),
+        (eff["estat"], "estat", sync_municipalities),
         (eff["stations"], "stations", import_mlit_stations),
         (eff["urban_zones"], "urban_zones", import_urban_planning_zones),
     ]
@@ -223,13 +293,18 @@ def run_all_syncs(
 
     if not eff["open_geo_tx"]:
         close_old_connections()
+        t0_geo = timezone.now()
         try:
             geo_res = sync_open_geo_and_transactions(max_workers=max(4, max_workers))
+            dur_geo = int((timezone.now() - t0_geo).total_seconds())
             results["open_geo_and_transactions"] = {"status": "success", "count": geo_res}
             logger.info("✅ Phase 3 Task 'open_geo_and_transactions' completed: %s", geo_res)
+            _record_sync_audit(dataset_key="open_geo_tx", status="SUCCESS", count=geo_res, duration_sec=dur_geo)
         except Exception as e:
+            dur_geo = int((timezone.now() - t0_geo).total_seconds())
             logger.exception("❌ Phase 3 Task 'open_geo_and_transactions' failed")
             results["open_geo_and_transactions"] = {"status": "error", "error": str(e)}
+            _record_sync_audit(dataset_key="open_geo_tx", status="ERROR", count=0, duration_sec=dur_geo)
 
     close_old_connections()
     logger.info("=" * 60)
