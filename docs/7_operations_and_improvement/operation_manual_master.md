@@ -125,22 +125,25 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 
 | 時刻 (JST) | 実行基盤 | 処理内容 |
 | :--- | :--- | :--- |
-| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2`、`ietan` はドメイン並列 `1` に自動制限してタイムアウトを抑止（一時障害サイトがある場合は `--exclude-company` で一時除外可能）。100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
+| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列・平滑化条件（`--ttl-days 14 --company-ratio-quota 14 --daily-quota 8500 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2`、`ietan` はドメイン並列 `1` に自動制限してタイムアウトを抑止（一時障害サイトがある場合は `--exclude-company` で一時除外可能）。14日均等分割（1/14クォータ）および1日最大8,500件上限でスパイクを防止しつつ、100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
 
 ### 手動確認・実行コマンド（ローカル本番実行）
 ```bash
 # 対象件数のドライラン確認（インフラ自動接続付き）
 python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --dry-run
 
+# 日次平滑化（14日均等分割 1/14 クォータ配分 ＋ 全体日次上限）ドライラン確認
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --company-ratio-quota 14 --daily-quota 8500 --dry-run
+
 # 件数上限を指定した動作確認実行
 python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --limit 20
 
-# 日次本番フル実行（サイト別並列制御 3/2・深夜 00:50 JST 自動停止＆ProxySQL停止付き）
-python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
+# 日次本番平滑化実行（サイト別 1/14 均等配分 ＋ 日次上限 ＋ サイト別並列制御 3/2・深夜 00:50 JST 自動停止＆ProxySQL停止付き）
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --company-ratio-quota 14 --daily-quota 8500 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
 ```
 
 ---
 
-**最終更新**: 2026年11月15日  
-**バージョン**: 1.8 (Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
+**最終更新**: 2026年11月16日  
+**バージョン**: 1.9 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入、Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
 

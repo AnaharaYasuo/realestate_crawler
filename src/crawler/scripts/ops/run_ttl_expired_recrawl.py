@@ -33,6 +33,7 @@ import inspect
 import json
 import logging
 import os
+import math
 from pathlib import Path
 import shutil
 import socket
@@ -627,6 +628,47 @@ def interleave_targets_by_company(targets: list[TtlTarget]) -> list[TtlTarget]:
     return interleaved
 
 
+def apply_quota_smoothing(
+    targets: list[TtlTarget],
+    daily_quota: int | None = None,
+    company_quota: int | None = None,
+    company_ratio_quota: int | None = None,
+) -> list[TtlTarget]:
+    """Apply daily overall quota and per-company quota smoothing while preserving company interleaving."""
+    if not targets:
+        return []
+
+    # 1. Group targets by company
+    buckets: dict[str, list[TtlTarget]] = defaultdict(list)
+    company_order: list[str] = []
+    for target in targets:
+        comp = target.company or "unknown"
+        if comp not in buckets:
+            company_order.append(comp)
+        buckets[comp].append(target)
+
+    # 2. Determine per-company cap
+    sliced_targets: list[TtlTarget] = []
+    for comp in company_order:
+        comp_targets = buckets[comp]
+        count = len(comp_targets)
+        allowed = count
+        if company_quota is not None and company_quota > 0:
+            allowed = min(allowed, company_quota)
+        if company_ratio_quota is not None and company_ratio_quota > 0:
+            ratio_cap = max(1, math.ceil(count / company_ratio_quota))
+            allowed = min(allowed, ratio_cap)
+        sliced_targets.extend(comp_targets[:allowed])
+
+    # 3. Interleave across companies to prevent burst
+    interleaved = interleave_targets_by_company(sliced_targets)
+
+    # 4. Apply overall daily quota if specified
+    if daily_quota is not None and daily_quota > 0:
+        return interleaved[:daily_quota]
+    return interleaved
+
+
 def _is_company_allowed(
     comp: str,
     company_filter: set[str] | None,
@@ -823,6 +865,9 @@ def collect_ttl_expired_targets(
     exclude_company: str | None = None,
     skip_portals: bool = False,
     limit: int | None = None,
+    daily_quota: int | None = None,
+    company_quota: int | None = None,
+    company_ratio_quota: int | None = None,
 ) -> list[TtlTarget]:
     """Query production/configured DB for all 14-day TTL-expired published property URLs."""
     company_filter = _parse_csv_company_set(company)
@@ -841,6 +886,14 @@ def collect_ttl_expired_targets(
         company_filter=company_filter,
         exclude_companies=exclude_companies,
     )
+    # Apply quota smoothing if requested
+    if daily_quota is not None or company_quota is not None or company_ratio_quota is not None:
+        targets = apply_quota_smoothing(
+            targets,
+            daily_quota=daily_quota,
+            company_quota=company_quota,
+            company_ratio_quota=company_ratio_quota,
+        )
     if limit is not None and limit > 0:
         return targets[:limit]
     return targets
@@ -1298,6 +1351,18 @@ def _flush_fetched_batch_sync_once(
     return outcomes
 
 
+def _fallback_flush_item_by_item(chunk: list[_FetchedOutcomeItem]) -> list[str]:
+    outcomes: list[str] = []
+    for item in chunk:
+        try:
+            res = _flush_fetched_batch_with_retry([item], batch_size=1)
+            outcomes.extend(res)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[TTLRecrawl] Per-item fallback flush failed for %s: %s", item.target.property_url, exc)
+            outcomes.append("error")
+    return outcomes
+
+
 def _flush_fetched_batch_with_retry(
     batch: list[_FetchedOutcomeItem],
     batch_size: int = DEFAULT_DB_BATCH_SIZE,
@@ -1366,7 +1431,10 @@ class _TtlDbBatchBuffer:
             )
         except Exception:
             logger.exception("[TTLRecrawl] Batch DB flush failed for %d items; falling back per-item.", len(chunk))
-            outcomes = ["error"] * len(chunk)
+            try:
+                outcomes = await self._db_runner.run(_fallback_flush_item_by_item, chunk)
+            except Exception:
+                outcomes = ["error"] * len(chunk)
 
         async with self._stats_lock:
             for outcome in outcomes:
@@ -2074,6 +2142,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Maximum number of expired URLs to crawl (for smoke testing).",
     )
     parser.add_argument(
+        "--daily-quota",
+        type=int,
+        default=None,
+        help="Overall daily max target count for TTL recrawl smoothing (caps total crawled per run).",
+    )
+    parser.add_argument(
+        "--company-quota",
+        type=int,
+        default=None,
+        help="Fixed maximum target count per company for TTL recrawl smoothing.",
+    )
+    parser.add_argument(
+        "--company-ratio-quota",
+        type=int,
+        default=None,
+        help="Divide each company's expired count by this ratio (e.g. 14 for 1/14 per day) to smooth daily target spikes.",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         default=DEFAULT_CONCURRENCY,
@@ -2161,6 +2247,9 @@ def _run_job_body(args: argparse.Namespace) -> dict[str, Any]:
         "company": args.company,
         "skip_portals": args.skip_portals,
         "limit": args.limit,
+        "daily_quota": getattr(args, "daily_quota", None),
+        "company_quota": getattr(args, "company_quota", None),
+        "company_ratio_quota": getattr(args, "company_ratio_quota", None),
     }
     if getattr(args, "exclude_company", None):
         collect_kwargs.update(
