@@ -123,15 +123,18 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 # 対象件数のドライラン確認（インフラ自動接続付き）
 python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --dry-run
 
+# 日次平滑化（14日均等分割 1/14 クォータ配分 ＋ 全体日次上限）ドライラン確認
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --company-ratio-quota 14 --daily-quota 8500 --dry-run
+
 # 件数上限を指定した動作確認実行
 python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --limit 20
 
-# 日次本番フル実行（サイト別並列制御 3/2・深夜 00:50 JST 自動停止＆ProxySQL停止付き）
-python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
+# 日次本番平滑化実行（サイト別 1/14 均等配分 ＋ 日次上限 ＋ サイト別並列制御 3/2・深夜 00:50 JST 自動停止＆ProxySQL停止付き）
+python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-infra --ttl-days 14 --company-ratio-quota 14 --daily-quota 8500 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit
 ```
 
 ---
 
-**最終更新**: 2026年11月14日  
-**バージョン**: 1.7 (Issue #1430: TTL再クロールのサイト別並列制御導入 — 弱いサーバーのドメイン並列上限を2に設定)
+**最終更新**: 2026年11月15日  
+**バージョン**: 1.8 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入)
 

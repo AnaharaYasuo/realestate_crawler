@@ -17,7 +17,7 @@ $RunnerExe = if (Test-Path $PythonwExe) { $PythonwExe } else { $PythonExe }
 
 $Action = New-ScheduledTaskAction `
     -Execute $RunnerExe `
-    -Argument "`"$ScriptPath`" --ensure-local-prod-infra --ttl-days 14" `
+    -Argument "`"$ScriptPath`" --ensure-local-prod-infra --ttl-days 14 --company-ratio-quota 14 --daily-quota 8500 --stop-at-jst 00:50 --stop-proxysql-on-exit" `
     -WorkingDirectory $RepoRoot
 $Trigger = New-ScheduledTaskTrigger -Daily -At $TriggerTime
 $Settings = New-ScheduledTaskSettingsSet `
