@@ -186,14 +186,14 @@ OOF深層残差分析により判明した大面積帯（268㎡超）の単価�
 ### 4.2 全14種の外部・参照データ一覧と定期更新スケジュール（SSOT）
 
 | # | データ名称 | 保存先 (DB テーブル / GCS キー) | 同期スクリプト | 原典公表周期 | 自動更新スケジュール / 鮮度TTL (`--respect-ttl`) |
-| :---: | :--- | :--- | :--- | :---: | :--- |
-| **1** | **総務省 e-Stat 人口・世帯・課税所得** | `municipal_potential` (`MunicipalPotential`) | [`sync_estat_municipalities.py`](../../src/crawler/scripts/data_import/sync_estat_municipalities.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
-| **2** | **国土数値情報 S12 駅別乗降客数** | `station_potential` (`StationPotential`) | [`import_mlit_stations.py`](../../src/crawler/scripts/data_import/import_mlit_stations.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
-| **3** | **国土数値情報 A29 用途地域規制** | `urban_planning_zone_potential` (`UrbanPlanningZonePotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
-| **4** | **国土数値情報 洪水・土砂災害ハザード** | `hazard_map_potential` (`HazardMapPotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
-| **5** | **社人研 (IPSS) 2035年将来推計人口** | `future_population_potential` (`FuturePopulationPotential`) | [`import_ipss_future_population.py`](../../src/crawler/scripts/data_import/import_ipss_future_population.py) | 5年ごと | **四半期更新**（TTL 90日、空テーブル時は即時取得） |
-| **6** | **国交省 立地適正化計画（居住/都市機能誘導区域）** | `urban_induction_zone_potential` (`UrbanInductionZonePotential`) | [`import_urban_induction_zones.py`](../../src/crawler/scripts/data_import/import_urban_induction_zones.py) | 年次 | **月次更新**（TTL 30日、空テーブル時は即時取得） |
-| **7** | **自治体・駅 過去時系列推移（3年CAGR）** | `municipal_yearly_potential` / `station_yearly_potential` | [`sync_yearly_historical_potentials.py`](../../src/crawler/scripts/data_import/sync_yearly_historical_potentials.py) | 年次 | **月次更新**（TTL 30日、当月未同期時は即時更新） |
+| :---: | :--- | :--- | :--- | :--- | :--- |
+| **1** | **総務省 e-Stat 人口・世帯・課税所得** | `municipal_potential` (`MunicipalPotential`) | [`sync_estat_municipalities.py`](../../src/crawler/scripts/data_import/sync_estat_municipalities.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
+| **2** | **国土数値情報 S12 駅別乗降客数** | `station_potential` (`StationPotential`) | [`import_mlit_stations.py`](../../src/crawler/scripts/data_import/import_mlit_stations.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
+| **3** | **国土数値情報 A29 用途地域規制** | `urban_planning_zone_potential` (`UrbanPlanningZonePotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
+| **4** | **国土数値情報 洪水・土砂災害ハザード** | `hazard_map_potential` (`HazardMapPotential`) | [`import_hazard_and_urban_zones.py`](../../src/crawler/scripts/data_import/import_hazard_and_urban_zones.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
+| **5** | **社人研 (IPSS) 2035年将来推計人口** | `future_population_potential` (`FuturePopulationPotential`) | [`import_ipss_future_population.py`](../../src/crawler/scripts/data_import/import_ipss_future_population.py) | 5年ごと | **四半期更新（TTL 90日）**。`ExternalDataSyncAudit` の最終同期日時から90日経過時に全量再取得・洗い替え (Issue #1538) |
+| **6** | **国交省 立地適正化計画（居住/都市機能誘導区域）** | `urban_induction_zone_potential` (`UrbanInductionZonePotential`) | [`import_urban_induction_zones.py`](../../src/crawler/scripts/data_import/import_urban_induction_zones.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
+| **7** | **自治体・駅 過去時系列推移（3年CAGR）** | `municipal_yearly_potential` / `station_yearly_potential` | [`sync_yearly_historical_potentials.py`](../../src/crawler/scripts/data_import/sync_yearly_historical_potentials.py) | 年次 | **月次更新（TTL 30日）**。`ExternalDataSyncAudit` の最終同期日時から30日経過時に全量再取得・洗い替え (Issue #1538) |
 | **8** | **国交省 L01地価公示（3月）・L02基準地価（9月）**<br>（市区町村平均＋全国4.7万標準地座標） | `land_price_potential` + `land_price_point_potential` (`LandPricePointPotential`) | [`import_mlit_land_prices.py`](../../src/crawler/scripts/data_import/import_mlit_land_prices.py) | 年2回 (3月・9月) | **月次更新（公表期3・4・9・10月はTTL 14日、他月は30日）**。1,000件単位マルチロー `INSERT ... ON DUPLICATE KEY UPDATE` により高速一括同期 |
 | **9** | **賃料相場・期待利回りベンチマーク**<br>（e-Stat・JREI・自社DB集計・ポータル実クロール） | `rent_market_potential` / `cap_rate_benchmark_potential` + GCS `rag/raw/rent_mesh/` | [`sync_rent_and_cap_rate_potentials.py`](../../src/crawler/scripts/data_import/sync_rent_and_cap_rate_potentials.py) | 随時 / 半年 | **自社DB集計は日次更新**、外部ポータル賃料メッシュ収集（`enable_live_crawl=True`）は**週次（日曜）更新** |
 | **10** | **マクロ経済指標（国交省REPI・財務省10年国債利回り・フラット35・日経平均・東証REIT・建設物価・コアCPI）** | `macro_economic_index` (`MacroEconomicIndex`) | [`sync_macro_economic_indices.py`](../../src/crawler/scripts/data_import/sync_macro_economic_indices.py) | 月次 / 日次 | **日次チェック・当月分自動同期**。財務省公式国債金利CSV（`jgbcm.csv`）等の無料公開統計から最新月次レコードを自動補完・更新し、将来年月でもデータ切れを起こさない |
@@ -850,6 +850,96 @@ $$V_{\text{DCF}} = \sum_{t=1}^{10} \frac{\text{NCF}_t}{(1 + r)^t} + \frac{TV_{10
 
 
 
+## 17. MLモデル種別単位ローテーション再学習・直列化・メモリ最適化 (Issue #1482)
+
+2GiBコンテナ（`realestate-ml-pipeline-prod`）におけるメモリ超過（OOM Kill, Exit Code -9）を防ぎ、軽量かつ安定した日次運用を実現するため、以下の再学習ローテーションおよびメモリ最適化アーキテクチャを適用する：
+
+1. **種別単位の指定引数 (`--property-type` / `ML_TRAIN_PROPERTY_TYPES`)**:
+   - `python train.py --property-type <type>` により、単一または複数種別（`mansion`, `kodate`, `apartment`, `tochi`）のみを個別に学習可能化。
+2. **曜日分散ローテーション**:
+   - 日次パイプライン（`run_ml_pipeline.py`）実行時、全種別の一括再学習を廃止し、曜日ごとに1種別ずつローテーション学習を実行する。
+     - **木曜**: `mansion`（マンション）
+     - **金曜**: `kodate`（戸建て）
+     - **土曜**: `apartment`（投資アパート・一棟）
+     - **日曜**: `tochi`（土地）
+     - **月〜水**: 再学習スキップ（推論・配信のみで高速運用）
+   - 1回あたりの学習データ量・メモリ消費量・所要時間を約 1/4 に削減。
+3. **既存メタデータ保護と個別マージ保存**:
+   - `save_metadata` において、学習対象外の種別の既存モデル・重み（`ensemble_weights.joblib`, `smearing_factors.joblib` 等）を上書き削除せず、既存ファイルを読み込んで安全にマージ保存する。
+4. **学習プロセスの直列化とメモリ解放**:
+   - 一次モデル保存後に即時 `del` ＋ `gc.collect()` を実施し、二次モデルとのメモリ二重保持を解消。
+   - `train_and_compare` 内の各アルゴリズム（LightGBM ➔ XGBoost ➔ CatBoost ➔ RandomForest）学習完了ごとに `gc.collect()` を呼び出し、中間モデル・OOF配列を早期解放。
+   - `build_market_master_from_models` 内の全件レコード中間 DataFrame / Series の即時解放。
+   - スレッド数 `_get_ml_thread_limit()` のデフォルト上限を 2 スレッドに設定し、マルチスレッド・マルチプロセスによるメモリ複製を抑制。
+
+## 18. ML パイプラインにおける異常再取得スキップ ＆ 明示的物件種別指定 (Issue #1495)
+
+日次 ML パイプライン実行（`run_ml_pipeline.py`）において、異常レコード再取得（Step 0.9: `recrawl_anomalies.py`）を任意にスキップ可能とし、かつ特定物件種別のモデルのみを最上位 CLI から直接再学習可能とするため、以下の仕様を規定する：
+
+1. **`--skip-recrawl` フラグおよび環境変数 `ML_PIPELINE_SKIP_RECRAWL`**:
+   - `python run_ml_pipeline.py --skip-recrawl` または `ML_PIPELINE_SKIP_RECRAWL=true` 指定時、Step 0.9（過去エラー物件のスクレイピング再取得）を完全にバイパスし、即座にデータ検証・ML学習・推論フェーズへ進む。
+   - モデル再学習検証時や高速推論・緊急通知配信時における無駄な HTTP リクエスト待機時間をゼロにする。
+2. **最上位 CLI 引数 `--property-type`**:
+   - `run_ml_pipeline.py --property-type <type>` を受け付け、指定時は曜日ローテーション判定をオーバーライドして該当物件種別の `train.py --property-type <type>` を実行する。
+   - 未指定時は従来どおり曜日ローテーション（木: mansion, 金: kodate, 土: apartment, 日: tochi）に従う。
+
+## 19. 全物件種別（all）一括再学習サポート & リアルタイムCPU/メモリ使用量テレメトリ (Issue #1504)
+
+Cloud Run（2 vCPU / 2 GiB RAM）環境下でのモデル再学習において、全モデルの一括検証要求に対応しつつ、リソース枯渇（OOM Kill, Exit Code -9）を定量的に観測・防止するため、以下の仕様を規定する：
+
+1. **`--property-type all` サポート**:
+   - `run_ml_pipeline.py --property-type all` を受け付け、指定時は全4種別（`mansion`, `kodate`, `apartment`, `tochi`）を対象とする。
+   - `train.py` の引数として各対象種別（`--property-type mansion --property-type kodate --property-type apartment --property-type tochi`）を明示的に渡して直列学習を実行する。
+2. **モデル学習中のリアルタイム CPU / メモリ使用量テレメトリ**:
+   - `package.ml.training.pipeline` の `train_property_type` および `run_training` において、`_read_host_memory_fallback` および `_read_cpu_metrics` を用いて以下を計測・ログ出力する：
+     - 開始時 RSS メモリ (MB)
+     - 終了時 RSS メモリ (MB)
+     - モデル学習中ピーク RAM 推定 (MB)
+     - プロセス CPU 利用率 (%) および システム CPU 利用率 (%)
+   - `BatchMetrics` のサマリバナーに各種別のメモリ推移と CPU 利用率を表示し、Cloud Logging / 構造化ログ上でリソース消費をリアルタイムに把握可能とする。
+3. **直列学習間のメモリ強制回収**:
+   - 各物件種別の学習終了ごとに `del` による参照破棄と `gc.collect()` を確実に呼び出し、2GiB 上限内での安全な連続稼働を保証する。
+
+## 20. 割安物件推薦における非現実的外れ値安全弁ガード仕様 (Issue #1509)
+
+機械学習モデル推論時や過去の過渡的データにおいて生じうる極端な外れ値・異常値が、割安物件（お宝物件）として誤配信されることを機械的に防ぐため、以下の安全弁（Outlier Circuit Breaker）を規定する：
+
+1. **非現実的ディスカウント率の安全弁 (`MAX_REALISTIC_DISCOUNT_PCT = 85.0`)**:
+   - `send_recommendations.py` の一次スクリーニング（`_evaluate_investment_candidate`, `_evaluate_residential_candidate`）において、売出価格に対する割安度（ディスカウント率）が **85.0% 以上**（理論予測価格が売出価格の約 6.67 倍以上）に達する物件は、市場実勢から乖離したモデル推論異常・外れ値として除外（スキップ）する。
+2. **積算・DCF理論価格の極端乖離ガード (`MAX_VALUATION_MULTIPLIER = 6.0`)**:
+   - 投資物件において、積算価格（`estimated_sekisan_price`）または DCF 理論価格（`dcf_theoretical_price`）が売出価格（`asking_price_man`）の **6.0 倍**を超えるような極端な歪みを持つ物件は、一次スクリーニングで機械的に除外する。
+3. **AI定性評価プロンプトへの汚染防止**:
+   - 極端な外れ値が一次スクリーニングで遮断されることにより、LLM（Gemini）が異常数値を「圧倒的な積算割れ」「価格の歪み」と誤認して好意的な推薦レポートを自動生成する事態を未然に防止する。
+
+## 21. Cloud Run 2GiB 環境における ML 再学習メモリ最適化仕様 (Issue #1513, #1517)
+
+### 21.1 課題と背景
+Cloud Run ジョブ（2 vCPU / 2 GiB RAM）において全種別 ML 再学習（`--train --property-type all`）を実行した際、マンション等のデータセット学習中（Step 2/5）にメモリ上限（2GiB）を超過し OOM Kill（Exit Code: -9）が発生していた。
+原因は以下の複合的要因による：
+1. `DEFAULT_MAX_TRAINING_ITEMS` を安易に制限するのではなく、全件ロード（辞書リストや非圧縮 DataFrame）によるオブジェクトオーバーヘッドが原因であった。
+2. 50以上の特徴量列を持つ DataFrame を非圧縮（`float64`）かつ Python 辞書の巨大リストとして一括生成していたため、ベースメモリを大量消費。
+3. 2ステージ（1次・2次）× 4アルゴリズム（LGB/XGB/CAT/RF）× 3-fold CV および P10 分位点回帰において、fold ごとの学習済みモデルや中間オブジェクトがメモリ上に残留し累積。
+4. `RandomForestRegressor` において `n_estimators=100, max_depth=None`（無制限）による決定木構造データの肥大化。
+
+### 21.2 仕様変更内容 (Issue #1517 根本改修)
+1. **ストリーミングチャンク取得＆即時破棄 (`stream_training_feature_chunks`)**:
+   - DB から 1,000 件単位のチャンクで ORM モデルを取得し、特徴量抽出直後に ORM インスタンスを `del` してメモリを即時解放。
+   - 抽出された特徴量チャンクを `_build_compact_dataframe` にて順次結合し、浮動小数点数を `float32`、整数をダウンキャスト、カテゴリ変数を `category` 型へ変換。
+   - これにより、`DEFAULT_MAX_TRAINING_ITEMS = 50000`（5万件）をフル維持したまま、DataFrame 常駐メモリを約 1/5〜1/10 に圧縮。
+2. **高速並列学習の実現（4スレッド許可）**:
+   - メモリフットプリントの極小化により、`_get_ml_thread_limit()` の上限を 4 スレッドに設定（マルチコア性能をフル活用）。
+3. **RandomForest のメモリフットプリント適正化**:
+   - `RandomForestRegressor` の `max_depth` 既定値を 12 に制限し、`min_samples_leaf=5`, `max_features='sqrt'` を維持することで、決定木によるメモリ肥大化を防止。
+4. **中間オブジェクトの即時解放とガベージコレクション徹底**:
+   - `train_single_algo` の各 fold 実行ループ内において、fold モデルおよび中間予測配列を評価完了直後に `del` および `gc.collect()`。
+   - 各アルゴリズム完了時、および 1次・2次ステージ完了時に明示的 `gc.collect()` を呼出し。
+5. **リアルタイム標準出力フラッシュ**:
+   - 各モデル学習開始・終了、CVスコア出力、メモリ推移ログ出力時に `sys.stdout.flush()` を実行し、Cloud Logging でのリアルタイム可視性を担保。
+6. **不要スコープ変数の安全な破棄規約 (Issue #1521)**:
+   - `stream_training_feature_chunks` への移行に伴い、旧来の一括 `records` リスト変数は廃止されチャンク単位処理となったため、関数クリーンアップ時の明示的 `del` 対象を現行スコープに存在する変数（`df`, `second_ensemble` 等）のみに厳密化し、`UnboundLocalError` を防止する。
+
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
+- `run_ml_pipeline.py` に `--concurrency` 引数を新設し、CLI から動的に並列度（例: `--concurrency 4`）を指定可能とする (Issue #1507)。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。

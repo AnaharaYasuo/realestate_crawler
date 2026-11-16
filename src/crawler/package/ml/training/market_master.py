@@ -28,12 +28,16 @@ def determine_eval_area(p: Any, ptype: str) -> float:
         return 0.0
 
 
-def extract_unit_price_record(p: Any, price: float, ptype: str) -> dict[str, Any] | None:
+def extract_unit_price_record(
+    p: Any, price: float, ptype: str
+) -> dict[str, Any] | None:
     """物件オブジェクトからエリア・平米単価レコードを抽出"""
     address1 = getattr(p, "address1", "") or ""
     address2 = getattr(p, "address2", "") or ""
 
-    chikunengetsu = getattr(p, "chikunengetsu", None) or getattr(p, "chikunengetsuStr", None)
+    chikunengetsu = getattr(p, "chikunengetsu", None) or getattr(
+        p, "chikunengetsuStr", None
+    )
     chikunen = calculate_chikunen(chikunengetsu)
     eval_area = determine_eval_area(p, ptype)
 
@@ -48,7 +52,9 @@ def extract_unit_price_record(p: Any, price: float, ptype: str) -> dict[str, Any
     return None
 
 
-def build_mkt_comparison_master(data_by_type: dict[str, list[dict[str, Any]]]) -> dict[tuple[str, str, str, int], float]:
+def build_mkt_comparison_master(
+    data_by_type: dict[str, list[dict[str, Any]]],
+) -> dict[tuple[str, str, str, int], float]:
     """
     ロードした全データからエリア別の「平均平米単価」マスタを作成
     groupby(...).to_dict() で高速・シンプル化
@@ -150,12 +156,18 @@ def _collect_units_from_single_model(
         units = []
         for row in qs:
             row_dict = dict(zip(query_fields, row))
-            rec = _extract_unit_from_model_row(row_dict, ptype, area_field, duplicate_urls)
+            rec = _extract_unit_from_model_row(
+                row_dict, ptype, area_field, duplicate_urls
+            )
             if rec:
                 units.append(rec)
         return units
     except Exception as e:  # noqa: BLE001
-        logger.warning("Could not build market master for %s: %s", getattr(model, "__name__", "unknown"), e)
+        logger.warning(
+            "Could not build market master for %s: %s",
+            getattr(model, "__name__", "unknown"),
+            e,
+        )
         return []
 
 
@@ -167,22 +179,32 @@ def build_market_master_from_models(
     全社・全種別のモデルから軽量に values_list を走査して取引事例比較マスタを事前集計
     ORM モデルオブジェクトの大量生成を完全に回避
     """
+    import gc
+
     logger.info("Building market comparison master from models...")
     all_units = []
 
     for ptype, models_list in models_by_type.items():
         for _company, model in models_list:
-            all_units.extend(_collect_units_from_single_model(model, ptype, duplicate_urls))
+            all_units.extend(
+                _collect_units_from_single_model(model, ptype, duplicate_urls)
+            )
 
     if not all_units:
         logger.info("Created market comparison master with 0 entries.")
         return {}
 
     df = pd.DataFrame(all_units)
+    del all_units
+    gc.collect()
+
     series = df.groupby(["pref", "city", "ptype", "age_band"])["unit_price"].mean()
     mkt_master = {
         (str(pref), str(city), str(ptype), int(age_band)): float(val)
         for (pref, city, ptype, age_band), val in series.items()
     }
+    del df, series
+    gc.collect()
+
     logger.info("Created market comparison master with %d entries.", len(mkt_master))
     return mkt_master

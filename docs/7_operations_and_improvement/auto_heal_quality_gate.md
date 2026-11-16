@@ -39,3 +39,21 @@ AIサブエージェントが修正コードをコミット・PR作成する前�
 ### 3.2 異常値・サニティチェック (Sanity Check)
 - **価格サニティ**: `price < 1,000,000`（100万円未満）または `price > 10,000,000,000`（100億円超）の物件が全体の 10% 以上を占める場合は、セレクタによる取得箇所誤りと判定。
 - **面積サニティ**: `exclusive_area < 5.0`（5㎡未満）または `exclusive_area > 1,000.0`（1,000㎡超）の異常値検出。
+
+---
+
+## 4. クローリング障害連携 ＆ Issue 自動再オープン仕様 (Issue #1536)
+
+クローリング全タスク集約時および日次整合性スキャンにおいて、検知された障害を確実に修復キューへ投入するため、以下の連携・同期プロトコルを義務付ける。
+
+### 4.1 全体クローリング集約時の機械的障害連携 (E2E Pipeline Integration)
+- `run_all_crawlers.py` の集約完了時、失敗ジョブ（`failed_list`）が 1 件以上存在する場合：
+  1. Slack へのアラート発信に加え、直ちに `auto_heal_parsers.py --failed-steps '<JSON配列>'` を直接サブプロセス実行して指示書（`Temp/auto_heal_instruction.json`）を生成する。
+  2. 続いて `sync_auto_heal_issues.py --instruction-file Temp/auto_heal_instruction.json` を実行し、GitHub Issue へ確実に反映・同期する。
+  3. これにより、人間による手動介入や Slack コマンド入力を待たずに、クローリング完了直後から GitHub Actions または Antigravity 自律エージェントによる自動修復が即座に起動可能となる。
+
+### 4.2 既存 CLOSED Issue の自動再オープン規約 (Auto Re-Open Policy)
+- `sync_auto_heal_issues.py` の同期処理において、同一キー（`company:property_type` または `pipeline:<step>`）を持つ過去の Issue が既に `CLOSED` 状態であっても：
+  - 新たなスキャンやテレメトリで未解決異常が再検知された場合、単なる「コメント追記」で済ませず、**最新テレメトリコメントを追記した上で直ちに `gh issue reopen <number>` を実行して OPEN 状態へ復帰**させる。
+  - 受入基準（チェックボックス）がすべて `[x]` になっていた場合は、未完了状態（`- [ ]`）へリセットする。
+  - これにより、`sync_auto_heal_issues.py --list-actionable` で確実に抽出対象となり、過去に一度修復されたパーサーが再度のレイアウト変更等で再発した際の見落とし・未着手放置を完全に防止する。

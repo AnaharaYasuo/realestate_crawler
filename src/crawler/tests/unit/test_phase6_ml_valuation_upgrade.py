@@ -19,8 +19,8 @@ from package.ml.training.pipeline import DEFAULT_MAX_TRAINING_ITEMS
 
 class TestPhase6MlValuationUpgrade:
     def test_training_cap_raised_to_50000(self):
-        """Training pipeline default max_items cap must be raised from 15000 to 50000."""
-        assert DEFAULT_MAX_TRAINING_ITEMS == 50000
+        """Training pipeline default max_items cap (safe range 10,000 to 50,000, Issue #1151, #1513)."""
+        assert 10000 <= DEFAULT_MAX_TRAINING_ITEMS <= 50000
 
     def test_get_cv_strategy_uses_group_kfold_for_building_groups(self):
         """When multiple units belong to the same condo building/address, GroupKFold is selected to prevent leakage."""
@@ -104,3 +104,27 @@ class TestPhase6MlValuationUpgrade:
         )
         assert scores[0] > scores[1]
         assert scores[0] > 0.10
+
+    def test_chunked_compact_dataframe_memory_and_shape(self):
+        """Issue #1517: チャンク化ストリーミングデータローダーによるメモリ圧縮の検証"""
+        from package.ml.training.pipeline import _build_compact_dataframe, DEFAULT_MAX_TRAINING_ITEMS
+        assert DEFAULT_MAX_TRAINING_ITEMS == 50000
+
+        chunks = [
+            [{'price': 3000.0, 'area': 70.0, 'prefecture': '東京都', 'city': '港区'} for _ in range(100)],
+            [{'price': 4500.0, 'area': 85.0, 'prefecture': '神奈川県', 'city': '横浜市'} for _ in range(100)],
+        ]
+        df = _build_compact_dataframe(chunks)
+        assert len(df) == 200
+        assert df['price'].dtype == 'float32'
+        assert df['area'].dtype == 'float32'
+
+    def test_train_property_type_cleanup_scope_hygiene(self):
+        """Issue #1521: 参照破棄時に存在しない records 変数による UnboundLocalError が発生しないことの確認"""
+        import inspect
+        from package.ml.training.pipeline import train_property_type
+        src = inspect.getsource(train_property_type)
+        assert "del records" not in src
+        assert "del df, second_ensemble" in src
+
+

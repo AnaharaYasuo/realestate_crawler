@@ -1441,19 +1441,20 @@ WARNING: Skipping save for this property due to validation errors.
 | 14| chikunengetsu | Date | ✅ | 築年月 (日付) |
 | 15| soukosuStr | Text | ✅ | 総戸数 (文字列) |
 | 16| soukosu | Int | ✅ | 総戸数 (数値) |
-| 17| kaisuStr | Text | ✅ | 階数 |
-| 18| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
-| 19| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
-| 20| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
-| 21| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
-| 22| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
-| 23| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
-| 24| yousekiStr | Text | ✅ | 容積率 (文字列) |
-| 25| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
-| 26| setsudou | Text | ✅ | 接道状況 |
-| 27| chimoku | Text | ✅ | 地目 |
-| 28| youtoChiiki | Text | ✅ | 用途地域 |
-| 29| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+| 17| kaisu | Int | ✅ | 階数 (数値) |
+| 18| kaisuStr | Text | ✅ | 階数 (文字列) |
+| 19| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 20| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 21| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 22| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 23| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 24| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 25| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 26| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 27| setsudou | Text | ✅ | 接道状況 |
+| 28| chimoku | Text | ✅ | 地目 |
+| 29| youtoChiiki | Text | ✅ | 用途地域 |
+| 30| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
 
 ## 10. Sumai1 (三菱UFJ不動産販売)
 
@@ -1545,19 +1546,20 @@ WARNING: Skipping save for this property due to validation errors.
 | 14| chikunengetsu | Date | ✅ | 築年月 (日付) |
 | 15| soukosuStr | Text | ✅ | 総戸数 (文字列) |
 | 16| soukosu | Int | ✅ | 総戸数 (数値) |
-| 17| kaisuStr | Text | ✅ | 階数 |
-| 18| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
-| 19| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
-| 20| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
-| 21| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
-| 22| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
-| 23| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
-| 24| yousekiStr | Text | ✅ | 容積率 (文字列) |
-| 25| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
-| 26| setsudou | Text | ✅ | 接道状況 |
-| 27| chimoku | Text | ✅ | 地目 |
-| 28| youtoChiiki | Text | ✅ | 用途地域 |
-| 29| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+| 17| kaisu | Int | ✅ | 階数 (数値) |
+| 18| kaisuStr | Text | ✅ | 階数 (文字列) |
+| 19| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 20| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 21| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 22| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 23| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 24| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 25| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 26| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 27| setsudou | Text | ✅ | 接道状況 |
+| 28| chimoku | Text | ✅ | 地目 |
+| 29| youtoChiiki | Text | ✅ | 用途地域 |
+| 30| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
 
 ## 11. Sekisui (積水ハウス不動産)
 

@@ -93,4 +93,22 @@ def test_evaluate_candidate_requires_positive_predicted_price_and_discount():
     assert is_rec is True
     assert "割安" in reason
 
+    # 6. 非現実的な極端外れ値（85%超割安: 予測20000万円対売出2000万円 = 90.0%割安）は安全弁として除外 (Issue #1509)
+    eval_rec.first_stage_predicted_price = 20000
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+    assert prio == 0.0
+
+    # 7. 積算価格が売出価格の6倍超の異常値も安全弁として除外 (Issue #1509)
+    eval_rec.first_stage_predicted_price = 3000  # 正常割安
+    eval_rec.estimated_sekisan_price = 15000  # 2000万に対して15000万 (7.5倍)
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+
+    # 8. DCF理論価格が売出価格の6倍超の異常値も安全弁として除外 (Issue #1509)
+    eval_rec.estimated_sekisan_price = 2500  # 正常積算
+    eval_rec.dcf_theoretical_price = 14000  # 2000万に対して14000万 (7.0倍)
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+
 

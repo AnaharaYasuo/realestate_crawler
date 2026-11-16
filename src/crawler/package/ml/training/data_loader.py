@@ -154,7 +154,7 @@ def _process_model_chunk(
     eval_map: dict[str, tuple[float, float]],
     mkt_master: dict[tuple[str, str, str, int], float],
 ) -> list[dict[str, Any]]:
-    """単一モデルのチャンクから特徴量を抽出しリストとして生成"""
+    """単一モデルのチャンクから特徴量を抽出しリストとして生成（即時モデル破棄）"""
     try:
         objs = list(model.objects.filter(pk__in=pks))
         if not objs:
@@ -175,10 +175,11 @@ def _process_model_chunk(
             feat["layout_score"] = lay_score
             feat["input_date"] = getattr(obj, "inputDate", None) or getattr(obj, "inputDateTime", None)
             results.append(feat)
+        del objs
+        del features_chunk
         if not results:
             logger.warning(
-                "Chunk of %d objects for model %s yielded 0 features (ptype: %s)",
-                len(objs),
+                "Chunk of objects for model %s yielded 0 features (ptype: %s)",
                 getattr(model, "__name__", "unknown"),
                 ptype,
             )
@@ -188,19 +189,19 @@ def _process_model_chunk(
         return []
 
 
-def stream_training_features(
+def stream_training_feature_chunks(
     ptype: str,
     models_by_type: dict[str, list[tuple[str, Any]]],
     eval_map: dict[str, tuple[float, float]],
     duplicate_urls: set[str],
     mkt_master: dict[tuple[str, str, str, int], float],
-    max_items: int = 15000,
+    max_items: int = 50000,
     seed: int = 42,
     chunk_size: int = 1000,
-) -> Iterator[dict[str, Any]]:
+) -> Iterator[list[dict[str, Any]]]:
     """
-    指定種別の学習アイテムをチャンク取得し、即座に特徴量化してイテレータとして返却
-    ORM オブジェクトの全件常駐を防止
+    指定種別の学習アイテムをチャンク取得し、バッチ単位で特徴量リストを yield (Issue #1517)
+    各チャンク処理後に ORM モデルおよび中間配列を即時解放し、メモリ常駐を最小化
     """
     models_list = models_by_type.get(ptype, [])
     records = _collect_lightweight_records_for_ptype(models_list, duplicate_urls)
@@ -213,6 +214,7 @@ def stream_training_features(
     by_model_pks: dict[Any, list[tuple[str, int, float, str]]] = {}
     for model, company, pk, price, page_url in records:
         by_model_pks.setdefault(model, []).append((company, pk, price, page_url))
+    del records
 
     for model, pks_info in by_model_pks.items():
         for i in range(0, len(pks_info), chunk_size):
@@ -226,4 +228,35 @@ def stream_training_features(
                 eval_map=eval_map,
                 mkt_master=mkt_master,
             )
-            yield from feats
+            del pk_map
+            del chunk
+            if feats:
+                yield feats
+                del feats
+
+
+def stream_training_features(
+    ptype: str,
+    models_by_type: dict[str, list[tuple[str, Any]]],
+    eval_map: dict[str, tuple[float, float]],
+    duplicate_urls: set[str],
+    mkt_master: dict[tuple[str, str, str, int], float],
+    max_items: int = 50000,
+    seed: int = 42,
+    chunk_size: int = 1000,
+) -> Iterator[dict[str, Any]]:
+    """
+    指定種別の学習アイテムをチャンク取得し、即座に特徴量化して1件ずつイテレータとして返却
+    ORM オブジェクトの全件常駐を防止 (互換維持)
+    """
+    for chunk in stream_training_feature_chunks(
+        ptype=ptype,
+        models_by_type=models_by_type,
+        eval_map=eval_map,
+        duplicate_urls=duplicate_urls,
+        mkt_master=mkt_master,
+        max_items=max_items,
+        seed=seed,
+        chunk_size=chunk_size,
+    ):
+        yield from chunk

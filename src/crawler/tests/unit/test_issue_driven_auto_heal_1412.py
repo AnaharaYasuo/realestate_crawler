@@ -35,6 +35,13 @@ class FakeGhClient:
             and any(lbl in ("auto-heal", "auto-heal:needs-human") for lbl in iss.get("labels", []))
         ]
 
+    def list_all_auto_heal_issues(self, limit: int = 300) -> list[dict]:
+        return [
+            iss
+            for iss in self.issues.values()
+            if any(lbl in ("auto-heal", "auto-heal:needs-human") for lbl in iss.get("labels", []))
+        ]
+
     def list_open_prs(self) -> list[dict]:
         return list(self.open_prs)
 
@@ -74,6 +81,12 @@ class FakeGhClient:
     def close_issue(self, number: int, comment: str) -> None:
         self.issues[number]["state"] = "CLOSED"
         self.closed_issues.append((number, comment))
+
+    def reopen_issue(self, number: int, comment: str | None = None) -> None:
+        self.issues[number]["state"] = "OPEN"
+        if comment:
+            self.comments.append((number, comment))
+            self.issues[number].setdefault("comments", []).append({"body": comment})
 
 
 def test_scan_anomalies_zero_targets_uploads_clean_instruction_to_gcs(tmp_path: Path):
@@ -158,6 +171,28 @@ def test_scan_anomalies_action_required_mandates_production_merge_and_deploy(tmp
     uploaded = mock_upload.call_args[0][0]
     assert "production" in uploaded["action_required"]
     assert "Deploy Production" in uploaded["action_required"]
+
+
+def test_auto_heal_skill_and_manual_mandate_all_issues_loop_and_production_done():
+    repo_root = Path(__file__).resolve().parents[4]
+    skill_path = repo_root / ".agents" / "skills" / "auto-healing" / "SKILL.md"
+    manual_path = (
+        repo_root
+        / "docs"
+        / "7_operations_and_improvement"
+        / "operation_manual_master.md"
+    )
+
+    skill_text = skill_path.read_text(encoding="utf-8")
+    assert "自律完遂規約" in skill_text
+    assert "アクション可能な Issue" in skill_text
+    assert "production" in skill_text
+    assert "Deploy Production" in skill_text
+
+    manual_text = manual_path.read_text(encoding="utf-8")
+    assert "Production Done 完了要件" in manual_text
+    assert "production" in manual_text
+
 
 
 def test_group_instruction_targets_and_build_compliant_issue_body():
@@ -530,3 +565,177 @@ def test_pull_instruction_from_gcs_direct():
     with patch("google.cloud.storage.Client", return_value=mock_client):
         assert sync_auto_heal_issues.pull_instruction_from_gcs_direct("test-bucket", "missing.json") is None
 
+
+def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
+    """Verify that sync_auto_heal_issues suppresses creating duplicate issues for existing closed/open keys (Issue #1477, #1498)."""
+    from scripts.ops import sync_auto_heal_issues
+
+    instruction = {
+        "generated_at": "2026-11-15 01:00:00",
+        "targets": [
+            {
+                "company": "toho",
+                "property_type": "mansion",
+                "url": "https://example.com/toho/1",
+                "reason": "必須項目欠損 (所在階が未抽出)",
+                "frequency": 10,
+            }
+        ],
+        "failed_pipeline_steps": [],
+    }
+
+    # Case 1: toho:mansion is already CLOSED as #1442
+    fake_gh = FakeGhClient(
+        issues=[
+            {
+                "number": 1442,
+                "title": "[Auto-Heal] toho/mansion パーサー不整合・取得異常の自動修復",
+                "body": "<!-- auto-heal-key:toho:mansion -->\n<!-- auto-heal-sync-ts:2026-11-14 20:34:41 -->\nBody",
+                "state": "CLOSED",
+                "labels": ["auto-heal"],
+                "comments": [],
+            }
+        ]
+    )
+
+    summary = sync_auto_heal_issues.sync_instruction_to_issues(instruction, fake_gh, dry_run=False)
+    # Must NOT create a new issue; should link to existing #1442 and REOPEN it (Issue #1536)
+    assert summary["created"] == []
+    assert summary["updated"] == [1442]
+    assert len(fake_gh.created_issues) == 0
+    assert len(fake_gh.comments) == 1
+    assert fake_gh.comments[0][0] == 1442
+    assert fake_gh.issues[1442]["state"] == "OPEN"
+
+    # Case 2: toho:mansion is OPEN or in-progress with an open PR (Issue #1498)
+    fake_gh_open = FakeGhClient(
+        issues=[
+            {
+                "number": 1499,
+                "title": "[Auto-Heal] toho/mansion パーサー不整合・取得異常の自動修復",
+                "body": "<!-- auto-heal-key:toho:mansion -->\n<!-- auto-heal-sync-ts:2026-11-14 20:34:41 -->\nBody",
+                "state": "OPEN",
+                "labels": ["auto-heal"],
+                "comments": [],
+            }
+        ],
+        open_prs=[
+            {
+                "number": 1500,
+                "title": "[#1499] fix(toho): fix mansion parser",
+                "body": "Closes #1499",
+                "headRefName": "fix/1499-toho-mansion",
+            }
+        ],
+    )
+    summary_open = sync_auto_heal_issues.sync_instruction_to_issues(instruction, fake_gh_open, dry_run=False)
+    assert summary_open["created"] == []
+    assert summary_open["updated"] == [1499]
+    assert len(fake_gh_open.created_issues) == 0
+
+
+def test_run_pipeline_post_crawl_auto_heal_step():
+    """Verify that run_pipeline triggers post-crawl auto-heal inspection and sync (Issue #1477)."""
+    from scripts.ops import run_pipeline
+
+    with (
+        patch.object(run_pipeline, "run_command") as mock_run_cmd,
+    ):
+        run_pipeline._run_post_crawl_auto_heal_step("debug_tools_dir", "ops_dir")
+        assert mock_run_cmd.call_count == 2
+        calls = [c[0][1] for c in mock_run_cmd.call_args_list]
+        assert "Step 1.1a: Post-Crawl Anomaly Inspection & Instruction Generation" in calls
+        assert "Step 1.1b: Post-Crawl Auto-Heal Issue Deduplicated Sync" in calls
+
+
+def test_post_recommendation_auto_heal_trigger_in_run_pipeline():
+    """Verify run_pipeline executes post-recommendation instant auto-heal inspection & sync (Issue #1498)."""
+    from scripts.ops import run_pipeline
+
+    executed_descriptions = []
+
+    def fake_run_command(cmd, desc):
+        executed_descriptions.append(desc)
+
+    with (
+        patch.object(run_pipeline, "run_command", side_effect=fake_run_command),
+    ):
+        failed_steps = run_pipeline._run_post_crawl_pipeline(
+            crawler_dir="crawler_dir",
+            ops_dir="ops_dir",
+            maintenance_dir="maintenance_dir",
+            debug_tools_dir="debug_tools_dir",
+            skip_portals=True,
+            skip_train=True,
+        )
+        assert failed_steps == []
+        assert "Step 5/6: Slack Notification (Hot Property Recommendation)" in executed_descriptions
+        assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
+        assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
+
+
+def test_url_router_resolves_sumifu_invest_kodate():
+    """Verify UrlRouter resolves stepon pro detail with invest_kodate property type (Issue #1536)."""
+    from package.utils.url_router import UrlRouter
+    from package.parser.sumifuParser import SumifuInvestmentKodateParser, SumifuInvestmentApartmentParser
+
+    url = "https://www.stepon.co.jp/pro/detail_16162012/"
+    kodate_parser = UrlRouter.create_parser(url, property_type="invest_kodate")
+    assert isinstance(kodate_parser, SumifuInvestmentKodateParser)
+
+    apt_parser = UrlRouter.create_parser(url, property_type="apartment")
+    assert isinstance(apt_parser, SumifuInvestmentApartmentParser)
+
+
+def test_aggregated_crawl_report_triggers_auto_heal_when_failed_jobs():
+    """Verify send_aggregated_crawl_report executes auto_heal_parsers & sync_auto_heal_issues when failed jobs exist (Issue #1536)."""
+    from scripts.ops import run_ml_pipeline
+
+    executed_cmds = []
+
+    def fake_subprocess_run(cmd, check=False):
+        executed_cmds.append(cmd)
+        return MagicMock(returncode=0)
+
+    sample_tasks = [
+        MagicMock(task_index=0, status="COMPLETED", results_json='[{"company": "daiwa", "property_type": "tochi", "status": "failed", "exit_code": 1}]')
+    ]
+
+    with (
+        patch.object(run_ml_pipeline, "_latest_execution_tasks", return_value=sample_tasks),
+        patch("asyncio.run"),
+        patch("subprocess.run", side_effect=fake_subprocess_run),
+        patch("os.path.exists", return_value=True),
+    ):
+        res = run_ml_pipeline.send_aggregated_crawl_report(total_jobs=1)
+        assert res is True
+        assert len(executed_cmds) == 2
+        assert any("auto_heal_parsers.py" in str(arg) for arg in executed_cmds[0])
+        assert "--failed-steps" in executed_cmds[0]
+        assert any("sync_auto_heal_issues.py" in str(arg) for arg in executed_cmds[1])
+
+
+
+def test_post_recommendation_auto_heal_trigger_in_run_ml_pipeline():
+    """Verify run_ml_pipeline executes post-recommendation instant auto-heal inspection & sync (Issue #1498)."""
+    from scripts.ops import run_ml_pipeline
+
+    executed_descriptions = []
+
+    def fake_run_command(cmd, desc):
+        executed_descriptions.append(desc)
+
+    with (
+        patch.object(run_ml_pipeline, "start_on_demand_resources"),
+        patch.object(run_ml_pipeline, "run_command", side_effect=fake_run_command),
+        patch.object(run_ml_pipeline, "verify_barrier_completion", return_value=(True, [])),
+        patch.object(run_ml_pipeline, "filter_crawl_jobs", return_value=[]),
+        patch.object(run_ml_pipeline, "send_aggregated_crawl_report"),
+        patch.object(run_ml_pipeline, "_run_self_healing_recrawl_and_validation"),
+        patch.object(run_ml_pipeline, "_can_stop_shared_proxysql", return_value=False),
+    ):
+        code = run_ml_pipeline.main(["--dry-run", "--skip-train", "--skip-potentials-sync"])
+        assert code == 0
+        assert "Step 4/5: Slack Notification (Hot Property Recommendation)" in executed_descriptions
+        assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
+        assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions

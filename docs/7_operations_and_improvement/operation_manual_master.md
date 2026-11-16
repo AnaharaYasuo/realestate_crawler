@@ -94,10 +94,19 @@ python src/crawler/scripts/ops/run_bulk_ml_evaluation.py --force --no-skip-porta
 
 | 時刻 (JST) | 実行基盤 | 処理内容 | トークン消費 |
 | :--- | :--- | :--- | :--- |
-| **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・`auto_heal_parsers.py` による GCS `auto_heal/latest_instruction.json` 更新 | Gemini Flash 要約のみ |
-| **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) により `auto-heal` ラベル付き Issue を自動起票・重複排除・解決時自動クローズ | **ゼロ** |
-| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を確認し、対象あり時のみ Worktree でパーサー修正・テスト・PR作成・Auto-merge 設定 | **Antigravity 定額枠**（対象0件時は即終了） |
+| **01:00** | Cloud Run (`realestate-crawler-pipeline-prod`) | 並列クローリング実行。終了直後に材料探索・重複抑止付きIssue起票・自動修正（Auto-Heal Solver）起動 | **ゼロ** |
+| **05:10** | Cloud Run (`realestate-ml-pipeline-prod`) | データ整合性検証・ML再学習・バルク評価・お宝物件Slack通知。通知直後に材料探索・重複抑止付きIssue起票・自動修正（Auto-Heal Solver）起動 | Gemini Flash 要約のみ |
+| **06:15** | GitHub Actions (`sync-auto-heal-issues.yml`) | [`sync_auto_heal_issues.py`](../../src/crawler/scripts/ops/sync_auto_heal_issues.py) による定期整合性同期・重複排除・解決時自動クローズ | **ゼロ** |
+| **07:00** | Antigravity Scheduled Automation | `--list-actionable` で未解決 `auto-heal` Issue を全件取得し、**未着手の全Issueを一括バッチ修復**。単一のWorktreeで一括修正・テスト・`master` マージ ➔ **`production` マージ＆本番デプロイ成功までを完了要件として完遂** | **Antigravity 定額枠**（対象0件時は即終了） |
 | **PRマージ後** | GitHub Actions (`auto-release-pr` ➔ `deploy-production`) | `production` 自動昇格・Cloud Run 更新・`realestate-recrawl-anomalies-pipeline-prod` 即時起動による異常データ再取得 | **ゼロ** |
+
+### 5.1 スケジュール自動修復の実行原則（重複起票防止・全件バッチ一括処理 ＆ Production Done）
+1. **起票時の重複防止徹底（OPEN/着手中チェック）**:
+   - Issue起票時（`sync_auto_heal_issues.py`）は、同一の会社・物件種別（`key`）および同一のエラー内容について、既に「OPEN」状態または「着手中」（関連PRが存在する・直近起票済み）のIssueが存在しないかを事前に厳格確認し、多重起票を完全に防止します。
+2. **未着手全件バッチ一括処理原則**:
+   - スケジュール自動修復および即時自動修復は、未解決の `auto-heal` Issue を 1 件ずつ個別に PR/デプロイ待機せず、未着手の全アクション可能 Issue を 1 つのバッチブランチ（Worktree）にまとめて一括調査・修正・検証し、1 つの PR で一括して解消します。
+3. **Production Done 完了要件**:
+   - 各 Issue の完了要件は「`production` ブランチへのリリース PR マージ完了および本番デプロイ（`Deploy Production`）の成功確認」です。PR作成や `master` マージ時点で処理を停止してはならず、本番反映を見届けてから完了とします。
 
 ### 手動運用コマンド
 ```bash
@@ -116,7 +125,7 @@ python src/crawler/scripts/ops/sync_auto_heal_issues.py --pull-from-gcs --dry-ru
 
 | 時刻 (JST) | 実行基盤 | 処理内容 |
 | :--- | :--- | :--- |
-| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列条件（`--concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2`、`ietan` はドメイン並列 `1` に自動制限してタイムアウトを抑止（一時障害サイトがある場合は `--exclude-company` で一時除外可能）。100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
+| **毎日 08:30** | ローカル端末 (`EXECUTION_ENV=host` / Antigravity Background Schedule Sidecar `daily-ttl-expired-recrawl`) | [`run_ttl_expired_recrawl.py`](../../src/crawler/scripts/ops/run_ttl_expired_recrawl.py) を最適並列・平滑化条件（`--ttl-days 14 --company-ratio-quota 14 --daily-quota 8500 --concurrency 40 --domain-concurrency 3 --weak-domain-concurrency 2 --playwright-concurrency 2 --db-concurrency 8 --db-batch-size 100 --stop-at-jst 00:50 --stop-proxysql-on-exit`）で直接起動。大手ポータル・主要仲介（`homes`, `mitsui`, `sumifu`, `tokyu`, `nomura`）はドメイン並列 `3`、応答が弱い中堅・電鉄・ハウスメーカー・信託系サイト（`sotetsu`, `odakyu`, `sumai1`, `sumirin`, `misawa` 等）および Playwright 系サイトはドメイン並列 `2`、`ietan` はドメイン並列 `1` に自動制限してタイムアウトを抑止（一時障害サイトがある場合は `--exclude-company` で一時除外可能）。14日均等分割（1/14クォータ）および1日最大8,500件上限でスパイクを防止しつつ、100件バッチ単位で掲載終了フラグ（`is_published=False`）および物件詳細を反映し、未完了分が残っていても **00:50 JST** に残バッチをフラッシュして終了・ProxySQL停止まで完了させる |
 
 ### 手動確認・実行コマンド（ローカル本番実行）
 ```bash
@@ -135,6 +144,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ---
 
-**最終更新**: 2026年11月15日  
-**バージョン**: 1.8 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入)
+**最終更新**: 2026年11月16日  
+**バージョン**: 1.9 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入、Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
 
