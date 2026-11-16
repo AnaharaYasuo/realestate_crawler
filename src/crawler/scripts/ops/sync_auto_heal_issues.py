@@ -47,6 +47,7 @@ class GhClientProtocol(Protocol):
     def comment_issue(self, number: int, body: str) -> None: ...
     def update_labels(self, number: int, add_labels: list[str], remove_labels: list[str]) -> None: ...
     def close_issue(self, number: int, comment: str) -> None: ...
+    def reopen_issue(self, number: int, comment: str | None = None) -> None: ...
 
 
 class SubprocessGhClient:
@@ -214,6 +215,11 @@ class SubprocessGhClient:
         self.comment_issue(number, comment)
         self._run_gh(["issue", "close", str(number)])
 
+    def reopen_issue(self, number: int, comment: str | None = None) -> None:
+        if comment:
+            self.comment_issue(number, comment)
+        self._run_gh(["issue", "reopen", str(number)])
+
 
 def _slugify_step(step_name: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
@@ -362,17 +368,22 @@ def _sync_single_active_group(
             c_state = str(closed_existing.get("state", "CLOSED")).upper()
             is_in_progress = c_state == "OPEN" or c_num in linked_prs
             if not is_in_progress:
-                # 過去にクローズ済みの同一キー・同一内容Issueへ再検知コメント追記し重複新規起票を抑止
+                # 過去にクローズ済みの同一キーIssueで異常が再発した場合、コメント追記して再オープン(re-open)する
                 if _has_sync_timestamp(closed_existing, generated_at):
-                    logger.info("Skipping duplicate Issue creation for %s: already recorded on #%d", key, c_num)
+                    logger.info("Skipping duplicate Issue update for %s: already recorded on #%d", key, c_num)
                     return
                 comment = _build_refresh_comment(key, group, generated_at)
                 if dry_run:
                     logger.info("[DRY-RUN] Would re-open / comment on existing Issue #%d (%s) instead of creating duplicate", c_num, key)
                     return
-                gh.comment_issue(c_num, comment)
+                gh.reopen_issue(c_num, comment)
+                # チェックボックス受入基準を未完了（- [ ]）へリセット
+                raw_body = str(closed_existing.get("body") or "")
+                reset_body = re.sub(r"- \[[xX]\]", "- [ ]", raw_body)
+                if reset_body != raw_body:
+                    gh.update_issue_body(c_num, reset_body)
                 summary["updated"].append(c_num)
-                logger.info("Re-linked telemetry to existing Issue #%d for %s (prevented duplicate issue creation)", c_num, key)
+                logger.info("Re-opened and linked telemetry to existing Issue #%d for %s (prevented duplicate issue creation)", c_num, key)
                 return
             else:
                 # 既にOPENまたは着手中（PRあり）のIssueが存在する場合は重複起票を抑止

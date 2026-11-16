@@ -82,6 +82,12 @@ class FakeGhClient:
         self.issues[number]["state"] = "CLOSED"
         self.closed_issues.append((number, comment))
 
+    def reopen_issue(self, number: int, comment: str | None = None) -> None:
+        self.issues[number]["state"] = "OPEN"
+        if comment:
+            self.comments.append((number, comment))
+            self.issues[number].setdefault("comments", []).append({"body": comment})
+
 
 def test_scan_anomalies_zero_targets_uploads_clean_instruction_to_gcs(tmp_path: Path):
     from scripts.debug_tools import auto_heal_parsers
@@ -593,12 +599,13 @@ def test_sync_auto_heal_issues_prevents_duplicate_issue_creation():
     )
 
     summary = sync_auto_heal_issues.sync_instruction_to_issues(instruction, fake_gh, dry_run=False)
-    # Must NOT create a new issue; should link to existing #1442
+    # Must NOT create a new issue; should link to existing #1442 and REOPEN it (Issue #1536)
     assert summary["created"] == []
     assert summary["updated"] == [1442]
     assert len(fake_gh.created_issues) == 0
     assert len(fake_gh.comments) == 1
     assert fake_gh.comments[0][0] == 1442
+    assert fake_gh.issues[1442]["state"] == "OPEN"
 
     # Case 2: toho:mansion is OPEN or in-progress with an open PR (Issue #1498)
     fake_gh_open = FakeGhClient(
@@ -667,6 +674,48 @@ def test_post_recommendation_auto_heal_trigger_in_run_pipeline():
         assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
 
 
+def test_url_router_resolves_sumifu_invest_kodate():
+    """Verify UrlRouter resolves stepon pro detail with invest_kodate property type (Issue #1536)."""
+    from package.utils.url_router import UrlRouter
+    from package.parser.sumifuParser import SumifuInvestmentKodateParser, SumifuInvestmentApartmentParser
+
+    url = "https://www.stepon.co.jp/pro/detail_16162012/"
+    kodate_parser = UrlRouter.create_parser(url, property_type="invest_kodate")
+    assert isinstance(kodate_parser, SumifuInvestmentKodateParser)
+
+    apt_parser = UrlRouter.create_parser(url, property_type="apartment")
+    assert isinstance(apt_parser, SumifuInvestmentApartmentParser)
+
+
+def test_aggregated_crawl_report_triggers_auto_heal_when_failed_jobs():
+    """Verify send_aggregated_crawl_report executes auto_heal_parsers & sync_auto_heal_issues when failed jobs exist (Issue #1536)."""
+    from scripts.ops import run_ml_pipeline
+
+    executed_cmds = []
+
+    def fake_subprocess_run(cmd, check=False):
+        executed_cmds.append(cmd)
+        return MagicMock(returncode=0)
+
+    sample_tasks = [
+        MagicMock(task_index=0, status="COMPLETED", results_json='[{"company": "daiwa", "property_type": "tochi", "status": "failed", "exit_code": 1}]')
+    ]
+
+    with (
+        patch.object(run_ml_pipeline, "_latest_execution_tasks", return_value=sample_tasks),
+        patch("asyncio.run"),
+        patch("subprocess.run", side_effect=fake_subprocess_run),
+        patch("os.path.exists", return_value=True),
+    ):
+        res = run_ml_pipeline.send_aggregated_crawl_report(total_jobs=1)
+        assert res is True
+        assert len(executed_cmds) == 2
+        assert any("auto_heal_parsers.py" in str(arg) for arg in executed_cmds[0])
+        assert "--failed-steps" in executed_cmds[0]
+        assert any("sync_auto_heal_issues.py" in str(arg) for arg in executed_cmds[1])
+
+
+
 def test_post_recommendation_auto_heal_trigger_in_run_ml_pipeline():
     """Verify run_ml_pipeline executes post-recommendation instant auto-heal inspection & sync (Issue #1498)."""
     from scripts.ops import run_ml_pipeline
@@ -690,6 +739,3 @@ def test_post_recommendation_auto_heal_trigger_in_run_ml_pipeline():
         assert "Step 4/5: Slack Notification (Hot Property Recommendation)" in executed_descriptions
         assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
         assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
-
-
-
