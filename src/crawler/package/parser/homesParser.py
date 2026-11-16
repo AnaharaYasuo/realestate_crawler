@@ -417,14 +417,17 @@ class HomesParser(ParserBase):
 
     def _apply_homes_unit_mansion_override(self, item, response: BeautifulSoup) -> None:
         senyu_tag = self._find_by_table_header(response, ["専有面積", "壁芯面積"])
+        senyu_text = senyu_tag.get_text().strip() if senyu_tag else ""
+        parsed_senyu = converter.parse_menseki(senyu_text) if senyu_text else None
+
         kaisu_tag = self._find_by_table_header(response, ["所在階"])
         kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
         has_kaisu = bool(kaisu_text and "階" in kaisu_text and "階建" not in kaisu_text)
-        if senyu_tag or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
+        if (senyu_tag and parsed_senyu is not None) or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
             item.propertyType = "Mansion"
-            senyu_text = senyu_tag.get_text().strip() if senyu_tag else item.tatemonoMensekiStr
-            setattr(item, "senyuMensekiStr", senyu_text)
-            setattr(item, "senyuMenseki", converter.parse_menseki(senyu_text) if senyu_text else item.tatemonoMenseki)
+            final_senyu_text = senyu_text if parsed_senyu is not None else item.tatemonoMensekiStr
+            setattr(item, "senyuMensekiStr", final_senyu_text)
+            setattr(item, "senyuMenseki", parsed_senyu if parsed_senyu is not None else item.tatemonoMenseki)
             item.tochiMenseki = None
             item.tochiMensekiStr = ""
 
