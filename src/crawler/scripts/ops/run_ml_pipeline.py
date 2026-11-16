@@ -227,6 +227,36 @@ def send_aggregated_crawl_report(
                     f"⚠️ [Alert Warning] Failed to send failure alert to property_alert: {ae}"
                 )
 
+            # 機械的自動修復パイプライン連動 (Issue #1536):
+            # 全タスク集約で失敗したジョブ一覧から auto_heal_parsers.py & sync_auto_heal_issues.py を自動実行
+            try:
+                failed_list = aggregated.get("failed_list", [])
+                if failed_list:
+                    failed_steps_payload = [
+                        f"{f.get('company', 'unknown')}-{f.get('property_type', 'unknown')}"
+                        for f in failed_list
+                    ]
+                    script_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    project_root = os.path.dirname(os.path.dirname(script_root))
+                    auto_heal_script = os.path.join(script_root, "scripts", "debug_tools", "auto_heal_parsers.py")
+                    sync_issues_script = os.path.join(script_root, "scripts", "ops", "sync_auto_heal_issues.py")
+                    inst_path = os.path.join(project_root, "Temp", "auto_heal_instruction.json")
+
+                    if os.path.exists(auto_heal_script):
+                        logger.info("Executing auto_heal_parsers.py with aggregated failed_steps: %s", failed_steps_payload)
+                        subprocess.run(
+                            [sys.executable, auto_heal_script, "--failed-steps", json.dumps(failed_steps_payload)],
+                            check=False,
+                        )
+                    if os.path.exists(sync_issues_script) and os.path.exists(inst_path):
+                        logger.info("Synchronizing auto_heal issues to GitHub via sync_auto_heal_issues.py...")
+                        subprocess.run(
+                            [sys.executable, sync_issues_script, "--instruction-file", inst_path],
+                            check=False,
+                        )
+            except Exception as ahe:  # noqa: BLE001
+                logger.warning(f"Failed to execute automated issue sync from aggregated crawl report: {ahe}")
+
         return send_ok
     except Exception as e:
         logger.warning(

@@ -197,6 +197,15 @@ class UrlRouter:
             "model_module": SUMIFU_MODEL_MODULE,
             "model_cls": "SumifuInvestmentApartment",
         },
+        {
+            "pattern": re.compile(r"stepon\.co\.jp/pro/detail_"),
+            "site": "sumifu",
+            "property_type": "invest_kodate",
+            "parser_module": SUMIFU_PARSER_MODULE,
+            "parser_cls": "SumifuInvestmentKodateParser",
+            "model_module": SUMIFU_MODEL_MODULE,
+            "model_cls": "SumifuInvestmentKodate",
+        },
 
         # アットホーム (Athome)
         {
