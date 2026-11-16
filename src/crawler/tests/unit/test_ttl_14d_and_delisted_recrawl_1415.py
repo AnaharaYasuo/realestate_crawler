@@ -1349,6 +1349,65 @@ class TestIssue1430SiteSpecificConcurrencyLimits:
         assert "Chrome/124.0.0.0" in ttl_recrawl.DEFAULT_HTTP_HEADERS["User-Agent"]
 
 
+class TestIssue1474QuotaSmoothing:
+    def test_apply_quota_smoothing_by_company_ratio(self):
+        targets = [
+            ttl_recrawl.TtlTarget(property_url=f"https://mitsui.com/{i}", company="mitsui", property_type="mansion")
+            for i in range(28)
+        ] + [
+            ttl_recrawl.TtlTarget(property_url=f"https://tokyu.com/{i}", company="tokyu", property_type="mansion")
+            for i in range(14)
+        ] + [
+            ttl_recrawl.TtlTarget(property_url=f"https://rearie.com/{i}", company="rearie", property_type="mansion")
+            for i in range(1)
+        ]
+        # ratio 14 -> mitsui: ceil(28/14)=2, tokyu: ceil(14/14)=1, rearie: ceil(1/14)=1 -> total 4
+        smoothed = ttl_recrawl.apply_quota_smoothing(
+            targets,
+            company_ratio_quota=14,
+        )
+        assert len(smoothed) == 4
+        counts = {}
+        for t in smoothed:
+            counts[t.company] = counts.get(t.company, 0) + 1
+        assert counts == {"mitsui": 2, "tokyu": 1, "rearie": 1}
+
+    def test_apply_quota_smoothing_daily_quota_and_company_quota(self):
+        targets = [
+            ttl_recrawl.TtlTarget(property_url=f"https://mitsui.com/{i}", company="mitsui", property_type="mansion")
+            for i in range(10)
+        ] + [
+            ttl_recrawl.TtlTarget(property_url=f"https://tokyu.com/{i}", company="tokyu", property_type="mansion")
+            for i in range(10)
+        ]
+        # company_quota=3 -> mitsui: 3, tokyu: 3 -> total 6
+        # daily_quota=5 -> capped at 5
+        smoothed = ttl_recrawl.apply_quota_smoothing(
+            targets,
+            daily_quota=5,
+            company_quota=3,
+        )
+        assert len(smoothed) == 5
+        counts = {}
+        for t in smoothed:
+            counts[t.company] = counts.get(t.company, 0) + 1
+        assert sum(counts.values()) == 5
+        assert counts.get("mitsui", 0) <= 3
+        assert counts.get("tokyu", 0) <= 3
+
+    def test_build_arg_parser_supports_quota_arguments(self):
+        parser = ttl_recrawl.build_arg_parser()
+        args = parser.parse_args([
+            "--daily-quota", "8500",
+            "--company-quota", "2500",
+            "--company-ratio-quota", "14",
+        ])
+        assert args.daily_quota == 8500
+        assert args.company_quota == 2500
+        assert args.company_ratio_quota == 14
+
+
+
 
 
 
