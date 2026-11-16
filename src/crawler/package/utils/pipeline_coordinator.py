@@ -73,11 +73,30 @@ def wait_for_all_tasks(
 
 def _task_record_fields(rec) -> tuple | None:
     """Returns (results, task_index, status) from a model instance or dict, or None if unsupported."""
+    raw_results = None
+    task_idx = None
+    status = "UNKNOWN"
     if hasattr(rec, "results_json"):
-        return rec.results_json or [], getattr(rec, "task_index", None), getattr(rec, "status", "UNKNOWN")
-    if isinstance(rec, dict):
-        return rec.get("results_json") or [], rec.get("task_index"), rec.get("status", "UNKNOWN")
-    return None
+        raw_results = rec.results_json
+        task_idx = getattr(rec, "task_index", None)
+        status = getattr(rec, "status", "UNKNOWN")
+    elif isinstance(rec, dict):
+        raw_results = rec.get("results_json")
+        task_idx = rec.get("task_index")
+        status = rec.get("status", "UNKNOWN")
+    else:
+        return None
+
+    if isinstance(raw_results, str):
+        try:
+            import json
+            results = json.loads(raw_results)
+        except Exception:
+            results = []
+    else:
+        results = raw_results or []
+
+    return results, task_idx, status
 
 
 def aggregate_task_array_reports(task_records: list, total_jobs: int | None = None) -> dict:
