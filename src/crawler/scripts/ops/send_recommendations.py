@@ -4,6 +4,8 @@ import sys
 import logging
 import datetime
 import time
+import re
+from typing import Any
 from asgiref.sync import async_to_sync
 
 _cur = os.path.abspath(__file__)
@@ -29,6 +31,7 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from decimal import Decimal
 from package.ml.inference.ensemble import compute_risk_adjusted_bargain_score
 from package.ml.report_generator import generate_professional_and_danchou_report
+from package.ml.features.reference_data import query_station_volume, _init_global_caches
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -40,6 +43,10 @@ logger = logging.getLogger(__name__)
 MIN_RECOMMEND_DISCOUNT_PCT = 15.0
 MAX_REALISTIC_DISCOUNT_PCT = 85.0
 MAX_REALISTIC_VALUATION_RATIO = 6.0
+
+# 割安物件一次スクリーニング足切り基準 (Issue #1551: 最寄り駅徒歩15分以上および1日乗降客数1万人未満の過疎駅を除外)
+MAX_RECOMMEND_WALK_MINUTES = 14
+MIN_RECOMMEND_PASSENGER_VOLUME = 10000
 
 
 def _notify_status(msg: str) -> None:
@@ -478,6 +485,129 @@ def is_bus_access_property(prop) -> bool:
     ]
     return bool(routes) and all(_is_bus_route(prop, i) for i in routes)
 
+def _extract_walk_minute_from_val(val: Any) -> int | None:
+    """数値または文字列から徒歩分数を抽出する"""
+    if val is None or val == "" or val == "-":
+        return None
+    if isinstance(val, (int, float)):
+        return int(val)
+    val_str = str(val)
+    m = re.search(r'(\d+)', val_str)
+    if m:
+        try:
+            return int(m.group(1))
+        except (ValueError, TypeError):
+            return None
+    return None
+
+def get_valid_station_routes(prop) -> list[dict]:
+    """
+    物件の有効な駅アクセス経路（stationNが記載されている経路）のリストを返す。
+    各要素: {"index": i, "station": str, "walk_min": int | None, "is_bus": bool}
+    """
+    routes = []
+    for i in range(1, 6):
+        st = getattr(prop, f"station{i}", None)
+        if not isinstance(st, str) or not st.strip() or st.strip() == "-":
+            continue
+        st_clean = st.strip()
+        is_bus = _is_bus_route(prop, i)
+        w_num = getattr(prop, f"railwayWalkMinute{i}", None)
+        walk_min = _extract_walk_minute_from_val(w_num)
+        if walk_min is None:
+            w_str = getattr(prop, f"railwayWalkMinute{i}Str", None)
+            walk_min = _extract_walk_minute_from_val(w_str)
+        routes.append({
+            "index": i,
+            "station": st_clean,
+            "walk_min": walk_min,
+            "is_bus": is_bus,
+        })
+
+    # station1..5に無い場合、trafficテキストからのフォールバック
+    if not routes and getattr(prop, "traffic", None):
+        raw_traffic = str(prop.traffic)
+        m_walk = re.search(r'(?:徒歩|歩)\s*(\d+)\s*分', raw_traffic)
+        w = int(m_walk.group(1)) if m_walk else None
+        # 駅名抽出
+        m_st = re.search(r'([^\s]+?駅)', raw_traffic)
+        st_name = m_st.group(1) if m_st else ""
+        if st_name or w is not None:
+            routes.append({
+                "index": 1,
+                "station": st_name,
+                "walk_min": w,
+                "is_bus": bool("バス" in raw_traffic),
+            })
+
+    return routes
+
+def is_excessive_walk_minutes(prop) -> bool:
+    """
+    最寄り駅から徒歩15分以上の物件か判定する (Issue #1551)。
+    - 有効な駅徒歩情報が存在し、最短徒歩分数が MAX_RECOMMEND_WALK_MINUTES (14分) を超える（>= 15分）場合は True
+    - 徒歩のみの経路が存在する場合はその最短を優先。
+    - 徒歩情報が一切ない場合は除外しない（False）。
+    """
+    routes = get_valid_station_routes(prop)
+    if not routes:
+        return False
+
+    walk_mins = [
+        r["walk_min"] for r in routes
+        if r["walk_min"] is not None and not r["is_bus"]
+    ]
+    if not walk_mins:
+        # バス併用経路も含めて徒歩分数を探索
+        walk_mins = [r["walk_min"] for r in routes if r["walk_min"] is not None]
+
+    if not walk_mins:
+        return False
+
+    min_walk = min(walk_mins)
+    return min_walk > MAX_RECOMMEND_WALK_MINUTES
+
+def is_depopulated_station_area(prop) -> bool:
+    """
+    最寄り駅が1日の乗降客数1万人未満の過疎駅か判定する (Issue #1551)。
+    - 徒歩14分以内の有効な駅のうち、いずれかが1万人以上（またはデータ未登録・判定不能）なら False（合格）
+    - 徒歩14分以内の有効な駅の乗降客数が判明しており、全て1万人未満の場合は True（足切り除外）
+    """
+    routes = get_valid_station_routes(prop)
+    if not routes:
+        return False
+
+    # 徒歩14分以内の駅を優先抽出
+    accessible_routes = [
+        r for r in routes
+        if r["walk_min"] is not None and r["walk_min"] <= MAX_RECOMMEND_WALK_MINUTES and r["station"]
+    ]
+    if not accessible_routes:
+        # 徒歩分数不明または全駅遠い場合は全駅を対象
+        accessible_routes = [r for r in routes if r["station"]]
+
+    if not accessible_routes:
+        return False
+
+    # 各駅の乗降客数をチェック
+    known_volumes = []
+    has_unknown_or_major_station = False
+
+    for r in accessible_routes:
+        st_name = r["station"]
+        vol = query_station_volume(st_name)
+        if vol is None:
+            # データなし駅は誤判定を防ぐため足切りしない
+            has_unknown_or_major_station = True
+        elif vol >= MIN_RECOMMEND_PASSENGER_VOLUME:
+            # 1万人以上の主要駅が1つでもあれば合格
+            return False
+        else:
+            known_volumes.append((st_name, vol))
+
+    # 乗降客数が判明している駅があり、未知駅・主要駅が1つもなければ過疎駅と判定
+    return bool(known_volumes and not has_unknown_or_major_station)
+
 def _evaluate_candidate(eval_rec, prop) -> tuple:
     asking_price = getattr(prop, "price", 0)
     if not asking_price or asking_price <= 0:
@@ -486,6 +616,16 @@ def _evaluate_candidate(eval_rec, prop) -> tuple:
     # バス利用物件はピックアップ対象外 (Issue #1244)
     if is_bus_access_property(prop):
         logger.info(f"Skipping alert (bus access property): {getattr(prop, 'pageUrl', '')}")
+        return False, "", 0.0
+
+    # 最寄り駅徒歩15分以上の物件は足切り除外 (Issue #1551)
+    if is_excessive_walk_minutes(prop):
+        logger.info(f"Skipping alert (excessive walk minutes >= 15min): {getattr(prop, 'pageUrl', '')}")
+        return False, "", 0.0
+
+    # 1日の乗降客数1万人未満の過疎駅エリアは足切り除外 (Issue #1551)
+    if is_depopulated_station_area(prop):
+        logger.info(f"Skipping alert (depopulated station area < 10,000 passengers/day): {getattr(prop, 'pageUrl', '')}")
         return False, "", 0.0
 
     if is_investment_type(eval_rec.property_type):
