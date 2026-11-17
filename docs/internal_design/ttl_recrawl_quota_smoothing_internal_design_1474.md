@@ -32,3 +32,12 @@ def apply_quota_smoothing(
 - `--daily-quota` (type=int, default=None)
 - `--company-quota` (type=int, default=None)
 - `--company-ratio-quota` (type=int, default=None)
+
+### 1.4 スキップ物件・パーサー不備物件の抽出除外実装 (`_fetch_target_snapshots_once` / `_extract_expired_from_evaluations`)
+1. **スキャン段階での除外**:
+   - `PropertyEvaluation.objects.filter(is_published=True).exclude(needs_parser_fix=True).exclude(needs_recrawl=True)` により、パーサー不備フラグや再クロールフラグが立っているレコードをクエリ時点で除外する。
+2. **評価レコード抽出時 (`_extract_expired_from_evaluations`)**:
+   - `ev.get("needs_parser_fix")` または `ev.get("needs_recrawl")` が True の場合はキューイングせずスキップする。
+3. **東急リバブル等の成約・掲載終了物件判定 (`tokyuParser.py` / `baseParser.py`)**:
+   - `check_tokyu_listing_ended` で Next.js の `__NEXT_DATA__` 内の `isExpired=True` や検索結果テンプレート（`/templates/bui-*`）へのフォールバック（`summary` 欠損）を検知し、`ListingEndedException` を送出する。
+   - `baseParser.py` の `LISTING_ENDED_BODY_KEYWORDS` にミサワホーム等の文言（「現在、こちらの物件は掲載を停止しております」等）を追加。

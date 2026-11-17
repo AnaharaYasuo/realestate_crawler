@@ -51,6 +51,24 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     all_text = f"{title_text} {h1_text} {body_text}"
     if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
         raise ListingEndedException(f"Tokyu listing ended: {page_url}")
+
+    # Next.js (__NEXT_DATA__) 構造による掲載終了・一覧フォールバック判定
+    script = response.find("script", id="__NEXT_DATA__")
+    if script and script.string:
+        try:
+            next_data = json.loads(script.string)
+            page_tmpl = str(next_data.get("page") or "")
+            page_props = next_data.get("props", {}).get("pageProps", {})
+            if page_props.get("isExpired") is True:
+                raise ListingEndedException(f"Tokyu isExpired: {page_url}")
+            # 詳細ページURLから検索/一覧テンプレートへのフォールバック、または物件詳細(summary)欠損
+            if "/templates/bui-" in page_tmpl or ("propertyList" in page_props and "summary" not in page_props):
+                raise ListingEndedException(f"Tokyu search redirect (ended): {page_url}")
+        except ListingEndedException:
+            raise
+        except Exception as exc:
+            logger.debug("Failed parsing __NEXT_DATA__ during listing ended check: %s", exc)
+
     # 東急カタログページ・売り出し住戸なし・一覧リダイレクト判定 (Issue #764, #769, #782)
     if (
         "購入・売却・賃貸 物件情報" in title_text

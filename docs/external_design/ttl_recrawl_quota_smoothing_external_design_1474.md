@@ -24,3 +24,9 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 [TTLRecrawl] Quota breakdown: {'mitsui': 2313, 'tokyu': 1646, 'homes': 1643, 'athome': 835, ...}
 ```
 サマリー JSON に `quota_config` および `by_company_quota` を含め、日次バッチ結果の可観測性を担保する。
+
+## 3. スキップ物件・パーサー不備物件の抽出除外設計
+- `PropertyEvaluation` テーブルから再取得候補をスキャンする際、以下のいずれかに該当するレコードは通常TTL再クロール対象から除外する：
+  1. `needs_parser_fix = True` または `needs_recrawl = True`（Auto-Healおよびパーサー改修パイプラインの別枠で管理）
+  2. `is_published = False`（成約・掲載終了確定済み）
+- これにより、パーサー改修待ちやエラー物件がTTL再取得に混入して無限リトライされるのを防止する。
