@@ -2689,13 +2689,17 @@ class ParserBase(metaclass=ABCMeta):
             and (detected_type != self.property_type)
         ):
             return (self, item)
+        # 同一の投資カテゴリ間（例: investment と apartment）の等価な差分はパーサー切り替えを行わない
+        if PropertyTypeDetector.is_investment(self.property_type) and PropertyTypeDetector.is_investment(detected_type):
+            return (self, item)
+        log_prefix = f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}'"
         if (
             self.sectional_unit_guard_enabled
             and self.property_type == "mansion"
             and self._is_sectional_unit(specs, soup)
         ):
             logging.info(
-                f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' skipped (sectional unit)"
+                f"{log_prefix} -> detected '{detected_type}' skipped (sectional unit)"
             )
             return (self, item)
         target_parser = UrlRouter.create_parser(
@@ -2707,10 +2711,10 @@ class ParserBase(metaclass=ABCMeta):
         )
         if not target_parser or target_parser.__class__ == self.__class__:
             raise IncompatiblePropertyTypeException(
-                f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' but detected '{detected_type}', and no suitable parser exists."
+                f"{log_prefix} but detected '{detected_type}', and no suitable parser exists."
             )
         logging.info(
-            f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})"
+            f"{log_prefix} ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})"
         )
         new_item = target_parser.createEntity()
         new_item.pageUrl = url

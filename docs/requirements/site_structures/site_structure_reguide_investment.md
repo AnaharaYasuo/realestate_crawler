@@ -44,3 +44,8 @@
 | **取引態様** | `torihiki` | テーブル「取引態様」 |
 | **引渡時期** | `hikiwatashi` | テーブル「引渡時期」 |
 | **備考** | `biko` | テーブル「備考」 |
+
+### 3. 物件種別判定とパーサー切り替え防衛
+- RE-Guide は投資用物件（区分マンション、一棟アパート、一棟マンション等）を包括的に扱うため、パーサー側の基底種別は `investment` である。
+- `PropertyTypeDetector` により詳細ページのテキストやタイトルから `apartment`（一棟アパート等）が動的検出された場合でも、同一の投資カテゴリ間（`investment` と `apartment`）は等価であるためパーサー切り替え（Switch）を行わず、`ReguideInvestmentParser` が直接パースを完遂する。
+
