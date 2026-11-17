@@ -20,6 +20,13 @@
     - ID形式: `C` で始まる英数字など (例: `CX820001` - 投資用での例だが居住用も類似と思われる)
     - ※正確なパターンはブラウザでのアクセス確認または動的レンダリング後のリンク取得が必要。
 
+## 掲載終了・成約済みの判定仕様
+- **Next.js 構造判定 (`__NEXT_DATA__`):**
+  - 東急リバブルの詳細URLにアクセスした際、物件が成約・掲載終了している場合は404にならずHTTP 200でエリア一覧・検索結果テンプレート（`/templates/bui-005/*` 等）にフォールバック（リダイレクト）される。
+  - `props.pageProps.isExpired === true`、またはテンプレートが一覧系（`pageProps.propertyList` が存在し `pageProps.summary` が欠損している場合）は、成約・掲載終了物件として `ListingEndedException` を送出し、`PropertyEvaluation.is_published = False`（`delisted_at = now`）として処理する。
+- **テキスト判定:**
+  - タイトル、h1、本文に「掲載終了しました」「掲載を終了いたしました」「お探しの物件は見つかりませんでした」等が含まれる場合も `ListingEndedException` を送出する。
+
 ## セレクタ (詳細ページ)
 
 ### 共通ヘッダー情報

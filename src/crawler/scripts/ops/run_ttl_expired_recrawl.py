@@ -701,6 +701,9 @@ def _extract_expired_from_evaluations(
         comp = str(ev.get("company") or "unknown").lower()
         if not ev.get("is_published", True) or not _is_company_allowed(comp, company_filter, exclude_companies):
             continue
+        # 読み取り不可やパーサー不備としてマークされている物件は別枠管理のため通常TTL再取得から除外
+        if ev.get("needs_parser_fix") or ev.get("needs_recrawl"):
+            continue
         if key in queued_keys or not _should_queue_published_eval(ev, model_meta_by_key.get(key), now, ttl_days):
             continue
 
@@ -799,6 +802,8 @@ def _fetch_target_snapshots_once(
             "property_id",
             "is_published",
             "last_detail_fetched_at",
+            "needs_parser_fix",
+            "needs_recrawl",
         ).iterator(chunk_size=5000)
     )
 

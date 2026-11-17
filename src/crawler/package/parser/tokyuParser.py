@@ -43,6 +43,37 @@ KEY_YOUTO_CHIIKI_TOU = '用途地域等'
 KEY_SETSUDOU_HOUKOU_FUKUIN = '接道方向／幅員'
 KEY_HIKIWATASHI_KANOU_NENGETSU = '引渡可能年月'
 
+def _check_tokyu_nextjs_ended(response, page_url: str) -> None:
+    script = response.find("script", id="__NEXT_DATA__")
+    if not (script and script.string):
+        return
+    try:
+        next_data = json.loads(script.string)
+        page_tmpl = str(next_data.get("page") or "")
+        page_props = next_data.get("props", {}).get("pageProps", {})
+        if page_props.get("isExpired") is True:
+            raise ListingEndedException(f"Tokyu isExpired: {page_url}")
+        if "/templates/bui-" in page_tmpl or ("propertyList" in page_props and "summary" not in page_props):
+            raise ListingEndedException(f"Tokyu search redirect (ended): {page_url}")
+    except ListingEndedException:
+        raise
+    except Exception as exc:
+        logger.debug("Failed parsing __NEXT_DATA__ during listing ended check: %s", exc)
+
+
+def _check_tokyu_catalog_page_ended(response, title_text: str, page_url: str) -> None:
+    if (
+        "購入・売却・賃貸 物件情報" in title_text
+        or "収益物件（建物）一覧" in title_text
+        or "投資用不動産 | 収益物件" in title_text
+        or (
+            "投資物件・収益物件（建物）" in title_text
+            and not bool(response.select("#propertySummarySection, div.m-status-table__wrapper, .price, .p-detail-hero__price"))
+        )
+    ):
+        raise ListingEndedException(f"Tokyu catalog page (no active listing): {page_url}")
+
+
 def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     title_text = response.title.get_text().strip() if response.title else ""
     body_text = response.body.get_text() if response.body else ""
@@ -51,14 +82,10 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     all_text = f"{title_text} {h1_text} {body_text}"
     if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
         raise ListingEndedException(f"Tokyu listing ended: {page_url}")
-    # 東急カタログページ・売り出し住戸なし・一覧リダイレクト判定 (Issue #764, #769, #782)
-    if (
-        "購入・売却・賃貸 物件情報" in title_text
-        or "収益物件（建物）一覧" in title_text
-        or "投資用不動産 | 収益物件" in title_text
-        or ("投資物件・収益物件（建物）" in title_text and not bool(response.select("#propertySummarySection, div.m-status-table__wrapper, .price, .p-detail-hero__price")))
-    ):
-        raise ListingEndedException(f"Tokyu catalog page (no active listing): {page_url}")
+
+    _check_tokyu_nextjs_ended(response, page_url)
+    _check_tokyu_catalog_page_ended(response, title_text, page_url)
+
     if "売り出し中の物件を見る" in all_text and not bool(response.select_one(".price, .p-detail-hero__price")):
         raise ListingEndedException(f"Tokyu no active rooms (ended): {page_url}")
 
