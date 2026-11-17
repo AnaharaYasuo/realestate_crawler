@@ -939,6 +939,20 @@ Cloud Run ジョブ（2 vCPU / 2 GiB RAM）において全種別 ML 再学習（
    - `stream_training_feature_chunks` への移行に伴い、旧来の一括 `records` リスト変数は廃止されチャンク単位処理となったため、関数クリーンアップ時の明示的 `del` 対象を現行スコープに存在する変数（`df`, `second_ensemble` 等）のみに厳密化し、`UnboundLocalError` を防止する。
 
 
+## 22. 割安物件推薦一次スクリーニングにおける過疎駅・徒歩遠隔物件の足切りフィルタ仕様 (Issue #1552)
+
+### 22.1 課題と背景
+割安物件通知（`send_recommendations.py`）において、売出価格に対する理論推定価格の乖離（ディスカウント率）が大きくても、最寄り駅が1日の乗降客数が極めて少ない過疎駅であったり、最寄り駅から徒歩15分以上かかる物件は、実需・投資の双方において賃貸需要・売却流動性が著しく低いため、推薦対象から除外（足切り）する必要がある。
+
+### 22.2 仕様変更内容
+1. **徒歩遠隔物件の足切り (`MAX_RECOMMEND_WALK_MINUTES = 14`)**:
+   - `send_recommendations.py` の一次選抜入口（`_evaluate_candidate`）において、物件の有効な駅アクセス経路のうち最短徒歩分数が 15分以上（`>= 15`）の物件を足切り除外する。
+   - 複数駅アクセスがある場合は最短徒歩分数を基準とする。駅情報や徒歩情報が未記載の物件は除外しない（フェールセーフ）。
+2. **過疎駅エリア物件の足切り (`MIN_RECOMMEND_PASSENGER_VOLUME = 10000`)**:
+   - 徒歩圏内（14分以内）の有効な駅について国土数値情報（`StationPotential` マスタ）から乗降客数を取得する。
+   - 乗降客数が判明しており、かつ1日平均乗降客数が 10,000人 未満の過疎駅エリアの物件は足切り除外する。
+   - 徒歩圏内の駅に1駅でも1万人以上の主要駅、またはデータ未登録駅（新駅等）が含まれる場合は誤判定を防ぐため除外しない。
+
 ## バルクML評価の並列実行数（OOM防止）
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `run_ml_pipeline.py` に `--concurrency` 引数を新設し、CLI から動的に並列度（例: `--concurrency 4`）を指定可能とする (Issue #1507)。
