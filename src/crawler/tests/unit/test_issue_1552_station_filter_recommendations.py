@@ -98,11 +98,11 @@ def test_station_passenger_volume_filter():
         prop_depop = _prop(station1="過疎駅", railwayWalkMinute1=5)
         assert is_depopulated_station_area(prop_depop) is True
 
-    # 乗降客数データが存在しない駅（None）は除外しない（フェールセーフ）
+    # 乗降客数データが存在しない駅（None）も足切り除外 (Issue #1565で更新)
     with patch("scripts.ops.send_recommendations.query_station_volume") as mock_vol:
         mock_vol.return_value = None
         prop_unknown = _prop(station1="未知の新駅", railwayWalkMinute1=5)
-        assert is_depopulated_station_area(prop_unknown) is False
+        assert is_depopulated_station_area(prop_unknown) is True
 
     # 複数駅がある場合：1駅が過疎駅でも、もう1駅が1万人以上なら合格
     with patch("scripts.ops.send_recommendations.query_station_volume") as mock_vol:
