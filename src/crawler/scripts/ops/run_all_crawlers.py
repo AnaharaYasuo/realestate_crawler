@@ -598,6 +598,13 @@ def main():
     clean_zombies()
     bound_db_connect_timeout()
 
+    # ローカル実行時のPPPoE接続リセット（健美家WAF回避用動的IP再取得）
+    try:
+        from package.utils.router_controller import ensure_router_pppoe_reconnected
+        ensure_router_pppoe_reconnected()
+    except Exception as re_err:
+        logger.warning(f"Router PPPoE reconnect helper error: {re_err}")
+
     # 実行単位で独立した動的並行度状態ファイルを設定（子プロセスへ継承）
     if "CRAWLER_CONCURRENCY_STATE_FILE" not in os.environ:
         os.environ["CRAWLER_CONCURRENCY_STATE_FILE"] = os.path.join(
