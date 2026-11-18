@@ -162,6 +162,14 @@ def _get_fire_and_forget_wait_timeout() -> float:
         return 7200.0
 
 
+def _get_fire_and_forget_drain_timeout() -> float:
+    try:
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_DRAIN_TIMEOUT", "300.0"))
+        return val if val >= 0 else 300.0
+    except (ValueError, TypeError):
+        return 300.0
+
+
 def _poll_active_threads(curr: threading.Thread) -> list[Any]:
     with _active_threads_lock:
         alive_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
@@ -259,6 +267,8 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     if timeout is None:
         timeout = _get_fire_and_forget_wait_timeout()
 
+    drain_timeout = _get_fire_and_forget_drain_timeout()
+
     start = time.monotonic()
     curr = threading.current_thread()
     last_log_time = start
@@ -266,7 +276,14 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
-        if timeout > 0 and (now - start) >= timeout:
+        elapsed = now - start
+        if timeout > 0 and elapsed >= timeout:
+            break
+        if drain_timeout > 0 and elapsed >= drain_timeout:
+            logger.warning(
+                "Fire-and-forget drain timeout (%.1fs) reached; proceeding to cancel and clean up remaining background tasks.",
+                drain_timeout,
+            )
             break
 
         alive = _poll_active_threads(curr)
@@ -275,12 +292,12 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
             break
 
         if now - last_log_time >= 15.0 and alive:
-            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
+            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), elapsed)
             last_log_time = now
 
         time.sleep(0.5)
 
-    timeout_expired = timeout > 0 and (time.monotonic() - start) >= timeout
+    timeout_expired = (timeout > 0 and (time.monotonic() - start) >= timeout) or (drain_timeout > 0 and (time.monotonic() - start) >= drain_timeout)
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
