@@ -17,14 +17,36 @@ from package.models.mid_brokers import TohoMansion, TohoKodate, TohoTochi
 
 logger = logging.getLogger(__name__)
 
-def check_toho_listing_ended(response: BeautifulSoup, page_url: str = ""):
+def _is_unspecified_toho_price(price_str: str) -> bool:
+    return price_str.startswith(("----", "-万円")) or price_str in ("-", "--", "---")
+
+
+def _check_toho_specs_price_withdrawn(response: BeautifulSoup, page_url: str = "") -> None:
+    for dl in response.find_all("dl"):
+        for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+            if dt.get_text(strip=True) in ("価格", "販売価格", "物件価格"):
+                dd_val = dd.get_text(strip=True)
+                if _is_unspecified_toho_price(dd_val):
+                    raise ListingEndedException(f"Toho listing ended (unspecified/withdrawn price '{dd_val}'): {page_url}")
+
+
+def _check_toho_heading_price_withdrawn(response: BeautifulSoup, page_url: str = "") -> None:
+    for heading_price in response.find_all(class_=re.compile(r"headingPrice|c-property__price", re.I)):
+        hp_text = heading_price.get_text(strip=True)
+        if _is_unspecified_toho_price(hp_text):
+            raise ListingEndedException(f"Toho listing ended (heading price '{hp_text}'): {page_url}")
+
+
+def check_toho_listing_ended(response: BeautifulSoup, page_url: str = "") -> None:
     if page_url and "/estate_list_seyaku/" in page_url:
         raise ListingEndedException(f"Toho seyaku (contracted) URL: {page_url}")
     title_text = response.title.get_text() if response.title else ""
     body_text = response.body.get_text() if response.body else ""
     all_text = f"{title_text} {body_text}"
-    if any(msg in all_text for msg in ["成約済", "お探しの物件は見つかりませんでした", "掲載を終了"]):
+    if any(msg in all_text for msg in ("成約済", "お探しの物件は見つかりませんでした", "掲載を終了")):
         raise ListingEndedException(f"Toho listing ended: {page_url}")
+    _check_toho_specs_price_withdrawn(response, page_url)
+    _check_toho_heading_price_withdrawn(response, page_url)
 
 
 class TohoBaseParser(ParserBase):
