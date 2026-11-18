@@ -136,14 +136,14 @@ class KenbiyaParserBase(ParserBase):
 
     @classmethod
     async def _throttle_before_request(cls) -> None:
-        """Cloud環境または設定時にリクエスト送信間隔を全パーサー共通の共有ロックで担保"""
-        if not (
-            os.getenv("K_SERVICE")
-            or os.getenv("CLOUD_RUN_JOB")
-            or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")
-        ):
+        """リクエスト送信間隔を全パーサー共通の共有ロックで担保（全環境で既定有効）"""
+        if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
             return
-        min_interval = 2.0
+        raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
+        try:
+            min_interval = float(raw_interval) if raw_interval else 2.0
+        except ValueError:
+            min_interval = 2.0
         async with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             elapsed = now - KenbiyaParserBase._last_request_time

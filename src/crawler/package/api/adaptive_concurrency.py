@@ -110,6 +110,7 @@ class AdaptiveConcurrencyController:
         "nomura": 3,
         "mitsui": 3,
         "smtrc": 2,
+        "kenbiya": 1,
     }
 
     @classmethod
