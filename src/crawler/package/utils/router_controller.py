@@ -158,11 +158,11 @@ def disconnect_router_pppoe(
     interface: str = "wan_pppoe",
 ) -> dict:
     """Disconnect the PPPoE interface on the GL.iNet GL-MT3000 router via LuCI."""
-    host = host or os.getenv("GL_ROUTER_HOST", "192.168.8.1")
+    host = host or os.getenv("GL_ROUTER_HOST")
     password = password or os.getenv("GL_ROUTER_PASSWORD")
 
     result = {"success": False, "error": None}
-    if not password or os.getenv("IS_CLOUD") or os.getenv("K_SERVICE"):
+    if not host or not password or os.getenv("IS_CLOUD") or os.getenv("K_SERVICE"):
         return result
 
     try:

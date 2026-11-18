@@ -36,7 +36,7 @@ def test_disconnect_router_pppoe_executes_ifdown(monkeypatch):
     mock_sync_pw_mod.sync_playwright.return_value = mock_cm
 
     with patch.dict(sys.modules, {"playwright.sync_api": mock_sync_pw_mod}):
-        res = router_controller.disconnect_router_pppoe(host="192.168.8.1", password="secret")
+        res = router_controller.disconnect_router_pppoe(host="router.local", password="secret")
 
     assert res["success"] is True
     mock_page.evaluate.assert_called_once()
