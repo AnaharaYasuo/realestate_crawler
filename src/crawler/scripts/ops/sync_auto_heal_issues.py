@@ -558,6 +558,7 @@ def record_heal_attempt(
     gh: GhClientProtocol,
     *,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     """Increment `auto-heal-attempts` counter on an Issue and escalate if exceeding `max_attempts`."""
     iss = gh.get_issue(number)
@@ -573,10 +574,21 @@ def record_heal_attempt(
         updated_body = f"{new_marker}\n{body}"
     gh.update_issue_body(number, updated_body)
 
+    if reason:
+        gh.comment_issue(
+            number,
+            f"⚠️ **自動修復の試行失敗記録 (試行 {next_attempts}/{max_attempts} 回目)**\n\n- 理由: {reason}",
+        )
+
     if next_attempts > max_attempts:
+        escalation_reason = (
+            f"自動修復の最大試行回数（{max_attempts}回）を超過したため自動停止しました（試行 {next_attempts} 回目）。"
+        )
+        if reason:
+            escalation_reason = f"{escalation_reason}\n直前の失敗理由: {reason}"
         escalate_issue_to_human(
             number,
-            f"自動修復の最大試行回数（{max_attempts}回）を超過したため自動停止しました（試行 {next_attempts} 回目）。",
+            escalation_reason,
             gh,
         )
         return {"issue_number": number, "attempts": next_attempts, "escalated": True}
@@ -675,7 +687,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(list_actionable_issues(gh), ensure_ascii=False))
         return 0
     if args.record_attempt:
-        print(json.dumps(record_heal_attempt(args.record_attempt, gh, max_attempts=args.max_attempts), ensure_ascii=False))
+        print(
+            json.dumps(
+                record_heal_attempt(
+                    args.record_attempt,
+                    gh,
+                    max_attempts=args.max_attempts,
+                    reason=args.reason if args.reason != "自動修復不能な変更を検知しました。" else None,
+                ),
+                ensure_ascii=False,
+            )
+        )
         return 0
     if args.escalate:
         print(json.dumps(escalate_issue_to_human(args.escalate, args.reason, gh), ensure_ascii=False))
