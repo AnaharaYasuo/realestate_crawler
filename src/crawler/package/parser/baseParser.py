@@ -2779,6 +2779,21 @@ class ParserBase(metaclass=ABCMeta):
             )
         raise LoadPropertyPageException(f"HTTP Status {status}: {url}")
 
+    def _handle_client_error(
+        self, e: Exception, url: str, attempt: int, max_timeouts: int
+    ) -> None:
+        """ClientError/TimeoutError 時の連続失敗回数カウントおよび例外送出処理"""
+        if attempt == max_timeouts - 1:
+            cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
+            self.consecutive_timeouts = cur_timeouts
+            if cur_timeouts >= max_timeouts:
+                raise ServerDownException(
+                    f"Target server is down or timing out repeatedly ({cur_timeouts} times)"
+                ) from e
+            raise LoadPropertyPageException(
+                f"Timeout after {attempt + 1} attempts for URL: {url}"
+            ) from e
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         req_timeout = getattr(self, "REQUEST_TIMEOUT_SEC", 15)
@@ -2805,16 +2820,7 @@ class ParserBase(metaclass=ABCMeta):
                     raise
                 await asyncio.sleep(backoff)
             except (TimeoutError, aiohttp.ClientError) as e:
-                if attempt == max_timeouts - 1:
-                    cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
-                    self.consecutive_timeouts = cur_timeouts
-                    if cur_timeouts >= max_timeouts:
-                        raise ServerDownException(
-                            f"Target server is down or timing out repeatedly ({cur_timeouts} times)"
-                        ) from e
-                    raise LoadPropertyPageException(
-                        f"Timeout after {attempt + 1} attempts for URL: {url}"
-                    ) from e
+                self._handle_client_error(e, url, attempt, max_timeouts)
                 await asyncio.sleep(1 * (attempt + 1))
             except MaxPayloadExceededException as e:
                 logging.warning(f"Payload limit exceeded for {url}: {e}")
