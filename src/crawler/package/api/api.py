@@ -285,21 +285,25 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     last_log_time = start
     consecutive_idle = 0
 
-    while not os.path.exists(STOP_FLAG_FILE):
-        now = time.monotonic()
+    def _should_break_wait_loop(now: float) -> bool:
+        nonlocal last_log_time, consecutive_idle
         elapsed = now - start
         if _is_wait_timeout_exceeded(elapsed, timeout, drain_timeout):
-            break
+            return True
 
         alive = _poll_active_threads(curr)
         consecutive_idle = (consecutive_idle + 1) if not alive else 0
         if consecutive_idle >= 3:
-            break
+            return True
 
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), elapsed)
             last_log_time = now
+        return False
 
+    while not os.path.exists(STOP_FLAG_FILE):
+        if _should_break_wait_loop(time.monotonic()):
+            break
         time.sleep(0.5)
 
     elapsed_final = time.monotonic() - start
