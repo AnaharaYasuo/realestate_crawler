@@ -154,4 +154,4 @@ def ensure_router_pppoe_reconnected() -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     res = reconnect_router_pppoe()
-    print("Result:", res)
+    logger.info("Result: %s", res)
