@@ -1301,5 +1301,10 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        try:
+            from package.utils.router_controller import ensure_router_pppoe_disconnected
+            ensure_router_pppoe_disconnected()
+        except Exception as disc_err:
+            logger.warning(f"Router PPPoE disconnect helper error: {disc_err}")
         shutdown_new_relic()
 

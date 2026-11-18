@@ -31,3 +31,4 @@
 ## 4. 実行トリガー (`run_all_crawlers.py`)
 - クローラー全件実行スクリプトの起動時事前処理（`clean_zombies()` 直後）に `ensure_router_pppoe_reconnected()` を呼び出し、IP再取得を実施。
 - 再取得失敗時も例外でメインプロセスを落とさず、警告ログを出力して通常クローリングへフォールバックする耐障害性設計を採用。
+- クローラー全件実行スクリプトの終了処理（`finally` ブロック等）にて `ensure_router_pppoe_disconnected()` を呼び出し、`wan_pppoe` を切断（`/sbin/ifdown wan_pppoe`）する。未使用時のセッション維持を避け、次回起動時の別IP割り当てを促進する。

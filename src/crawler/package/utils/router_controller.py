@@ -13,6 +13,7 @@ import os
 import time
 
 logger = logging.getLogger(__name__)
+_PASSWORD_INPUT_SELECTOR = "input[type=password]"
 
 def reconnect_router_pppoe(
     host: str | None = None,
@@ -64,8 +65,8 @@ def reconnect_router_pppoe(
             login_url = f"{scheme}://{host}:8080/cgi-bin/luci/"
             page.goto(login_url, timeout=15000)
             page.wait_for_timeout(1000)
-            page.fill("input[type=password]", password)
-            page.press("input[type=password]", "Enter")
+            page.fill(_PASSWORD_INPUT_SELECTOR, password)
+            page.press(_PASSWORD_INPUT_SELECTOR, "Enter")
             page.wait_for_timeout(2000)
 
             # 2. Navigate to Network Interfaces to initialize LuCI session & network models
@@ -150,6 +151,63 @@ def ensure_router_pppoe_reconnected() -> None:
         reconnect_router_pppoe()
     except Exception as e:
         logger.warning("Optional PPPoE pre-flight reconnect encountered non-fatal error: %s", e)
+
+
+def disconnect_router_pppoe(
+    host: str | None = None,
+    password: str | None = None,
+    interface: str = "wan_pppoe",
+) -> dict:
+    """Disconnect the PPPoE interface on the GL.iNet GL-MT3000 router via LuCI."""
+    host = host or os.getenv("GL_ROUTER_HOST")
+    password = password or os.getenv("GL_ROUTER_PASSWORD")
+
+    result = {"success": False, "error": None}
+    if not host or not password or os.getenv("IS_CLOUD") or os.getenv("K_SERVICE"):
+        return result
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("Playwright is not installed; skipping router PPPoE disconnect.")
+        return result
+
+    try:
+        logger.info("Connecting to GL-MT3000 LuCI at %s:8080 to disconnect %s...", host, interface)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            scheme = "http"  # nosonar: S5332 LAN-only router web interface
+            page.goto(f"{scheme}://{host}:8080/cgi-bin/luci/", timeout=15000)
+            page.wait_for_timeout(1000)
+            page.fill(_PASSWORD_INPUT_SELECTOR, password)
+            page.press(_PASSWORD_INPUT_SELECTOR, "Enter")
+            page.wait_for_timeout(2000)
+            page.goto(f"{scheme}://{host}:8080/cgi-bin/luci/admin/network/network", timeout=15000)
+            page.wait_for_timeout(2000)
+
+            res = page.evaluate(f"""async () => {{
+                const fs = await L.resolveDefault(L.require('fs'));
+                return await fs.exec('/sbin/ifdown', ['{interface}']);
+            }}""")
+            result["success"] = bool(res and res.get("code") == 0)
+            logger.info("PPPoE disconnect completed for %s: %s", interface, res)
+            browser.close()
+    except Exception as e:
+        logger.warning("Failed to disconnect router PPPoE: %s", e)
+        result["error"] = str(e)
+
+    return result
+
+
+def ensure_router_pppoe_disconnected() -> None:
+    """Safely disconnect PPPoE at the end of local crawler execution."""
+    if not os.getenv("GL_ROUTER_PASSWORD"):
+        return
+    try:
+        disconnect_router_pppoe()
+    except Exception as e:
+        logger.warning("Optional PPPoE post-flight disconnect encountered non-fatal error: %s", e)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
