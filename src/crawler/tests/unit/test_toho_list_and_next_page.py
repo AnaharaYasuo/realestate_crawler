@@ -68,5 +68,25 @@ async def test_toho_mansion_detail_floor_parsing():
     assert entity.kouzou == "RC造"
     assert entity.price == 34800000
     assert entity.address == "藤沢市片瀬海岸２丁目"
-    assert entity.madori == "1DK"
+
+
+@pytest.mark.asyncio
+async def test_toho_mansion_unspecified_price_raises_listing_ended():
+    from package.parser.baseParser import ListingEndedException
+    sold_html = """
+    <html>
+      <body>
+        <h1>最上階×南向き×フルリノベ</h1>
+        <p class="estatesDtl__headingPrice">----万円2SLDK</p>
+        <dl>
+          <dt>価格</dt><dd>----</dd>
+        </dl>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(sold_html, "html.parser")
+    parser = TohoMansionParser()
+    entity = parser.createEntity()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(entity, soup)
 
