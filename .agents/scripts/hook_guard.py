@@ -47,6 +47,43 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
     return None
 
 
+def _is_test_file_path(path: str) -> bool:
+    norm = path.replace("\\", "/")
+    return bool(re.search(r"/tests/(?:.+/)?test_[^/]+\.py$", norm))
+
+
+def _check_test_tampering(path: str, args: dict) -> dict | None:
+    """Prevent AI agents from weakening or skipping existing tests (Reward Hacking)."""
+    if not _is_test_file_path(path):
+        return None
+    target = str(args.get("Target") or "")
+    replacement = str(args.get("Replacement") or args.get("Content") or "")
+    if not replacement:
+        return None
+
+    skip_pattern = re.compile(r"@pytest\.mark\.skip|pytest\.skip\(|@unittest\.skip")
+    if skip_pattern.search(replacement) and not skip_pattern.search(target):
+        return {
+            "decision": "deny",
+            "reason": "Test tampering guard: Adding skip/skipif to test files is forbidden.",
+        }
+    if re.search(r"^\s*#\s*assert\b", replacement, re.MULTILINE) and re.search(
+        r"^\s*assert\b", target, re.MULTILINE
+    ):
+        return {
+            "decision": "deny",
+            "reason": "Test tampering guard: Commenting out assertions in test files is forbidden.",
+        }
+    if re.search(r"^\s*assert\s+True\b", replacement, re.MULTILINE) and not re.search(
+        r"^\s*assert\s+True\b", target, re.MULTILINE
+    ):
+        return {
+            "decision": "deny",
+            "reason": "Test tampering guard: Replacing assertions with trivial 'assert True' is forbidden.",
+        }
+    return None
+
+
 def _evaluate_run_command(cmd: str) -> dict | None:
     is_search_cmd = bool(re.search(r"^\s*(rg|grep|select-string|git\s+grep)\b", cmd, re.IGNORECASE))
     if re.search(r"Docker\s*Desktop\.exe", cmd, re.IGNORECASE) and not is_search_cmd:
@@ -99,6 +136,9 @@ def evaluate_tool_call(payload: dict) -> dict:
                 "decision": "deny",
                 "reason": "Principle 3 violation: Direct file modification on the main working tree is forbidden. Edit inside '.worktrees/<branch-name>/'.",
             }
+        tamper_verdict = _check_test_tampering(str(raw_path), args)
+        if tamper_verdict is not None:
+            return tamper_verdict
 
     return {"decision": "allow"}
 
