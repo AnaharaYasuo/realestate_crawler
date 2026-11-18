@@ -1219,6 +1219,7 @@ class ParserBase(metaclass=ABCMeta):
         "box",
         "row",
         "section",
+        "tr",
     )
     _PRICE_SELECTORS = (
         ".price",
@@ -1251,7 +1252,8 @@ class ParserBase(metaclass=ABCMeta):
             else str(parent.get("class", ""))
         )
         tag_id = str(parent.get("id", ""))
-        return f"{classes} {tag_id}".lower()
+        tag_name = getattr(parent, "name", "") or ""
+        return f"{tag_name} {classes} {tag_id}".lower()
 
     @classmethod
     def _extract_all_valid_prices(cls, text: str) -> set[int]:
@@ -1303,7 +1305,12 @@ class ParserBase(metaclass=ABCMeta):
             combined = cls._get_combined_tag_info(parent)
             if cls._is_sub_heading(combined):
                 continue
-            if any(k in combined for k in cls._CARD_KEYWORDS):
+            if any(
+                bool(re.search(rf"(?:\b|_){re.escape(k)}(?:\b|_)", combined))
+                if len(k) <= 2
+                else k in combined
+                for k in cls._CARD_KEYWORDS
+            ):
                 first_candidate = first_candidate or parent
                 if cls._has_valid_price_in_container(parent):
                     return parent
@@ -2777,6 +2784,21 @@ class ParserBase(metaclass=ABCMeta):
             )
         raise LoadPropertyPageException(f"HTTP Status {status}: {url}")
 
+    def _handle_client_error(
+        self, e: Exception, url: str, attempt: int, max_timeouts: int
+    ) -> None:
+        """ClientError/TimeoutError 時の連続失敗回数カウントおよび例外送出処理"""
+        if attempt == max_timeouts - 1:
+            cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
+            self.consecutive_timeouts = cur_timeouts
+            if cur_timeouts >= max_timeouts:
+                raise ServerDownException(
+                    f"Target server is down or timing out repeatedly ({cur_timeouts} times)"
+                ) from e
+            raise LoadPropertyPageException(
+                f"Timeout after {attempt + 1} attempts for URL: {url}"
+            ) from e
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         req_timeout = getattr(self, "REQUEST_TIMEOUT_SEC", 15)
@@ -2794,17 +2816,16 @@ class ParserBase(metaclass=ABCMeta):
                 )
                 self.consecutive_timeouts = 0
                 return data
-            except (TimeoutError, aiohttp.ClientError) as e:
+            except RateLimitedException as rle:
+                backoff = min(30, 2 ** (attempt + 1))
+                logging.warning(
+                    f"Rate limited (429) on {url} (attempt {attempt + 1}/{max_timeouts}). Backing off {backoff}s: {rle}"
+                )
                 if attempt == max_timeouts - 1:
-                    cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
-                    self.consecutive_timeouts = cur_timeouts
-                    if cur_timeouts >= max_timeouts:
-                        raise ServerDownException(
-                            f"Target server is down or timing out repeatedly ({cur_timeouts} times)"
-                        ) from e
-                    raise LoadPropertyPageException(
-                        f"Timeout after {attempt + 1} attempts for URL: {url}"
-                    ) from e
+                    raise
+                await asyncio.sleep(backoff)
+            except (TimeoutError, aiohttp.ClientError) as e:
+                self._handle_client_error(e, url, attempt, max_timeouts)
                 await asyncio.sleep(1 * (attempt + 1))
             except MaxPayloadExceededException as e:
                 logging.warning(f"Payload limit exceeded for {url}: {e}")
