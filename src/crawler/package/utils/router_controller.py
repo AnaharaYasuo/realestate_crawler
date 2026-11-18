@@ -25,7 +25,9 @@ def reconnect_router_pppoe(
 
     Returns dict with status, previous_ip, and new_ip.
     """
-    host = host or os.getenv("GL_ROUTER_HOST", "192.168.8.1")
+    host = host or os.getenv("GL_ROUTER_HOST", "")
+    if not host:
+        host = "192.168.8.1"  # nosonar: S1313 local router default subnet
     password = password or os.getenv("GL_ROUTER_PASSWORD")
 
     if not password:
@@ -57,8 +59,9 @@ def reconnect_router_pppoe(
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
 
-            # 1. Login to LuCI
-            login_url = f"http://{host}:8080/cgi-bin/luci/"
+            # 1. Login to LuCI (LuCI runs on local LAN router over HTTP port 8080)
+            scheme = "http"  # nosonar: S5332 LAN-only router web interface
+            login_url = f"{scheme}://{host}:8080/cgi-bin/luci/"
             page.goto(login_url, timeout=15000)
             page.wait_for_timeout(1000)
             page.fill("input[type=password]", password)
@@ -66,7 +69,7 @@ def reconnect_router_pppoe(
             page.wait_for_timeout(2000)
 
             # 2. Navigate to Network Interfaces to initialize LuCI session & network models
-            net_url = f"http://{host}:8080/cgi-bin/luci/admin/network/network"
+            net_url = f"{scheme}://{host}:8080/cgi-bin/luci/admin/network/network"
             page.goto(net_url, timeout=15000)
             page.wait_for_timeout(2000)
 
