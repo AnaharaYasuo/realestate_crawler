@@ -221,25 +221,40 @@ def _enrich_records_with_evaluations(res_map: dict[str, dict[str, Any]], urls: l
 
 
 def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str, dict[str, Any]]:
-    from django.db import models as dj_models
+    from django.db import models as dj_models, connection, OperationalError, DatabaseError
     from package.utils.url_matcher import UrlMatcher
 
-    qs = model_class.objects.filter(pageUrl__in=urls).values(
-        "pageUrl", "price", "updateDateTime", "inputDateTime"
-    )
-    res_map: dict[str, dict[str, Any]] = {}
-    for row in qs:
-        row_dict = dict(row)
-        p_url = row_dict["pageUrl"]
-        res_map[p_url] = row_dict
-        norm_key = UrlMatcher.normalize(p_url).rstrip("/")
-        if norm_key and norm_key not in res_map:
-            res_map[norm_key] = row_dict
+    def _execute_query():
+        qs = model_class.objects.filter(pageUrl__in=urls).values(
+            "pageUrl", "price", "updateDateTime", "inputDateTime"
+        )
+        res_map: dict[str, dict[str, Any]] = {}
+        for row in qs:
+            row_dict = dict(row)
+            p_url = row_dict["pageUrl"]
+            res_map[p_url] = row_dict
+            norm_key = UrlMatcher.normalize(p_url).rstrip("/")
+            if norm_key and norm_key not in res_map:
+                res_map[norm_key] = row_dict
 
-    if res_map and isinstance(model_class, type) and issubclass(model_class, dj_models.Model):
-        _enrich_records_with_evaluations(res_map, urls)
+        if res_map and isinstance(model_class, type) and issubclass(model_class, dj_models.Model):
+            _enrich_records_with_evaluations(res_map, urls)
+        return res_map
 
-    return res_map
+    try:
+        return _execute_query()
+    except (OperationalError, DatabaseError) as db_err:
+        err_msg = str(db_err).lower()
+        if any(k in err_msg for k in ("2013", "2006", "lost connection", "server has gone away")):
+            logger.warning(
+                f"[Differential Crawl] DB connection lost ({db_err}). Reconnecting and retrying differential query once..."
+            )
+            try:
+                connection.close()
+            except Exception:
+                pass
+            return _execute_query()
+        raise
 
 
 def _partition_chunk_items(

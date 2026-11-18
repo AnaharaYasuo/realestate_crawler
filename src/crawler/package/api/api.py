@@ -162,6 +162,14 @@ def _get_fire_and_forget_wait_timeout() -> float:
         return 7200.0
 
 
+def _get_fire_and_forget_drain_timeout() -> float:
+    try:
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_DRAIN_TIMEOUT", "300.0"))
+        return val if val >= 0 else 300.0
+    except (ValueError, TypeError):
+        return 300.0
+
+
 def _poll_active_threads(curr: threading.Thread) -> list[Any]:
     with _active_threads_lock:
         alive_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
@@ -254,11 +262,44 @@ def _touch_active_progress_files() -> None:
         pass
 
 
+def _is_wait_timeout_exceeded(elapsed: float, timeout: float, drain_timeout: float) -> bool:
+    if timeout > 0 and elapsed >= timeout:
+        return True
+    if drain_timeout > 0 and elapsed >= drain_timeout:
+        logger.warning(
+            "Fire-and-forget drain timeout (%.1fs) reached; proceeding to cancel and clean up remaining background tasks.",
+            drain_timeout,
+        )
+        return True
+    return False
+
+
+def _check_and_log_wait_progress(
+    now: float,
+    start: float,
+    last_log_time: float,
+    curr: threading.Thread,
+    consecutive_idle: int,
+) -> tuple[bool, float, int]:
+    elapsed = now - start
+    alive = _poll_active_threads(curr)
+    new_idle = (consecutive_idle + 1) if not alive else 0
+    if new_idle >= 3:
+        return True, last_log_time, new_idle
+
+    new_log_time = last_log_time
+    if now - last_log_time >= 15.0 and alive:
+        logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), elapsed)
+        new_log_time = now
+    return False, new_log_time, new_idle
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
         timeout = _get_fire_and_forget_wait_timeout()
 
+    drain_timeout = _get_fire_and_forget_drain_timeout()
     start = time.monotonic()
     curr = threading.current_thread()
     last_log_time = start
@@ -266,21 +307,19 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
-        if timeout > 0 and (now - start) >= timeout:
+        if _is_wait_timeout_exceeded(now - start, timeout, drain_timeout):
             break
 
-        alive = _poll_active_threads(curr)
-        consecutive_idle = (consecutive_idle + 1) if not alive else 0
-        if consecutive_idle >= 3:
+        is_done, last_log_time, consecutive_idle = _check_and_log_wait_progress(
+            now, start, last_log_time, curr, consecutive_idle
+        )
+        if is_done:
             break
-
-        if now - last_log_time >= 15.0 and alive:
-            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
-            last_log_time = now
 
         time.sleep(0.5)
 
-    timeout_expired = timeout > 0 and (time.monotonic() - start) >= timeout
+    elapsed_final = time.monotonic() - start
+    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and elapsed_final >= drain_timeout)
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
