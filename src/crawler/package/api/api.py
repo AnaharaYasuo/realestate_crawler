@@ -162,6 +162,14 @@ def _get_fire_and_forget_wait_timeout() -> float:
         return 7200.0
 
 
+_last_fire_and_forget_progress_ts: float = 0.0
+
+
+def _mark_fire_and_forget_progress() -> None:
+    global _last_fire_and_forget_progress_ts
+    _last_fire_and_forget_progress_ts = time.monotonic()
+
+
 def _get_fire_and_forget_drain_timeout() -> float:
     try:
         val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_DRAIN_TIMEOUT", "300.0"))
@@ -309,6 +317,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     last_log_time = start
     consecutive_idle = 0
     prev_alive_ids: tuple[int, ...] | None = None
+    prev_progress_ts = _last_fire_and_forget_progress_ts
 
     while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
@@ -318,8 +327,10 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
         is_done, last_log_time, consecutive_idle, prev_alive_ids, has_progress = _check_and_log_wait_progress(
             now, start, last_log_time, curr, consecutive_idle, prev_alive_ids
         )
-        if has_progress:
+        curr_progress_ts = _last_fire_and_forget_progress_ts
+        if has_progress or curr_progress_ts != prev_progress_ts:
             last_progress_time = now
+            prev_progress_ts = curr_progress_ts
         if is_done:
             break
 
@@ -1069,6 +1080,7 @@ class DynamicSemaphore:
 
 class ApiAsyncProcBase(metaclass=ABCMeta):
     def _touch_watchdog_progress(self, item=None):
+        _mark_fire_and_forget_progress()
         try:
             env_comp = os.getenv("CRAWLER_JOB_COMPANY")
             env_type = os.getenv("CRAWLER_JOB_TYPE")
