@@ -1006,9 +1006,18 @@ def main():
                     # クロール開始前のタイムスタンプを保存（INITIAL_DISCOVERY_GRACE_SEC維持のためPopen前にtouch）
                     touch_crawler_progress(company, ptype)
                     start_dt = timezone.now() if timezone is not None else None
+                    child_env = os.environ.copy()
+                    existing_pythonpath = child_env.get("PYTHONPATH", "")
+                    if _crawler_dir not in existing_pythonpath.split(os.pathsep):
+                        child_env["PYTHONPATH"] = (
+                            f"{_crawler_dir}{os.pathsep}{existing_pythonpath}"
+                            if existing_pythonpath
+                            else _crawler_dir
+                        )
                     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
                         cmd,
+                        env=child_env,
                         start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
                     now_ts = time.time()

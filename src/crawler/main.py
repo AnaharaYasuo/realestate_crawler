@@ -1,5 +1,11 @@
 # ruff: noqa: E402
 import os
+import sys
+
+_crawler_dir = os.path.dirname(os.path.abspath(__file__))
+if _crawler_dir not in sys.path:
+    sys.path.insert(0, _crawler_dir)
+
 import logging
 from package.utils.newrelic_helper import (
     init_new_relic,
