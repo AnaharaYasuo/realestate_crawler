@@ -262,12 +262,12 @@ def _touch_active_progress_files() -> None:
         pass
 
 
-def _is_wait_timeout_exceeded(elapsed: float, timeout: float, drain_timeout: float) -> bool:
+def _is_wait_timeout_exceeded(elapsed: float, idle_elapsed: float, timeout: float, drain_timeout: float) -> bool:
     if timeout > 0 and elapsed >= timeout:
         return True
-    if drain_timeout > 0 and elapsed >= drain_timeout:
+    if drain_timeout > 0 and idle_elapsed >= drain_timeout:
         logger.warning(
-            "Fire-and-forget drain timeout (%.1fs) reached; proceeding to cancel and clean up remaining background tasks.",
+            "Fire-and-forget drain timeout (%.1fs without progress) reached; proceeding to cancel and clean up remaining background tasks.",
             drain_timeout,
         )
         return True
@@ -280,18 +280,21 @@ def _check_and_log_wait_progress(
     last_log_time: float,
     curr: threading.Thread,
     consecutive_idle: int,
-) -> tuple[bool, float, int]:
+    prev_alive_ids: tuple[int, ...] | None = None,
+) -> tuple[bool, float, int, tuple[int, ...], bool]:
     elapsed = now - start
     alive = _poll_active_threads(curr)
+    alive_ids = tuple(sorted(id(t) for t in alive))
+    has_progress = prev_alive_ids is None or alive_ids != prev_alive_ids
     new_idle = (consecutive_idle + 1) if not alive else 0
     if new_idle >= 3:
-        return True, last_log_time, new_idle
+        return True, last_log_time, new_idle, alive_ids, has_progress
 
     new_log_time = last_log_time
     if now - last_log_time >= 15.0 and alive:
         logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), elapsed)
         new_log_time = now
-    return False, new_log_time, new_idle
+    return False, new_log_time, new_idle, alive_ids, has_progress
 
 
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
@@ -301,25 +304,30 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     drain_timeout = _get_fire_and_forget_drain_timeout()
     start = time.monotonic()
+    last_progress_time = start
     curr = threading.current_thread()
     last_log_time = start
     consecutive_idle = 0
+    prev_alive_ids: tuple[int, ...] | None = None
 
     while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
-        if _is_wait_timeout_exceeded(now - start, timeout, drain_timeout):
+        if _is_wait_timeout_exceeded(now - start, now - last_progress_time, timeout, drain_timeout):
             break
 
-        is_done, last_log_time, consecutive_idle = _check_and_log_wait_progress(
-            now, start, last_log_time, curr, consecutive_idle
+        is_done, last_log_time, consecutive_idle, prev_alive_ids, has_progress = _check_and_log_wait_progress(
+            now, start, last_log_time, curr, consecutive_idle, prev_alive_ids
         )
+        if has_progress:
+            last_progress_time = now
         if is_done:
             break
 
         time.sleep(0.5)
 
     elapsed_final = time.monotonic() - start
-    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and elapsed_final >= drain_timeout)
+    idle_final = time.monotonic() - last_progress_time
+    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and idle_final >= drain_timeout)
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
