@@ -104,61 +104,63 @@ def test_relaxed_discount_rate_thresholds_for_investment_and_residential():
         setattr(prop, f"busUse{i}", 0)
         setattr(prop, f"busWalkMinute{i}", 0)
 
-    # 1. 投資物件: 18% 割安 (売出4,000万 / 予測4,878万) -> 緩和により通過!
-    eval_18 = MagicMock(
-        property_type="investmentapartment",
-        first_stage_predicted_price=4878.0,
-        second_stage_predicted_price=None,
-        total_investment_score=80.0,
-        investment_score=80.0,
-    )
-    is_rec, reason, _prio = _evaluate_candidate(eval_18, prop)
-    assert is_rec is True
-    assert "18.0% 割安" in reason
+    from unittest.mock import patch
+    with patch("scripts.ops.send_recommendations.query_station_volume", return_value=700000):
+        # 1. 投資物件: 18% 割安 (売出4,000万 / 予測4,878万) -> 緩和により通過!
+        eval_18 = MagicMock(
+            property_type="investmentapartment",
+            first_stage_predicted_price=4878.0,
+            second_stage_predicted_price=None,
+            total_investment_score=80.0,
+            investment_score=80.0,
+        )
+        is_rec, reason, _prio = _evaluate_candidate(eval_18, prop)
+        assert is_rec is True
+        assert "18.0% 割安" in reason
 
-    # 2. 投資物件: 45% 割安 (売出4,000万 / 予測7,272万 -> 1.82倍) -> 予想価格が高めに出たケースも通過!
-    eval_45 = MagicMock(
-        property_type="investmentapartment",
-        first_stage_predicted_price=7272.0,
-        second_stage_predicted_price=None,
-        total_investment_score=80.0,
-        investment_score=80.0,
-    )
-    is_rec, reason, _prio = _evaluate_candidate(eval_45, prop)
-    assert is_rec is True
-    assert "45.0% 割安" in reason
+        # 2. 投資物件: 45% 割安 (売出4,000万 / 予測7,272万 -> 1.82倍) -> 予想価格が高めに出たケースも通過!
+        eval_45 = MagicMock(
+            property_type="investmentapartment",
+            first_stage_predicted_price=7272.0,
+            second_stage_predicted_price=None,
+            total_investment_score=80.0,
+            investment_score=80.0,
+        )
+        is_rec, reason, _prio = _evaluate_candidate(eval_45, prop)
+        assert is_rec is True
+        assert "45.0% 割安" in reason
 
-    # 3. 住居系物件: 45% 割安 (売出4,000万 / 予測7,272万) -> 従来は35%以上で除外されていたが緩和により通過!
-    eval_res_45 = MagicMock(
-        property_type="mansion",
-        first_stage_predicted_price=7272.0,
-        second_stage_predicted_price=None,
-    )
-    is_rec, reason, _prio = _evaluate_candidate(eval_res_45, prop)
-    assert is_rec is True
-    assert "45.0% 割安" in reason
+        # 3. 住居系物件: 45% 割安 (売出4,000万 / 予測7,272万) -> 従来は35%以上で除外されていたが緩和により通過!
+        eval_res_45 = MagicMock(
+            property_type="mansion",
+            first_stage_predicted_price=7272.0,
+            second_stage_predicted_price=None,
+        )
+        is_rec, reason, _prio = _evaluate_candidate(eval_res_45, prop)
+        assert is_rec is True
+        assert "45.0% 割安" in reason
 
-    # 4. 住居系物件: 17% 割安 (売出4,000万 / 予測4,819万) -> 緩和により通過!
-    eval_res_17 = MagicMock(
-        property_type="kodate",
-        first_stage_predicted_price=4819.0,
-        second_stage_predicted_price=None,
-    )
-    is_rec, reason, _prio = _evaluate_candidate(eval_res_17, prop)
-    assert is_rec is True
+        # 4. 住居系物件: 17% 割安 (売出4,000万 / 予測4,819万) -> 緩和により通過!
+        eval_res_17 = MagicMock(
+            property_type="kodate",
+            first_stage_predicted_price=4819.0,
+            second_stage_predicted_price=None,
+        )
+        is_rec, reason, _prio = _evaluate_candidate(eval_res_17, prop)
+        assert is_rec is True
 
-    # 5. 二次スクリーニングが存在するため一次スクリーニングでの上限閾値は不要 (Issue #1348)
-    # 高い割安度 (売出4,000万 / 予測12,000万 = 3.0倍, 66.7%割安) でも一次スクリーニングを通過すること
-    eval_extreme = MagicMock(
-        property_type="investmentapartment",
-        first_stage_predicted_price=12000.0,
-        second_stage_predicted_price=None,
-        total_investment_score=80.0,
-        investment_score=80.0,
-    )
-    is_rec, reason, _prio = _evaluate_candidate(eval_extreme, prop)
-    assert is_rec is True
-    assert "66.7% 割安" in reason
+        # 5. 二次スクリーニングが存在するため一次スクリーニングでの上限閾値は不要 (Issue #1348)
+        # 高い割安度 (売出4,000万 / 予測12,000万 = 3.0倍, 66.7%割安) でも一次スクリーニングを通過すること
+        eval_extreme = MagicMock(
+            property_type="investmentapartment",
+            first_stage_predicted_price=12000.0,
+            second_stage_predicted_price=None,
+            total_investment_score=80.0,
+            investment_score=80.0,
+        )
+        is_rec, reason, _prio = _evaluate_candidate(eval_extreme, prop)
+        assert is_rec is True
+        assert "66.7% 割安" in reason
 
 
 @pytest.mark.django_db

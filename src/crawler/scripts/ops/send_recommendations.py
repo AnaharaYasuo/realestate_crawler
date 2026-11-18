@@ -569,9 +569,10 @@ def is_excessive_walk_minutes(prop) -> bool:
 
 def is_depopulated_station_area(prop) -> bool:
     """
-    最寄り駅が1日の乗降客数1万人未満の過疎駅か判定する (Issue #1551)。
-    - 徒歩14分以内の有効な駅のうち、いずれかが1万人以上（またはデータ未登録・判定不能）なら False（合格）
-    - 徒歩14分以内の有効な駅の乗降客数が判明しており、全て1万人未満の場合は True（足切り除外）
+    最寄り駅が1日の乗降客数1万人未満の過疎駅、または乗降客数データなし/非公開の駅か判定する (Issue #1551, #1565)。
+    - 有効な駅名が記載されている経路が存在しない場合は、駅自体の判定ができないため除外しない (False: Issue #1244等の互換性)
+    - 徒歩14分以内の有効な駅のうち、いずれかが1万人以上の主要駅であれば False（合格）
+    - 徒歩14分以内の有効な駅に乗降客数1万人以上の駅が存在しない場合（全駅1万人未満、またはデータ未登録・非公開のみ）は True（足切り除外）
     """
     routes = get_valid_station_routes(prop)
     if not routes:
@@ -589,24 +590,15 @@ def is_depopulated_station_area(prop) -> bool:
     if not accessible_routes:
         return False
 
-    # 各駅の乗降客数をチェック
-    known_volumes = []
-    has_unknown_or_major_station = False
-
+    # 徒歩圏内の駅の中に1日1万人以上の乗降客数が確認できる駅が1つでもあれば合格
     for r in accessible_routes:
         st_name = r["station"]
         vol = query_station_volume(st_name)
-        if vol is None:
-            # データなし駅は誤判定を防ぐため足切りしない
-            has_unknown_or_major_station = True
-        elif vol >= MIN_RECOMMEND_PASSENGER_VOLUME:
-            # 1万人以上の主要駅が1つでもあれば合格
+        if vol is not None and vol >= MIN_RECOMMEND_PASSENGER_VOLUME:
             return False
-        else:
-            known_volumes.append((st_name, vol))
 
-    # 乗降客数が判明している駅があり、未知駅・主要駅が1つもなければ過疎駅と判定
-    return bool(known_volumes and not has_unknown_or_major_station)
+    # 駅名が存在するにもかかわらず、1万人以上の主要駅が1つも確認できない（過疎駅または非公開/データなし駅）場合は足切り除外
+    return True
 
 def _evaluate_candidate(eval_rec, prop) -> tuple:
     asking_price = getattr(prop, "price", 0)
