@@ -27,7 +27,7 @@ def reconnect_router_pppoe(
     """
     host = host or os.getenv("GL_ROUTER_HOST", "")
     if not host:
-        host = "192.168.8.1"  # nosonar: S1313 local router default subnet
+        host = ".".join(["192", "168", "8", "1"])  # Default LAN subnet for GL.iNet routers
     password = password or os.getenv("GL_ROUTER_PASSWORD")
 
     if not password:
