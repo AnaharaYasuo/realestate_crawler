@@ -1305,7 +1305,12 @@ class ParserBase(metaclass=ABCMeta):
             combined = cls._get_combined_tag_info(parent)
             if cls._is_sub_heading(combined):
                 continue
-            if any(k in combined for k in cls._CARD_KEYWORDS):
+            if any(
+                bool(re.search(rf"(?:\b|_){re.escape(k)}(?:\b|_)", combined))
+                if len(k) <= 2
+                else k in combined
+                for k in cls._CARD_KEYWORDS
+            ):
                 first_candidate = first_candidate or parent
                 if cls._has_valid_price_in_container(parent):
                     return parent
