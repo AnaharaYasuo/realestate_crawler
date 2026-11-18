@@ -33,8 +33,13 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 1. **対象 Issue の高速判定と全件バッチグループ化**:
    - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、未解決 Issue 一覧（`issues`）を取得する。`count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
    - `count > 0` の場合、リストされた未着手の全 Issue をまとめて 1 つの修復ブランチで一括処理する。
-2. **試行回数記録とサーキットブレーカー**:
-   - 対象 Issue 群 `#<N>` に対して着手前に `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった Issue はバッチから除外して人手対応へ引き継ぐ。
+2. **調査・事実確認先行原則 ＆ 試行回数記録（サーキットブレーカー誤作動の完全防止）**:
+   - **【着手前インクリメントの絶対禁止】**: コード変更やエラー再現確認を行う前の段階で、機械的に `sync_auto_heal_issues.py --record-attempt <N>` を実行してはならない。未調査のまま試行回数のみを消費し、上限（2回）超過によって誤った `auto-heal:needs-human` エスカレーションを引き起こすことを完全に防ぐ。
+   - **【実態調査・再現確認の先行義務】**: まず各対象 Issue の該当パーサー、直近エラーログ（`Temp/auto_heal_instruction.json` 等）、および実際の物件ページ疎通（動的生HTML・HTTPステータス等）を調査し、「パーサーの不整合」「既に先行PRで解消済み」「一時的ネットワーク障害」等の事実を確定させる。
+   - **【試行回数の記録タイミング】**:
+     - 調査・修正を試みた結果、自動解決不能（仕様変更の大規模化やCAPTCHA等の本質的ブロック）であることが判明した、または修正・テストを試みてなお失敗した場合にのみ `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。
+     - 既に解消済みの場合は `--record-attempt` ではなく `sync_auto_heal_issues.py` の自動クローズ判定または PR 受入基準更新（`--mark-criteria-done <N>`）を行う。
+     - 試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった Issue はバッチから除外して人手対応へ引き継ぐ。
 3. **独立 Worktree での SDD × TDD × Parser 一括修正 ➔ `production` マージ＆本番デプロイ完遂**:
    - **【最重要・完了定義】各自動修復のゴールは「`production` ブランチへのマージ完了および本番デプロイ（`Deploy Production`）の成功確認」である。PR作成時点や `master` マージ時点で作業を終了してはならない。**
    - 必ず `.worktrees/fix-auto-heal-batch-<timestamp>`（ブランチ `fix/auto-heal-batch-<timestamp>`）を作成して作業する。

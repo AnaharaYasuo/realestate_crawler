@@ -537,7 +537,8 @@ def test_subprocess_gh_client_and_cli_entrypoints(tmp_path: Path, capsys):
         assert len(fake_gh.created_issues) == 1
         new_num = fake_gh.created_issues[0]["number"]
         assert sync_auto_heal_issues.main(["--list-actionable"]) == 0
-        assert sync_auto_heal_issues.main(["--record-attempt", str(new_num)]) == 0
+        assert sync_auto_heal_issues.main(["--record-attempt", str(new_num), "--reason", "unit-test-failure"]) == 0
+        assert any("unit-test-failure" in comment[1] for comment in fake_gh.comments if comment[0] == new_num)
         assert sync_auto_heal_issues.main(["--mark-criteria-done", str(new_num)]) == 0
         assert sync_auto_heal_issues.main(["--escalate", str(new_num), "--reason", "manual check"]) == 0
         assert sync_auto_heal_issues.main(["--instruction-file", str(tmp_path / "missing.json")]) == 0
