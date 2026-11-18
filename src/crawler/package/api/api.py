@@ -262,13 +262,24 @@ def _touch_active_progress_files() -> None:
         pass
 
 
+def _is_wait_timeout_exceeded(elapsed: float, timeout: float, drain_timeout: float) -> bool:
+    if timeout > 0 and elapsed >= timeout:
+        return True
+    if drain_timeout > 0 and elapsed >= drain_timeout:
+        logger.warning(
+            "Fire-and-forget drain timeout (%.1fs) reached; proceeding to cancel and clean up remaining background tasks.",
+            drain_timeout,
+        )
+        return True
+    return False
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
         timeout = _get_fire_and_forget_wait_timeout()
 
     drain_timeout = _get_fire_and_forget_drain_timeout()
-
     start = time.monotonic()
     curr = threading.current_thread()
     last_log_time = start
@@ -277,13 +288,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
         elapsed = now - start
-        if timeout > 0 and elapsed >= timeout:
-            break
-        if drain_timeout > 0 and elapsed >= drain_timeout:
-            logger.warning(
-                "Fire-and-forget drain timeout (%.1fs) reached; proceeding to cancel and clean up remaining background tasks.",
-                drain_timeout,
-            )
+        if _is_wait_timeout_exceeded(elapsed, timeout, drain_timeout):
             break
 
         alive = _poll_active_threads(curr)
@@ -297,7 +302,8 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
         time.sleep(0.5)
 
-    timeout_expired = (timeout > 0 and (time.monotonic() - start) >= timeout) or (drain_timeout > 0 and (time.monotonic() - start) >= drain_timeout)
+    elapsed_final = time.monotonic() - start
+    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and elapsed_final >= drain_timeout)
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
