@@ -1219,6 +1219,7 @@ class ParserBase(metaclass=ABCMeta):
         "box",
         "row",
         "section",
+        "tr",
     )
     _PRICE_SELECTORS = (
         ".price",
@@ -1251,7 +1252,8 @@ class ParserBase(metaclass=ABCMeta):
             else str(parent.get("class", ""))
         )
         tag_id = str(parent.get("id", ""))
-        return f"{classes} {tag_id}".lower()
+        tag_name = getattr(parent, "name", "") or ""
+        return f"{tag_name} {classes} {tag_id}".lower()
 
     @classmethod
     def _extract_all_valid_prices(cls, text: str) -> set[int]:
@@ -2794,6 +2796,14 @@ class ParserBase(metaclass=ABCMeta):
                 )
                 self.consecutive_timeouts = 0
                 return data
+            except RateLimitedException as rle:
+                backoff = min(30, 2 ** (attempt + 1))
+                logging.warning(
+                    f"Rate limited (429) on {url} (attempt {attempt + 1}/{max_timeouts}). Backing off {backoff}s: {rle}"
+                )
+                if attempt == max_timeouts - 1:
+                    raise
+                await asyncio.sleep(backoff)
             except (TimeoutError, aiohttp.ClientError) as e:
                 if attempt == max_timeouts - 1:
                     cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
