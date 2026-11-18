@@ -49,3 +49,9 @@
 2. `src/crawler/tests/unit/test_fire_and_forget_drain_timeout_1579.py`:
    - ドレインタイムアウト設定値の読み取りテスト。
    - 残存タスクがスタックした場合に、長時間の 7200 秒ではなくドレイン猶予時間で安全に終了すること。
+
+---
+
+## 5. 関連ポリシー永続化
+- `.agents/policies/crawler_and_parser_policy.md` に原則 2.8（差分判定時のDB切断自動再接続）および 2.9（探索完了後の残存ワーカードレインタイムアウト）として明文化。
+
