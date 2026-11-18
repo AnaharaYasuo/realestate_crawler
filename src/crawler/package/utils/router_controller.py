@@ -13,6 +13,7 @@ import os
 import time
 
 logger = logging.getLogger(__name__)
+_PASSWORD_INPUT_SELECTOR = "input[type=password]"
 
 def reconnect_router_pppoe(
     host: str | None = None,
@@ -64,8 +65,8 @@ def reconnect_router_pppoe(
             login_url = f"{scheme}://{host}:8080/cgi-bin/luci/"
             page.goto(login_url, timeout=15000)
             page.wait_for_timeout(1000)
-            page.fill("input[type=password]", password)
-            page.press("input[type=password]", "Enter")
+            page.fill(_PASSWORD_INPUT_SELECTOR, password)
+            page.press(_PASSWORD_INPUT_SELECTOR, "Enter")
             page.wait_for_timeout(2000)
 
             # 2. Navigate to Network Interfaces to initialize LuCI session & network models
@@ -179,8 +180,8 @@ def disconnect_router_pppoe(
             scheme = "http"  # nosonar: S5332 LAN-only router web interface
             page.goto(f"{scheme}://{host}:8080/cgi-bin/luci/", timeout=15000)
             page.wait_for_timeout(1000)
-            page.fill("input[type=password]", password)
-            page.press("input[type=password]", "Enter")
+            page.fill(_PASSWORD_INPUT_SELECTOR, password)
+            page.press(_PASSWORD_INPUT_SELECTOR, "Enter")
             page.wait_for_timeout(2000)
             page.goto(f"{scheme}://{host}:8080/cgi-bin/luci/admin/network/network", timeout=15000)
             page.wait_for_timeout(2000)
