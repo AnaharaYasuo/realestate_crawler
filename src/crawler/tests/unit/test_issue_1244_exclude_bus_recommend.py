@@ -31,9 +31,11 @@ def test_bus_minute_without_flag_is_bus():
 
 
 def test_walk_route_alongside_bus_is_kept():
+    from unittest.mock import patch
     prop = _prop(station1="中山", busUse1=1, busWalkMinute1=12, station2="鴨居", busUse2=0)
     assert is_bus_access_property(prop) is False
-    assert _evaluate_candidate(_eval(), prop)[0] is True
+    with patch("scripts.ops.send_recommendations.query_station_volume", return_value=30000):
+        assert _evaluate_candidate(_eval(), prop)[0] is True
 
 
 def test_no_station_info_is_kept():
