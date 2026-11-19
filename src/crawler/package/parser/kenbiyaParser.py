@@ -253,15 +253,33 @@ class KenbiyaParserBase(ParserBase):
             raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
+    _IMPERSONATE_PROFILES = (
+        "safari15_5",
+        "edge101",
+        "chrome124",
+        "chrome110",
+        "safari17_0",
+    )
+    _ACCEPT_LANGUAGES = (
+        "ja,en-US;q=0.9,en;q=0.8",
+        "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja;q=1.0,en;q=0.5",
+    )
+
     async def _get_with_curl_cffi(
         self, url: str, headers: dict[str, str], proxy_url: str | None
     ) -> tuple[int, bytes]:
         from curl_cffi.requests import AsyncSession
 
-        impersonate = os.getenv("KENBIYA_IMPERSONATE", "chrome")
+        impersonate = os.getenv("KENBIYA_IMPERSONATE") or random.choice(
+            self._IMPERSONATE_PROFILES
+        )
+        req_headers = dict(headers)
+        req_headers.setdefault("Accept-Language", random.choice(self._ACCEPT_LANGUAGES))
+        req_headers.setdefault("Referer", "https://www.kenbiya.com/")
         async with AsyncSession(impersonate=impersonate) as cffi_session:
             req_kwargs: dict[str, Any] = {
-                "headers": headers,
+                "headers": req_headers,
                 "timeout": 15,
             }
             if proxy_url:
