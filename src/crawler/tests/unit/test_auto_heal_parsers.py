@@ -293,3 +293,87 @@ def test_summarize_errors_with_gemini_includes_failed_pipeline_steps(monkeypatch
     assert "athome (mansion)" in summary
 
 
+def test_scan_logs_for_tracebacks_extracts_and_groups(tmp_path):
+    """ログファイル内の Traceback を検出し、サイト推定・グルーピングできることを検証"""
+    from scripts.debug_tools.auto_heal_parsers import scan_logs_for_tracebacks
+
+    log_file = tmp_path / "crawler_run.log"
+    log_content = (
+        "2026-11-20 07:00:00 INFO Starting crawler\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/crawler/package/parser/nomuraParser.py", line 123, in parse_mansion\n'
+        "    val = soup.select_one('.price').text\n"
+        "AttributeError: 'NoneType' object has no attribute 'text'\n"
+        "2026-11-20 07:01:00 INFO Next item\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/crawler/package/parser/nomuraParser.py", line 123, in parse_mansion\n'
+        "    val = soup.select_one('.price').text\n"
+        "AttributeError: 'NoneType' object has no attribute 'text'\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/crawler/package/parser/homesParser.py", line 45, in parse_kodate\n'
+        "    int('abc')\n"
+        "ValueError: invalid literal for int() with base 10: 'abc'\n"
+    )
+    log_file.write_text(log_content, encoding="utf-8")
+
+    targets = scan_logs_for_tracebacks(log_dirs=[str(tmp_path)], max_age_hours=24)
+    assert len(targets) == 2
+
+    nomura_t = next(t for t in targets if t["company"] == "nomura")
+    assert nomura_t["property_type"] == "mansion"
+    assert nomura_t["count"] == 2
+    assert "AttributeError" in nomura_t["reason"]
+    assert "nomuraParser.py:123" in nomura_t["location"]
+    assert nomura_t["source"] == "log_traceback"
+
+    homes_t = next(t for t in targets if t["company"] == "homes")
+    assert homes_t["property_type"] == "kodate"
+    assert homes_t["count"] == 1
+    assert "ValueError" in homes_t["reason"]
+
+
+def test_parse_slack_message_to_targets_traceback_alert():
+    """[AUTO_HEAL_TRACEBACK] Slackアラートが修正対象としてパースされることを検証"""
+    from scripts.debug_tools.auto_heal_parsers import parse_slack_message_to_targets
+
+    text = (
+        ":rotating_light: [AUTO_HEAL_TRACEBACK] ログからスタックトレースを検知しました\n"
+        "- サイト: nomura | 種別: mansion | 例外: AttributeError: 'NoneType' object has no attribute 'text' "
+        "| 箇所: nomuraParser.py:123 | 件数: 2件"
+    )
+    targets = parse_slack_message_to_targets(text, channel_name="dev-agent", ts="1700000000.000")
+    assert len(targets) == 1
+    t = targets[0]
+    assert t["company"] == "nomura"
+    assert t["property_type"] == "mansion"
+    assert "AttributeError" in t["reason"]
+    assert t["source"] == "slack"
+
+
+def test_notify_traceback_alerts_sends_slack(monkeypatch):
+    """notify_traceback_alerts が send_dev_report 経由で Slack 通知を送ることを検証"""
+    from scripts.debug_tools import auto_heal_parsers as ahp
+
+    sent_messages = []
+    monkeypatch.setattr(ahp, "send_dev_report", lambda msg: sent_messages.append(msg) or True)
+
+    targets = [
+        {
+            "company": "nomura",
+            "property_type": "mansion",
+            "reason": "スタックトレース検知: AttributeError: 'NoneType' object has no attribute 'text'",
+            "location": "nomuraParser.py:123",
+            "count": 2,
+            "url": "https://www.nomura.co.jp/",
+            "source": "log_traceback",
+        }
+    ]
+    res = ahp.notify_traceback_alerts(targets)
+    assert res is True
+    assert len(sent_messages) == 1
+    assert "[AUTO_HEAL_TRACEBACK]" in sent_messages[0]
+    assert "サイト: nomura" in sent_messages[0]
+    assert "nomuraParser.py:123" in sent_messages[0]
+
+
+
