@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 from typing import Any, Optional
 from urllib.parse import urljoin
@@ -107,7 +108,7 @@ class KenbiyaParserBase(ParserBase):
             return None
         raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
 
-    _request_lock = asyncio.Lock()
+    _request_lock = threading.Lock()
     _last_request_time: float = 0.0
 
     @classmethod
@@ -146,12 +147,15 @@ class KenbiyaParserBase(ParserBase):
         except ValueError:
             min_interval = 1.0
         jitter = random.uniform(0.2, 0.5)
-        async with KenbiyaParserBase._request_lock:
+        with KenbiyaParserBase._request_lock:
             now = time.monotonic()
-            elapsed = now - KenbiyaParserBase._last_request_time
-            if elapsed < min_interval + jitter:
-                await asyncio.sleep((min_interval + jitter) - elapsed)
-            KenbiyaParserBase._last_request_time = time.monotonic()
+            target_time = max(
+                now, KenbiyaParserBase._last_request_time + min_interval + jitter
+            )
+            sleep_duration = target_time - now
+            KenbiyaParserBase._last_request_time = target_time
+        if sleep_duration > 0:
+            await asyncio.sleep(sleep_duration)
 
     async def _fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright
