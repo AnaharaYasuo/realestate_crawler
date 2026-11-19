@@ -265,6 +265,23 @@ class KenbiyaParserBase(ParserBase):
             resp = await cffi_session.get(url, **req_kwargs)
             return resp.status_code, resp.content
 
+    async def _handle_curl_cffi_response(
+        self, last_status: int, raw_bytes: bytes, url: str, attempt: int, max_timeouts: int
+    ) -> bytes | None:
+        if last_status == 200:
+            self.consecutive_timeouts = 0
+            return raw_bytes
+        if last_status == 403:
+            pw_content = await self._fetch_with_playwright(url)
+            if pw_content is not None:
+                return pw_content
+        if last_status == 404:
+            raise ListingEndedException(f"Listing ended (404): {url}")
+        if last_status == 429:
+            await self._sleep_backoff(attempt, max_timeouts, 3)
+            return None
+        raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -289,21 +306,12 @@ class KenbiyaParserBase(ParserBase):
                     last_status, raw_bytes = await self._get_with_curl_cffi(
                         url, headers, proxy_url
                     )
-                    if last_status == 200:
-                        self.consecutive_timeouts = 0
-                        return raw_bytes
-                    if last_status == 403:
-                        pw_content = await self._fetch_with_playwright(url)
-                        if pw_content is not None:
-                            return pw_content
-                    if last_status == 404:
-                        raise ListingEndedException(f"Listing ended (404): {url}")
-                    if last_status == 429:
-                        await self._sleep_backoff(attempt, max_timeouts, 3)
-                        continue
-                    raise LoadPropertyPageException(
-                        f"HTTP {last_status} for {url}"
+                    content = await self._handle_curl_cffi_response(
+                        last_status, raw_bytes, url, attempt, max_timeouts
                     )
+                    if content is not None:
+                        return content
+                    continue
                 get_kwargs: dict[str, Any] = {
                     "headers": headers,
                     "timeout": aiohttp.ClientTimeout(total=15),
