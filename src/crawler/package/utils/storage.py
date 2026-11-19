@@ -27,7 +27,13 @@ MINIO_DEFAULT_ENDPOINT = f"http://{MINIO_DEFAULT_HOST}"  # NOSONAR
 
 class ObjectStorageManager:
     def __init__(self):
-        self.backend = os.getenv("STORAGE_BACKEND", "minio").lower()
+        raw_backend = os.getenv("STORAGE_BACKEND")
+        if raw_backend:
+            self.backend = raw_backend.lower()
+        elif os.getenv("DB_PORT") == "6033":
+            self.backend = "gcs"
+        else:
+            self.backend = "minio"
         self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
         self.endpoint_url = os.getenv("STORAGE_ENDPOINT", MINIO_DEFAULT_ENDPOINT)
         is_cloud_env = os.getenv("IS_CLOUD", "").strip().lower() in ("true", "1")
