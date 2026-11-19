@@ -157,3 +157,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## ローカル本番実行時のストレージバックエンド自動選択 (Issue #1644)
 - `STORAGE_BACKEND` が未設定かつ `DB_PORT=6033`（IAP トンネル経由の本番 DB 接続）の場合、`ObjectStorageManager` は自動的に `gcs` バックエンドを選択する。
+
+## 健美家マンション所在階バリデーション修正 (Issue #1649)
+- `data_validator.py` の `_check_mansion_specs` で `item.floor` / `item.floorStr` も参照するよう修正し、`KenbiyaMansion` での誤検知（316件の `所在階が未抽出` 警告）を解消する。
