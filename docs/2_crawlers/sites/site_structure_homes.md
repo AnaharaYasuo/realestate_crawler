@@ -33,3 +33,7 @@
 | **建物面積** | `tatemonoMenseki` | `建物面積`, `延床面積` から抽出 |
 | **想定利回り** | `grossYield` | `converter.parse_ratio` |
 | **想定年収** | `annualRent` | `満室想定年収`, `想定年収` から抽出 |
+
+
+## ページネーション仕様 (parseNextPage)
+- 一覧ページの次ページリンク抽出（`_homes_find_next_anchor_url`）において、`href` が `javascript:` で始まるリンクや `#` のみのプレースホルダリンクは無効なリンクとして除外し、有効な次ページURLが存在しない場合は空文字を返して `_homes_increment_canonical_page` へフォールバックする。
