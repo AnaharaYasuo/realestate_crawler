@@ -282,6 +282,27 @@ class KenbiyaParserBase(ParserBase):
             return None
         raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
 
+    async def _get_with_aiohttp(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        headers: dict[str, str],
+        proxy_url: str | None,
+        attempt: int,
+        max_timeouts: int,
+    ) -> tuple[int, bytes | None]:
+        get_kwargs: dict[str, Any] = {
+            "headers": headers,
+            "timeout": aiohttp.ClientTimeout(total=15),
+        }
+        if proxy_url:
+            get_kwargs["proxy"] = proxy_url
+        async with session.get(url, **get_kwargs) as response:
+            content = await self._handle_response_or_403(
+                session, response, url, attempt, max_timeouts
+            )
+            return response.status, content
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -309,19 +330,9 @@ class KenbiyaParserBase(ParserBase):
                     content = await self._handle_curl_cffi_response(
                         last_status, raw_bytes, url, attempt, max_timeouts
                     )
-                    if content is not None:
-                        return content
-                    continue
-                get_kwargs: dict[str, Any] = {
-                    "headers": headers,
-                    "timeout": aiohttp.ClientTimeout(total=15),
-                }
-                if proxy_url:
-                    get_kwargs["proxy"] = proxy_url
-                async with session.get(url, **get_kwargs) as response:
-                    last_status = response.status
-                    content = await self._handle_response_or_403(
-                        session, response, url, attempt, max_timeouts
+                else:
+                    last_status, content = await self._get_with_aiohttp(
+                        session, url, headers, proxy_url, attempt, max_timeouts
                     )
                 if content is not None:
                     return content
@@ -333,7 +344,7 @@ class KenbiyaParserBase(ParserBase):
                 ServerDownException,
             ):
                 raise
-            except (TimeoutError, aiohttp.ClientError, OSError) as e:
+            except (aiohttp.ClientError, OSError) as e:
                 self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(
