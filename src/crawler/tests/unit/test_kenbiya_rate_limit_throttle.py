@@ -104,3 +104,19 @@ def test_kenbiya_throttle_works_across_multiple_event_loops(monkeypatch):
     monkeypatch.delenv("KENBIYA_THROTTLE_DISABLED", raising=False)
     asyncio.run(KenbiyaMansionParser._throttle_before_request())
     asyncio.run(KenbiyaMansionParser._throttle_before_request())
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_throttle_jitter_range_05_to_15(monkeypatch):
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaParserBase
+
+    monkeypatch.delenv("KENBIYA_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("KENBIYA_THROTTLE_DISABLED", raising=False)
+    KenbiyaParserBase._last_request_time = 100.0
+    with patch("time.monotonic", return_value=100.0), patch("random.uniform", return_value=1.0) as mock_rand, patch(
+        "asyncio.sleep", new=AsyncMock()
+    ) as mock_sleep:
+        await KenbiyaMansionParser._throttle_before_request()
+        mock_rand.assert_called_once_with(0.5, 1.5)
+        mock_sleep.assert_awaited_once_with(pytest.approx(2.0))
