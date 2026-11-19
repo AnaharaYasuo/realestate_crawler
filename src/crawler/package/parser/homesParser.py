@@ -212,6 +212,11 @@ class HomesParser(ParserBase):
         html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
         return BeautifulSoup(html_str, "html.parser")
 
+    @staticmethod
+    def _is_valid_next_href(href: str) -> bool:
+        h = (href or "").strip()
+        return bool(h) and not h.startswith("javascript:") and h != "#"
+
     def _homes_find_next_anchor_url(self, response: BeautifulSoup) -> str:
         next_tag = (
             response.select_one("a.next")
@@ -220,8 +225,7 @@ class HomesParser(ParserBase):
         )
         if not next_tag:
             for a in response.find_all("a", href=True):
-                href_val = (a.get("href") or "").strip()
-                if not href_val or href_val.startswith("javascript:") or href_val == "#":
+                if not self._is_valid_next_href(a.get("href", "")):
                     continue
                 text = a.get_text().strip()
                 if "次" in text or text == ">" or text == "»":
@@ -230,9 +234,7 @@ class HomesParser(ParserBase):
         if not next_tag:
             return ""
         href = (next_tag.get("href") or "").strip()
-        if not href or href.startswith("javascript:") or href == "#":
-            return ""
-        return self.getRootDestUrl(href)
+        return self.getRootDestUrl(href) if self._is_valid_next_href(href) else ""
 
     def _homes_increment_canonical_page(self, response: BeautifulSoup) -> str:
         # フォールバック: canonical URLをベースに page パラメータをインクリメント
