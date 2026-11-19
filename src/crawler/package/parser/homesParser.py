@@ -759,10 +759,6 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
                         item.monthlyRent = rent_val // 12
             except (TypeError, ValueError, InvalidOperation):
                 pass
-        if not item.annualRent:
-            raise SkipPropertyException(
-                "Homes invest: missing annualRent on listing (skip and try next)"
-            )
 
     def _get_table_text(self, response: BeautifulSoup, selector: str, headers: list) -> str:
         tag = response.select_one(selector) or self._find_by_table_header(response, headers)
