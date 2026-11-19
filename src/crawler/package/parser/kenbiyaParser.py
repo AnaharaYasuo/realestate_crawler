@@ -297,11 +297,14 @@ class KenbiyaParserBase(ParserBase):
         }
         if proxy_url:
             get_kwargs["proxy"] = proxy_url
+        last_status: int | None = None
+        content: bytes | None = None
         async with session.get(url, **get_kwargs) as response:
+            last_status = response.status
             content = await self._handle_response_or_403(
                 session, response, url, attempt, max_timeouts
             )
-            return response.status, content
+        return last_status, content
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
