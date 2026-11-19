@@ -154,3 +154,5 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 - **[#1618] HomesInvestmentApartmentParser `annualRent` 必須チェック緩和**: 賃料・利回り未記載の投資用物件で `SkipPropertyException` を送出せず、`annualRent` 未設定のまま TTL 更新を継続する。
 
 - **[#1636] PR 連動自動マイグレーション生成**: `.github/workflows/auto-makemigrations.yml` により、`src/crawler/package/models/**` を変更する PR で `makemigrations --noinput` を自動実行し、生成されたマイグレーションを PR ブランチへ自動コミット・プッシュする。
+
+- **[#1641] 未生成マイグレーション一括生成**: `TokyuKodate.setsumen`（`null=True`）を含む未生成の Django マイグレーションを生成し、`production` デプロイ時の `realestate-migrate-prod` で本番 DB へ適用する。
