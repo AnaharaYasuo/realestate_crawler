@@ -264,6 +264,11 @@ class KenbiyaParserBase(ParserBase):
         "ja,en-US;q=0.9,en;q=0.8",
         "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
         "ja;q=1.0,en;q=0.5",
+        "ja-JP,ja;q=0.9",
+        "ja,en;q=0.9,en-US;q=0.8",
+        "ja-JP,en-US;q=0.9,en;q=0.8",
+        "ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja-JP,ja;q=0.8,en-US;q=0.6,en;q=0.4",
     )
 
     async def _get_with_curl_cffi(
