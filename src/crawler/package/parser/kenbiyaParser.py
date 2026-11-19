@@ -271,6 +271,19 @@ class KenbiyaParserBase(ParserBase):
         "ja-JP,ja;q=0.8,en-US;q=0.6,en;q=0.4",
     )
 
+    _REFERERS = (
+        "https://www.kenbiya.com/",
+        "https://www.kenbiya.com/pp1/",
+        "https://www.kenbiya.com/pp8/",
+        "https://www.google.co.jp/",
+        "https://www.google.com/",
+    )
+    _ACCEPT_ENCODINGS = (
+        "gzip, deflate, br, zstd",
+        "gzip, deflate, br",
+        "gzip, deflate",
+    )
+
     async def _get_with_curl_cffi(
         self, url: str, headers: dict[str, str], proxy_url: str | None
     ) -> tuple[int, bytes]:
@@ -281,7 +294,10 @@ class KenbiyaParserBase(ParserBase):
         )
         req_headers = dict(headers)
         req_headers.setdefault("Accept-Language", random.choice(self._ACCEPT_LANGUAGES))
-        req_headers.setdefault("Referer", "https://www.kenbiya.com/")
+        req_headers.setdefault("Accept-Encoding", random.choice(self._ACCEPT_ENCODINGS))
+        req_headers.setdefault("Referer", random.choice(self._REFERERS))
+        req_headers.setdefault("DNT", random.choice(("1", "0")))
+        req_headers.setdefault("Upgrade-Insecure-Requests", "1")
         async with AsyncSession(impersonate=impersonate) as cffi_session:
             req_kwargs: dict[str, Any] = {
                 "headers": req_headers,
