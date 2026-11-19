@@ -163,3 +163,9 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## 野村不動産リストリンク抽出のエリアURL除外 (Issue #1661)
 - `NomuraParserBase._normalize_property_list_href` で `/area/` を含む一覧ページ URL を除外し、詳細パーサーへの誤投入による `SkipPropertyException` を防止する。
+
+
+---
+### 追記 (#1666): ログ内スタックトレース検知 ＆ Deploy Production 非同期化
+- `auto_heal_parsers.py` に `scan_logs_for_tracebacks` / `notify_traceback_alerts` を追加し、`logs/` 配下の直近ログから `Traceback (most recent call last):` を検出して Slack（`#dev-agent`）へ `[AUTO_HEAL_TRACEBACK]` アラートを送信するとともに、`auto_heal_instruction.json` の修復対象へ自動合流させる。
+- `.github/workflows/deploy-production.yml` の異常物件再クロール起動を `gcloud workflows run`（同期）から `gcloud workflows execute`（非同期）へ変更し、本番デプロイの停滞を解消する。
