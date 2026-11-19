@@ -15,3 +15,11 @@ def test_homes_kodate_parser():
     parser = HomesKodateParser()
     item = parser.createEntity()
     assert isinstance(item, HomesKodate)
+
+
+def test_homes_find_next_anchor_url_ignores_javascript_href():
+    from bs4 import BeautifulSoup
+    parser = HomesMansionParser()
+    html = '<html><body><a href="javascript:void(0);">次へ</a></body></html>'
+    soup = BeautifulSoup(html, "html.parser")
+    assert parser._homes_find_next_anchor_url(soup) == ""
