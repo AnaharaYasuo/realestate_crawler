@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("package", "0075_alter_afrkodate_property_type_and_more"),
+        ("package", "0075_add_external_data_sync_audit"),
     ]
 
     operations = [
