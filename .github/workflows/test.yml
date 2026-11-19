@@ -99,6 +99,7 @@ jobs:
           docker compose up -d app db
           # Wait for MySQL connection from within app container
           docker compose exec -T app python src/crawler/scripts/debug_tools/wait_for_db.py
+          docker compose exec -T app python src/crawler/manage.py makemigrations --check --dry-run
           docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Start app container (no DB)

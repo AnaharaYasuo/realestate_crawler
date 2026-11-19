@@ -152,3 +152,5 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 - Slowest/Largest-Site-First 原則に基づき、掲載件数が多く Playwright を使用する等クロールに時間がかかるサイトから優先して実行する。
 - **[#1621] TTL 再クロール サーキットブレーカー分離**: 個別アイテムのフラッシュ失敗（`item_error`）は `stats["error"]` に計上しつつ、グローバルの `consecutive_hard_errors` には加算せず、インフラ障害のみをサーキットブレーカー対象とする。
 - **[#1618] HomesInvestmentApartmentParser `annualRent` 必須チェック緩和**: 賃料・利回り未記載の投資用物件で `SkipPropertyException` を送出せず、`annualRent` 未設定のまま TTL 更新を継続する。
+
+- **[#1634] Django マイグレーション生成漏れ防止**: 未生成マイグレーション（`TokyuKodate.setsumen` `null=True` 等）を生成し、`test.yml` に `makemigrations --check --dry-run` ゲートを追加。
