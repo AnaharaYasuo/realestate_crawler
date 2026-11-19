@@ -220,14 +220,19 @@ class HomesParser(ParserBase):
         )
         if not next_tag:
             for a in response.find_all("a", href=True):
+                href_val = (a.get("href") or "").strip()
+                if not href_val or href_val.startswith("javascript:") or href_val == "#":
+                    continue
                 text = a.get_text().strip()
                 if "次" in text or text == ">" or text == "»":
                     next_tag = a
                     break
         if not next_tag:
             return ""
-        href = next_tag.get("href")
-        return self.getRootDestUrl(href) if href else ""
+        href = (next_tag.get("href") or "").strip()
+        if not href or href.startswith("javascript:") or href == "#":
+            return ""
+        return self.getRootDestUrl(href)
 
     def _homes_increment_canonical_page(self, response: BeautifulSoup) -> str:
         # フォールバック: canonical URLをベースに page パラメータをインクリメント
