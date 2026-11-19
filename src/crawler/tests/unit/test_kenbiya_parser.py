@@ -326,12 +326,14 @@ def test_kenbiya_price_fallback_selector():
 
 
 def test_kenbiya_impersonate_profiles_and_accept_languages():
-    from curl_cffi.requests import AsyncSession
+    import importlib.util
     from package.parser.kenbiyaParser import KenbiyaMansionParser
     assert "safari15_5" in KenbiyaMansionParser._IMPERSONATE_PROFILES
     assert "edge101" in KenbiyaMansionParser._IMPERSONATE_PROFILES
     assert len(KenbiyaMansionParser._IMPERSONATE_PROFILES) >= 20
     assert len(KenbiyaMansionParser._ACCEPT_LANGUAGES) >= 2
-    for profile in KenbiyaMansionParser._IMPERSONATE_PROFILES:
-        session = AsyncSession(impersonate=profile)
-        assert session is not None
+    if importlib.util.find_spec("curl_cffi") is not None:
+        from curl_cffi.requests import AsyncSession
+        for profile in KenbiyaMansionParser._IMPERSONATE_PROFILES:
+            session = AsyncSession(impersonate=profile)
+            assert session is not None
