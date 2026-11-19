@@ -376,9 +376,13 @@ class PropertyDataValidator:
             getattr(item, "shozaikai", None)
             or getattr(item, "kaisu", None)
             or getattr(item, "floorType_kai", None)
+            or getattr(item, "floor", None)
         )
         has_floor = bool(floor and str(floor).strip() not in ["", "-", "None"])
-        if not has_floor and cls._has_located_floor(getattr(item, "kaisuStr", None)):
+        if not has_floor and (
+            cls._has_located_floor(getattr(item, "kaisuStr", None))
+            or cls._has_located_floor(getattr(item, "floorStr", None))
+        ):
             has_floor = True
 
         if not has_floor and not cls._is_invest_unit_mansion(item):
