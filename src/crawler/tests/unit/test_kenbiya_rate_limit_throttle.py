@@ -79,3 +79,18 @@ async def test_kenbiya_handle_curl_cffi_response_404_and_429():
 
     with pytest.raises(LoadPropertyPageException):
         await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test")
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_throttle_default_interval_is_1s(monkeypatch):
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaParserBase
+
+    monkeypatch.delenv("KENBIYA_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("KENBIYA_THROTTLE_DISABLED", raising=False)
+    KenbiyaParserBase._last_request_time = 100.0
+    with patch("time.monotonic", return_value=100.0), patch("random.uniform", return_value=0.3), patch(
+        "asyncio.sleep", new=AsyncMock()
+    ) as mock_sleep:
+        await KenbiyaMansionParser._throttle_before_request()
+        mock_sleep.assert_awaited_once_with(1.3)
