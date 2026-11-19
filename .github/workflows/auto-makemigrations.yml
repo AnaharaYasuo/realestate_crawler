@@ -1,0 +1,45 @@
+name: Auto Makemigrations
+
+on:
+  pull_request:
+    paths:
+      - 'src/crawler/package/models/**'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-makemigrations:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal Django dependencies
+        run: |
+          pip install --no-cache-dir -r src/crawler/requirements.txt
+
+      - name: Run makemigrations
+        run: |
+          python src/crawler/manage.py makemigrations --noinput
+
+      - name: Commit and push generated migrations
+        run: |
+          if [ -n "$(git status --porcelain src/crawler/package/migrations/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/crawler/package/migrations/
+            git commit -m "chore(db): auto-generate Django migrations"
+            git push
+          else
+            echo "No new migrations generated."
+          fi
