@@ -142,10 +142,10 @@ class KenbiyaParserBase(ParserBase):
             return
         raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
         try:
-            min_interval = float(raw_interval) if raw_interval else 4.0
+            min_interval = float(raw_interval) if raw_interval else 1.0
         except ValueError:
-            min_interval = 4.0
-        jitter = random.uniform(0.5, 1.5)
+            min_interval = 1.0
+        jitter = random.uniform(0.2, 0.5)
         async with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             elapsed = now - KenbiyaParserBase._last_request_time
