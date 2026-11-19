@@ -51,3 +51,31 @@ async def test_kenbiya_throttle_disabled_via_env(monkeypatch):
     with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         await KenbiyaParserBase._throttle_before_request()
         assert not mock_sleep.called
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_handle_curl_cffi_response_200():
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+
+    parser = KenbiyaMansionParser()
+    res = await parser._handle_curl_cffi_response(200, b"<html>ok</html>", "https://www.kenbiya.com/test", 0, 3)
+    assert res == b"<html>ok</html>"
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_handle_curl_cffi_response_404_and_429():
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+    from package.parser.baseParser import ListingEndedException, LoadPropertyPageException
+
+    parser = KenbiyaMansionParser()
+    with pytest.raises(ListingEndedException):
+        await parser._handle_curl_cffi_response(404, b"", "https://www.kenbiya.com/test", 0, 3)
+
+    with patch.object(parser, "_sleep_backoff", new=AsyncMock()) as mock_sleep:
+        res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/test", 0, 3)
+        assert res is None
+        mock_sleep.assert_awaited_once()
+
+    with pytest.raises(LoadPropertyPageException):
+        await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test", 0, 3)
