@@ -1364,7 +1364,7 @@ def _fallback_flush_item_by_item(chunk: list[_FetchedOutcomeItem]) -> list[str]:
             outcomes.extend(res)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[TTLRecrawl] Per-item fallback flush failed for %s: %s", item.target.property_url, exc)
-            outcomes.append("error")
+            outcomes.append("item_error")
     return outcomes
 
 
@@ -1829,6 +1829,8 @@ class _BatchRunState:
         self.completed += 1
         if outcome in ("refreshed", "delisted", "invalid_saved"):
             self.consecutive_hard_errors = 0
+        elif outcome == "item_error":
+            self.stats["error"] = self.stats.get("error", 0) + 1
         elif outcome == "error":
             self.consecutive_hard_errors += 1
             if self.consecutive_hard_errors >= self.max_consecutive_failures:
