@@ -93,7 +93,7 @@ async def test_kenbiya_throttle_default_interval_is_1s(monkeypatch):
         "asyncio.sleep", new=AsyncMock()
     ) as mock_sleep:
         await KenbiyaMansionParser._throttle_before_request()
-        mock_sleep.assert_awaited_once_with(1.3)
+        mock_sleep.assert_awaited_once_with(pytest.approx(1.3))
 
 
 def test_kenbiya_throttle_works_across_multiple_event_loops(monkeypatch):
