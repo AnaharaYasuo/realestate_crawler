@@ -643,6 +643,10 @@ def main():
         )
         logger.info(f"🎯 [Target Filter] Filtered jobs to {len(target_jobs)} jobs based on company={company_arg}, property_type={prop_type_arg}, sites={sites_arg}")
 
+    if target_jobs and all(j[0] == "kenbiya" for j in target_jobs):
+        parallel = 1
+        logger.info("🐢 [Kenbiya Throttle] Enforcing parallel=1 for kenbiya jobs to avoid rate-limit/timeout.")
+
     if task_count > 1 and task_index is not None:
         target_jobs = distribute_jobs(target_jobs, task_index, task_count)
         logging.info(f"🎯 [Task Array] Task {task_index}/{task_count} に {len(target_jobs)} 件のジョブを割り当てました")
