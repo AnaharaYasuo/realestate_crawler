@@ -253,15 +253,54 @@ class KenbiyaParserBase(ParserBase):
             raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
+    _IMPERSONATE_PROFILES = (
+        "edge99", "edge101",
+        "chrome110", "chrome116", "chrome119", "chrome120", "chrome123", "chrome124",
+        "chrome131", "chrome133a", "chrome136", "chrome142", "chrome145", "chrome146",
+        "safari15_3", "safari15_5", "safari17_0", "safari18_0", "safari184",
+        "firefox133", "firefox135", "firefox144", "firefox147",
+    )
+    _ACCEPT_LANGUAGES = (
+        "ja,en-US;q=0.9,en;q=0.8",
+        "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja;q=1.0,en;q=0.5",
+        "ja-JP,ja;q=0.9",
+        "ja,en;q=0.9,en-US;q=0.8",
+        "ja-JP,en-US;q=0.9,en;q=0.8",
+        "ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja-JP,ja;q=0.8,en-US;q=0.6,en;q=0.4",
+    )
+
+    _REFERERS = (
+        "https://www.kenbiya.com/",
+        "https://www.kenbiya.com/pp1/",
+        "https://www.kenbiya.com/pp8/",
+        "https://www.google.co.jp/",
+        "https://www.google.com/",
+    )
+    _ACCEPT_ENCODINGS = (
+        "gzip, deflate, br, zstd",
+        "gzip, deflate, br",
+        "gzip, deflate",
+    )
+
     async def _get_with_curl_cffi(
         self, url: str, headers: dict[str, str], proxy_url: str | None
     ) -> tuple[int, bytes]:
         from curl_cffi.requests import AsyncSession
 
-        impersonate = os.getenv("KENBIYA_IMPERSONATE", "chrome")
+        impersonate = os.getenv("KENBIYA_IMPERSONATE") or random.choice(
+            self._IMPERSONATE_PROFILES
+        )
+        req_headers = dict(headers)
+        req_headers.setdefault("Accept-Language", random.choice(self._ACCEPT_LANGUAGES))
+        req_headers.setdefault("Accept-Encoding", random.choice(self._ACCEPT_ENCODINGS))
+        req_headers.setdefault("Referer", random.choice(self._REFERERS))
+        req_headers.setdefault("DNT", random.choice(("1", "0")))
+        req_headers.setdefault("Upgrade-Insecure-Requests", "1")
         async with AsyncSession(impersonate=impersonate) as cffi_session:
             req_kwargs: dict[str, Any] = {
-                "headers": headers,
+                "headers": req_headers,
                 "timeout": 15,
             }
             if proxy_url:

@@ -10,10 +10,17 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
 
 logger = logging.getLogger(__name__)
 _PASSWORD_INPUT_SELECTOR = "input[type=password]"
+
+def _generate_random_mac() -> str:
+    """Generate a random locally-administered unicast MAC address (02:xx:xx:xx:xx:xx)."""
+    octets = [0x02] + [random.randint(0x00, 0xFF) for _ in range(5)]
+    return ":".join(f"{b:02x}" for b in octets)
+
 
 def reconnect_router_pppoe(
     host: str | None = None,
@@ -95,6 +102,17 @@ def reconnect_router_pppoe(
 
             logger.info("Waiting %.1fs disconnected for ISP carrier-grade session timeout...", disconnect_wait_sec)
             time.sleep(disconnect_wait_sec)
+
+            # 3.5. Randomize WAN MAC address before bringing up PPPoE
+            new_mac = _generate_random_mac()
+            logger.info("Updating router WAN MAC address to %s...", new_mac)
+            page.evaluate(f"""async () => {{
+                const fs = await L.resolveDefault(L.require('fs'));
+                await fs.exec('/sbin/uci', ['set', 'network.wan.macaddr={new_mac}']);
+                await fs.exec('/sbin/uci', ['commit', 'network']);
+                return await fs.exec('/etc/init.d/network', ['reload']);
+            }}""")
+            result["new_mac"] = new_mac
 
             # 4. Trigger /sbin/ifup
             logger.info("Bringing up %s...", interface)
