@@ -72,10 +72,10 @@ async def test_kenbiya_handle_curl_cffi_response_404_and_429():
     with pytest.raises(ListingEndedException):
         await parser._handle_curl_cffi_response(404, b"", "https://www.kenbiya.com/test", 0, 3)
 
-    with patch.object(parser, "_sleep_backoff", new=AsyncMock()) as mock_sleep:
+    with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
         res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/test", 0, 3)
         assert res is None
-        mock_sleep.assert_awaited_once()
+        mock_sleep.assert_awaited_once_with(3)
 
     with pytest.raises(LoadPropertyPageException):
         await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test", 0, 3)

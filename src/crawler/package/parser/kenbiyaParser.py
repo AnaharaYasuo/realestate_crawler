@@ -278,7 +278,7 @@ class KenbiyaParserBase(ParserBase):
         if last_status == 404:
             raise ListingEndedException(f"Listing ended (404): {url}")
         if last_status == 429:
-            await self._sleep_backoff(attempt, max_timeouts, 3)
+            await asyncio.sleep(3)
             return None
         raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
 
