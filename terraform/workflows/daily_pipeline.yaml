@@ -131,7 +131,7 @@ main:
           - condition: ${crawlerFailed}
             raise:
               error: "CrawlerPhaseFailed"
-              message: '${"Crawler phase finished with failures. Error: " + string(crawlerError)}'
+              message: '${"Crawler phase finished with failures. Error: " + json.encode_to_string(crawlerError)}'
 
 # Subworkflow for polling Cloud Run Job execution until completed or timeout
 monitorJobExecution:
