@@ -58,7 +58,7 @@ async def test_kenbiya_handle_curl_cffi_response_200():
     from package.parser.kenbiyaParser import KenbiyaMansionParser
 
     parser = KenbiyaMansionParser()
-    res = await parser._handle_curl_cffi_response(200, b"<html>ok</html>", "https://www.kenbiya.com/test", 0, 3)
+    res = await parser._handle_curl_cffi_response(200, b"<html>ok</html>", "https://www.kenbiya.com/test")
     assert res == b"<html>ok</html>"
 
 
@@ -70,12 +70,12 @@ async def test_kenbiya_handle_curl_cffi_response_404_and_429():
 
     parser = KenbiyaMansionParser()
     with pytest.raises(ListingEndedException):
-        await parser._handle_curl_cffi_response(404, b"", "https://www.kenbiya.com/test", 0, 3)
+        await parser._handle_curl_cffi_response(404, b"", "https://www.kenbiya.com/test")
 
     with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
-        res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/test", 0, 3)
+        res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/test")
         assert res is None
         mock_sleep.assert_awaited_once_with(3)
 
     with pytest.raises(LoadPropertyPageException):
-        await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test", 0, 3)
+        await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test")

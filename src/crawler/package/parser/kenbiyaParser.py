@@ -266,7 +266,7 @@ class KenbiyaParserBase(ParserBase):
             return resp.status_code, resp.content
 
     async def _handle_curl_cffi_response(
-        self, last_status: int, raw_bytes: bytes, url: str, attempt: int, max_timeouts: int
+        self, last_status: int, raw_bytes: bytes, url: str
     ) -> bytes | None:
         if last_status == 200:
             self.consecutive_timeouts = 0
@@ -328,7 +328,7 @@ class KenbiyaParserBase(ParserBase):
                         url, headers, proxy_url
                     )
                     content = await self._handle_curl_cffi_response(
-                        last_status, raw_bytes, url, attempt, max_timeouts
+                        last_status, raw_bytes, url
                     )
                 else:
                     last_status, content = await self._get_with_aiohttp(
