@@ -326,7 +326,7 @@ class NomuraParser(InvestmentParser):
 
     @staticmethod
     def _normalize_property_list_href(href: str | None) -> str:
-        if not href or href.startswith(("#", JAVASCRIPT_PREFIX)) or "/library/" in href:
+        if not href or href.startswith(("#", JAVASCRIPT_PREFIX)) or "/library/" in href or "/area/" in href:
             return ""
         cleaned = href.split("?")[0]
         return (NOMU_BASE_URL + cleaned) if cleaned.startswith("/") else cleaned

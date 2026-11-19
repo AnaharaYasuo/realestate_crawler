@@ -160,3 +160,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## 健美家マンション所在階バリデーション修正 (Issue #1649)
 - `data_validator.py` の `_check_mansion_specs` で `item.floor` / `item.floorStr` も参照するよう修正し、`KenbiyaMansion` での誤検知（316件の `所在階が未抽出` 警告）を解消する。
+
+## 野村不動産リストリンク抽出のエリアURL除外 (Issue #1661)
+- `NomuraParserBase._normalize_property_list_href` で `/area/` を含む一覧ページ URL を除外し、詳細パーサーへの誤投入による `SkipPropertyException` を防止する。
