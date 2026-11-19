@@ -319,9 +319,13 @@ class KenbiyaParserBase(ParserBase):
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
         proxy_url = self.get_proxy_url()
-        use_curl_cffi = type(session) is aiohttp.ClientSession and os.getenv(
-            "KENBIYA_USE_CURL_CFFI", "true"
-        ).lower() in ("true", "1")
+        import importlib.util
+
+        use_curl_cffi = (
+            type(session) is aiohttp.ClientSession
+            and os.getenv("KENBIYA_USE_CURL_CFFI", "true").lower() in ("true", "1")
+            and importlib.util.find_spec("curl_cffi") is not None
+        )
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
             await self._throttle_before_request()
