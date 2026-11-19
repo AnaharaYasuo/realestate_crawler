@@ -2,6 +2,7 @@ import asyncio
 from decimal import Decimal
 import logging
 import os
+import random
 import re
 import time
 from typing import Any, Optional
@@ -141,14 +142,15 @@ class KenbiyaParserBase(ParserBase):
             return
         raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
         try:
-            min_interval = float(raw_interval) if raw_interval else 2.0
+            min_interval = float(raw_interval) if raw_interval else 4.0
         except ValueError:
-            min_interval = 2.0
+            min_interval = 4.0
+        jitter = random.uniform(0.5, 1.5)
         async with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             elapsed = now - KenbiyaParserBase._last_request_time
-            if elapsed < min_interval:
-                await asyncio.sleep(min_interval - elapsed)
+            if elapsed < min_interval + jitter:
+                await asyncio.sleep((min_interval + jitter) - elapsed)
             KenbiyaParserBase._last_request_time = time.monotonic()
 
     async def _fetch_with_playwright(self, url: str) -> bytes:
@@ -247,6 +249,63 @@ class KenbiyaParserBase(ParserBase):
             raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
+    async def _get_with_curl_cffi(
+        self, url: str, headers: dict[str, str], proxy_url: str | None
+    ) -> tuple[int, bytes]:
+        from curl_cffi.requests import AsyncSession
+
+        impersonate = os.getenv("KENBIYA_IMPERSONATE", "chrome")
+        async with AsyncSession(impersonate=impersonate) as cffi_session:
+            req_kwargs: dict[str, Any] = {
+                "headers": headers,
+                "timeout": 15,
+            }
+            if proxy_url:
+                req_kwargs["proxy"] = proxy_url
+            resp = await cffi_session.get(url, **req_kwargs)
+            return resp.status_code, resp.content
+
+    async def _handle_curl_cffi_response(
+        self, last_status: int, raw_bytes: bytes, url: str
+    ) -> bytes | None:
+        if last_status == 200:
+            self.consecutive_timeouts = 0
+            return raw_bytes
+        if last_status == 403:
+            pw_content = await self._fetch_with_playwright(url)
+            if pw_content is not None:
+                return pw_content
+        if last_status == 404:
+            raise ListingEndedException(f"Listing ended (404): {url}")
+        if last_status == 429:
+            await asyncio.sleep(3)
+            return None
+        raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
+
+    async def _get_with_aiohttp(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        headers: dict[str, str],
+        proxy_url: str | None,
+        attempt: int,
+        max_timeouts: int,
+    ) -> tuple[int, bytes | None]:
+        get_kwargs: dict[str, Any] = {
+            "headers": headers,
+            "timeout": aiohttp.ClientTimeout(total=15),
+        }
+        if proxy_url:
+            get_kwargs["proxy"] = proxy_url
+        last_status: int | None = None
+        content: bytes | None = None
+        async with session.get(url, **get_kwargs) as response:
+            last_status = response.status
+            content = await self._handle_response_or_403(
+                session, response, url, attempt, max_timeouts
+            )
+        return last_status, content
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -260,20 +319,27 @@ class KenbiyaParserBase(ParserBase):
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
         proxy_url = self.get_proxy_url()
+        import importlib.util
+
+        use_curl_cffi = (
+            type(session) is aiohttp.ClientSession
+            and os.getenv("KENBIYA_USE_CURL_CFFI", "true").lower() in ("true", "1")
+            and importlib.util.find_spec("curl_cffi") is not None
+        )
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
             await self._throttle_before_request()
             try:
-                get_kwargs: dict[str, Any] = {
-                    "headers": headers,
-                    "timeout": aiohttp.ClientTimeout(total=15),
-                }
-                if proxy_url:
-                    get_kwargs["proxy"] = proxy_url
-                async with session.get(url, **get_kwargs) as response:
-                    last_status = response.status
-                    content = await self._handle_response_or_403(
-                        session, response, url, attempt, max_timeouts
+                if use_curl_cffi:
+                    last_status, raw_bytes = await self._get_with_curl_cffi(
+                        url, headers, proxy_url
+                    )
+                    content = await self._handle_curl_cffi_response(
+                        last_status, raw_bytes, url
+                    )
+                else:
+                    last_status, content = await self._get_with_aiohttp(
+                        session, url, headers, proxy_url, attempt, max_timeouts
                     )
                 if content is not None:
                     return content
@@ -285,7 +351,7 @@ class KenbiyaParserBase(ParserBase):
                 ServerDownException,
             ):
                 raise
-            except (TimeoutError, aiohttp.ClientError) as e:
+            except (aiohttp.ClientError, OSError) as e:
                 self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(

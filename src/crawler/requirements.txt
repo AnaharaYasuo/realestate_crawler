@@ -138,3 +138,4 @@ xgboost==3.2.0 ; python_full_version >= "3.11.5" and python_version < "3.14"
 xgboost==3.4.1 ; python_version >= "3.14" and python_version < "4.0"
 yarl==1.25.1 ; python_full_version >= "3.11.5" and python_version < "4.0"
 zipp==4.1.2 ; python_full_version >= "3.11.5" and python_version < "4.0"
+curl_cffi>=0.7.0
