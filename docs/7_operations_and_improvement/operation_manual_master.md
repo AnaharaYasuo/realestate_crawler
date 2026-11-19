@@ -163,3 +163,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## 野村不動産リストリンク抽出のエリアURL除外 (Issue #1661)
 - `NomuraParserBase._normalize_property_list_href` で `/area/` を含む一覧ページ URL を除外し、詳細パーサーへの誤投入による `SkipPropertyException` を防止する。
+
+## Cloud Workflows `checkFinalStatus` 修正 (Issue #1664)
+- `terraform/workflows/daily_pipeline.yaml` の `checkFinalStatus` で `dict` 型の `crawlerError` に対して `string()` ではなく `json.encode_to_string(crawlerError)` を使用するよう修正。
