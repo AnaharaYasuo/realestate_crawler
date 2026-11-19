@@ -148,4 +148,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 **バージョン**: 1.9 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入、Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
 
 
+## クローラー実行優先順位 (Issue #1616)
+- Slowest/Largest-Site-First 原則に基づき、掲載件数が多く Playwright を使用する等クロールに時間がかかるサイトから優先して実行する。
 - **[#1618] HomesInvestmentApartmentParser `annualRent` 必須チェック緩和**: 賃料・利回り未記載の投資用物件で `SkipPropertyException` を送出せず、`annualRent` 未設定のまま TTL 更新を継続する。

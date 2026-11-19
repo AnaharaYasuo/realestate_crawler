@@ -54,7 +54,7 @@ python -m src.crawler.scripts.ops.run_pipeline
 
 #### パイプライン内包ステップ:
 - **Step 1: 全件クローリング (`run_all_crawlers.py`)**:
-  - Smallest-Site-First 原則（小規模・電鉄系優先）に基づきクローリング実行。
+  - Slowest/Largest-Site-First 原則（件数が多く Playwright 等で時間がかかるサイト優先）に基づきクローリング実行。
   - 連続3回タイムアウト時は Fast-Fail、新規取得0件時は「0件取得失敗 (Zero-Count Failure)」としてアラート記録。
 - **Step 2: 不正データ検証 ＆ クレンジング (`validate_data.py`)**:
   - 重複・破綻データの検出とクレンジング。

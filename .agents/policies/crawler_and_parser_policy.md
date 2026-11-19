@@ -20,8 +20,8 @@
 - 全抽象メソッド (`@abstractmethod`) を実装し、単体テストで 100% 準拠を検証すること。
 - 関連スキル: [parser-implementation](../skills/parser-implementation/SKILL.md), [field-name-unifier](../skills/field-name-unifier/SKILL.md)
 
-### 2.3. クローラー優先順位制御原則 (Smallest-Site-First)
-- 処理が早く完了する小規模サイト・電鉄系・ハウスメーカー系から優先してクロールを実行し、大手ポータル（Homes, Athome）等は後回しにする。
+### 2.3. クローラー優先順位制御原則 (Slowest/Largest-Site-First)
+- 件数が多く、Playwright を使用しておりクロール速度が遅いサイト（処理時間がかかるサイト）から優先してクロールを実行し、小規模・高速サイトは後回しにする。
 
 ### 2.4. 連続タイムアウト Fast-Fail ＆ サーキットブレイカー原則
 - 相手サーバーが無応答・タイムアウトを繰り返す場合（連続3回以上）、即時中断（Abort）終了すること。
