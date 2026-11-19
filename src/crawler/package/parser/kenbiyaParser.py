@@ -254,11 +254,11 @@ class KenbiyaParserBase(ParserBase):
         return await self._handle_response(response, url, attempt, max_timeouts)
 
     _IMPERSONATE_PROFILES = (
-        "safari15_5",
-        "edge101",
-        "chrome124",
-        "chrome110",
-        "safari17_0",
+        "edge99", "edge101",
+        "chrome110", "chrome116", "chrome119", "chrome120", "chrome123", "chrome124",
+        "chrome131", "chrome133a", "chrome136", "chrome142", "chrome145", "chrome146",
+        "safari15_3", "safari15_5", "safari17_0", "safari18_0", "safari184",
+        "firefox133", "firefox135", "firefox144", "firefox147",
     )
     _ACCEPT_LANGUAGES = (
         "ja,en-US;q=0.9,en;q=0.8",
