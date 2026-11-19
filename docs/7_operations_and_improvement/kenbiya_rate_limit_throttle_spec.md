@@ -39,5 +39,5 @@
 
 ## curl_cffi による TLS フィンガープリント模倣と直列実行 (Issue #1628)
 - `kenbiyaParser.py` では `curl_cffi` (`AsyncSession(impersonate="chrome")`) を使用し、Chrome の TLS/HTTP2 フィンガープリントを模倣する。
-- `KENBIYA_MIN_INTERVAL` のデフォルトを `4.0` 秒（+ `0.5〜1.5` 秒のランダムジッター）に引き上げる。
+- `KENBIYA_MIN_INTERVAL` のデフォルトを `1.0` 秒（+ `0.2〜0.5` 秒のランダムジッター）に設定する（Issue #1639）。
 - `run_all_crawlers.py` で `kenbiya` 実行時は `parallel=1`（直列実行）を強制する。
