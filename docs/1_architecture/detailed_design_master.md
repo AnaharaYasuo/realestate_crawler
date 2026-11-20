@@ -321,7 +321,7 @@ graph TD
   2. `wait_for_db.py` で DB 接続可能になるまで待機する。
   3. `verify_barrier_completion()` で最新クローラー実行の完了率を点検する。
   4. `send_aggregated_crawl_report()`（バリア結果にかかわらず送信し、その後、未達かつ `--force` 無しの場合は中断）: `_latest_execution_tasks()` で得た最新実行のタスク行を `pipeline_coordinator.aggregate_task_array_reports()` で集約し、`send_crawling_summary_alert()` で全タスク集約レポートを 1 回送信する（`asyncio.wait_for(timeout=SLACK_REPORT_TIMEOUT_SEC=10)` で有限時間に制限）。行が無い場合・識別可能な実行が無い場合は送信しない。失敗が無くても未実行ジョブ（総ジョブ数 − 実行完了数）が残る場合は「全ジョブ正常完了」と表示せず未実行件数を警告表示する。集約・送信の失敗は警告ログに留め後続を継続する。
-  5. データ検証 ➔ Auto-Heal 指示書生成 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を順に実行する。学習時の OOM 防止のため、`package.ml.training.regressors` では `ML_NUM_THREADS` 未指定時のデフォルトスレッド数を `2` に制限し、`RandomForestRegressor` の `n_jobs` は `1` に固定する（Issue #1672）。
+  5. データ検証 ➔ Auto-Heal 指示書生成 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を順に実行する。学習時の OOM 防止のため、`package.ml.training.regressors` では `ML_NUM_THREADS` 未指定時のデフォルトスレッド数を `2` に制限し、`RandomForestRegressor` の `n_jobs` は `1` に固定する（Issue #1672）。また、バルク価格推定（Step 3/5）の OOM 防止のため、`run_ml_pipeline.py` の `BULK_EVAL_CONCURRENCY` デフォルトを `1` に制限する（Issue #1683）。さらに、`package/ml/evaluation/runner.py` ではチャンク処理末尾およびモデル評価完了時に `gc.collect()` を実行してピークメモリを抑制する（Issue #1688）。
   6. `finally` で `scale_proxysql_mig(target_size=0)` を実行し ProxySQL を停止する。
 - **集約関数の配置**: `aggregate_task_array_reports()` は `package/utils/pipeline_coordinator.py` に置く（`run_pipeline` は import 時にシグナルハンドラを登録するため、ML Pipeline Job から import しない）。`run_pipeline.py` は集約・他タスク完了待機・集約レポート送信を行わないため、これらを import しない。
 
