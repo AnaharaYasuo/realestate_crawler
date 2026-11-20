@@ -238,6 +238,9 @@ def _shutdown_local_worker_executor_nonblocking() -> None:
     _local_worker_executor = None
 
 
+_server_busy_abort_event = threading.Event()
+
+
 def _cancel_unstarted_futures_on_stop(timeout_expired: bool = True) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
@@ -319,7 +322,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     prev_alive_ids: tuple[int, ...] | None = None
     prev_progress_ts = _last_fire_and_forget_progress_ts
 
-    while not os.path.exists(STOP_FLAG_FILE):
+    while not os.path.exists(STOP_FLAG_FILE) and not _server_busy_abort_event.is_set():
         now = time.monotonic()
         if _is_wait_timeout_exceeded(now - start, now - last_progress_time, timeout, drain_timeout):
             break
@@ -338,7 +341,11 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     elapsed_final = time.monotonic() - start
     idle_final = time.monotonic() - last_progress_time
-    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and idle_final >= drain_timeout)
+    timeout_expired = (
+        _server_busy_abort_event.is_set()
+        or (timeout > 0 and elapsed_final >= timeout)
+        or (drain_timeout > 0 and idle_final >= drain_timeout)
+    )
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
@@ -2123,6 +2130,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if isinstance(exc, (ParserFailureException, ValidationError)):
             logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
             return None, False, exc
+        if isinstance(exc, ServerBusyException):
+            logging.warning(f"ServerBusy detected{suffix} ({type(exc).__name__} for URL: {self.url}); aborting remaining detail workers.")
+            _server_busy_abort_event.set()
+            return None, False, None
         if isinstance(exc, SkipPropertyException):
             logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
             return None, False, None
@@ -2130,6 +2141,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
+        if _server_busy_abort_event.is_set():
+            raise ServerBusyException(f"Aborted due to prior ServerBusyException: {self.url}")
         item = None
         _connector = self._generateConnector(self._getActiveEventLoop())
         await self.semaphore.acquire()
