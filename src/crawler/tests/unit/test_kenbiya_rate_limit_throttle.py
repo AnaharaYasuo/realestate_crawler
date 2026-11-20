@@ -77,8 +77,11 @@ async def test_kenbiya_handle_curl_cffi_response_404_and_429():
         assert res is None
         mock_sleep.assert_awaited_once_with(3)
 
-    with pytest.raises(LoadPropertyPageException):
+    from package.parser.baseParser import ListingEndedException, ServerBusyException
+    with pytest.raises(ServerBusyException):
         await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test")
+    with pytest.raises(ServerBusyException):
+        await parser._handle_curl_cffi_response(503, b"", "https://www.kenbiya.com/test")
 
 
 @pytest.mark.asyncio

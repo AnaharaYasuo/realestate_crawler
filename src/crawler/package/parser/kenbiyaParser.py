@@ -323,6 +323,8 @@ class KenbiyaParserBase(ParserBase):
         if last_status == 429:
             await asyncio.sleep(3)
             return None
+        if last_status in (500, 502, 503, 504):
+            raise ServerBusyException(f"HTTP {last_status} for {url}")
         raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
 
     async def _get_with_aiohttp(
