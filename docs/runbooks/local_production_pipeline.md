@@ -35,3 +35,7 @@ docker compose exec -T -e DB_HOST=host.docker.internal -e DB_PORT=6033 -e STORAG
 ### 3.2. ローカル実行時の自動安全策 (Safety-Net)
 - `IS_CLOUD` 環境変数が未設定の場合、`run_pipeline.py` はクラウドインフラ操作（ProxySQL や Cloud SQL の GCE/Cloud SQL API 起動・停止）を自動的にスキップします。
 - 共有 ProxySQL インスタンスの直接停止コマンド（`gcloud compute instances stop` 等）は絶対に発行してはなりません。
+
+### 3.3. 実行順序・同一社並列制限 (Issue #1674)
+- **Slowest/Largest-Site-First**: `athome`（Playwright使用・最大規模）を最先頭とし、件数・所要時間が大きいサイトから優先実行する。
+- **同一社直列制御 (`active_company_counts`)**: ローカル本番実行においても、同一会社の複数物件種別（例: `mansion`, `kodate`）が同時に並列実行されないよう `run_all_crawlers.py` の `active_company_counts` 制限を適用する。
