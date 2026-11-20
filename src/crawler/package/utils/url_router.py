@@ -76,7 +76,7 @@ SEIBU_DETAIL_PATTERN = re.compile(r"sumai\.seiburealestate-pm\.co\.jp/")
 SOTETSU_DETAIL_PATTERN = re.compile(r"sotetsu-re\.co\.jp/")
 IETAN_DETAIL_PATTERN = re.compile(r"ietan\.jp/")
 ADCAST_DETAIL_PATTERN = re.compile(r"ad-cast\.info/")
-TOHO_DETAIL_PATTERN = re.compile(r"(?:th-yokohama\.com/|toho-house\.co\.jp/sch/detail\.php)")
+TOHO_DETAIL_PATTERN = re.compile(r"th-yokohama\.com/")
 
 
 class UrlRouter:
@@ -95,7 +95,7 @@ class UrlRouter:
             "model_cls": "MitsuiMansion",
         },
         {
-            "pattern": re.compile(r"rehouse\.co\.jp/buy/(?:s_)?kodate/bkdetail/"),
+            "pattern": re.compile(r"rehouse\.co\.jp/buy/kodate/bkdetail/"),
             "site": "mitsui",
             "property_type": "kodate",
             "parser_module": MITSUI_PARSER_MODULE,
