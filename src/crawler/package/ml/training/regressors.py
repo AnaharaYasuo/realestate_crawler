@@ -51,8 +51,8 @@ def _get_ml_thread_limit() -> int:
             return val
         except ValueError:
             pass
-    # デフォルトを4スレッドに設定（高速並列学習を可能に）
-    return 4
+    # デフォルトを2スレッドに設定（2GiB環境でのOOM防止と並列学習の両立）
+    return 2
 
 
 def get_regressor(
@@ -77,7 +77,7 @@ def get_regressor(
     elif name == "rf":
         base = RandomForestRegressor(
             random_state=42,
-            n_jobs=ml_threads,
+            n_jobs=1,
             n_estimators=p.get("n_estimators", 100),
             max_depth=p.get("max_depth", 12),
             min_samples_leaf=p.get("min_samples_leaf", 5),
