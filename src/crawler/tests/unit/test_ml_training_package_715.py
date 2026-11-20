@@ -87,6 +87,14 @@ def test_run_ml_pipeline_bulk_eval_concurrency_default(monkeypatch):
     assert 'os.getenv("BULK_EVAL_CONCURRENCY", "1")' in pipeline_src
 
 
+def test_eval_runner_calls_gc_collect():
+    """Issue #1688: バルク評価ランナーがチャンク/モデル完了時に gc.collect() を呼ぶこと"""
+    from pathlib import Path
+    runner_src = (Path(__file__).resolve().parents[2] / "package" / "ml" / "evaluation" / "runner.py").read_text(encoding="utf-8")
+    assert "import gc" in runner_src
+    assert runner_src.count("gc.collect()") >= 2
+
+
 def test_market_master_helpers():
     class DummyObj:
         address1 = "東京都"
