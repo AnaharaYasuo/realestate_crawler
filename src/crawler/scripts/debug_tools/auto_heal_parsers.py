@@ -386,6 +386,25 @@ def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = 
                     "source": "slack"
                 })
 
+    # 5. ログスタックトレース検知 ([AUTO_HEAL_TRACEBACK])
+    if "[AUTO_HEAL_TRACEBACK]" in text:
+        tb_pattern = re.compile(
+            r"サイト:\s*([a-zA-Z0-9_-]+)\s*\|\s*種別:\s*([a-zA-Z0-9_-]+)\s*\|\s*例外:\s*([^|]+)\|\s*箇所:\s*([^|]+)"
+        )
+        for m in tb_pattern.finditer(text):
+            site = m.group(1).lower().strip()
+            ptype = m.group(2).lower().strip()
+            exc = m.group(3).strip()
+            loc = m.group(4).strip()
+            targets.append({
+                "company": site,
+                "property_type": ptype,
+                "reason": f"スタックトレース検知: {exc} ({loc}) (#{channel_name})",
+                "url": f"https://www.{site}.co.jp/" if site not in ("pipeline", "unknown") else "",
+                "detected_at": ts,
+                "source": "slack",
+            })
+
     return targets
 
 
@@ -623,6 +642,127 @@ def _build_target_from_eval_anomaly(ev) -> dict | None:
     }
 
 
+def _infer_site_and_type_from_traceback(frames_text: str, exc_line: str) -> tuple[str, str]:
+    """スタックトレースのファイルパスやメソッド名からサイト名・物件種別を推定する。"""
+    import re
+
+    combined = f"{frames_text}\n{exc_line}".lower()
+    site = "pipeline"
+    m_site = re.search(r"([a-z0-9_]+?)(?:parser|crawler)\.py", combined)
+    if m_site:
+        site = m_site.group(1)
+
+    ptype = "unknown"
+    for cand in ("mansion", "kodate", "tochi", "apartment", "investment"):
+        if cand in combined:
+            ptype = cand
+            break
+    return site, ptype
+
+
+def scan_logs_for_tracebacks(
+    log_dirs: list[str] | None = None,
+    max_age_hours: int = 24,
+    max_targets: int = 20,
+) -> list[dict]:
+    """
+    logs/ 配下の直近ログファイルから Python のスタックトレース (Traceback) を検出し、
+    同一例外・発生箇所ごとにグルーピングして自己修復ターゲットリストを返す。
+    """
+    import re
+    import time
+
+    if log_dirs is None:
+        log_dirs = [os.path.join(get_project_root(), "logs")]
+
+    cutoff_ts = time.time() - max_age_hours * 3600
+    grouped: dict[tuple[str, str, str, str], dict] = {}
+    frame_re = re.compile(r'File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+([^\s]+)')
+
+    for log_dir in log_dirs:
+        if not log_dir or not os.path.isdir(log_dir):
+            continue
+        for root, _, files in os.walk(log_dir):
+            for fname in files:
+                if not fname.endswith(".log"):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    if os.path.getmtime(fpath) < cutoff_ts:
+                        continue
+                    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                        lines = f.readlines()
+                except OSError:
+                    continue
+
+                i = 0
+                n = len(lines)
+                while i < n:
+                    if "Traceback (most recent call last):" in lines[i]:
+                        block = [lines[i]]
+                        j = i + 1
+                        while j < n and (
+                            lines[j].startswith("  ")
+                            or lines[j].startswith("\t")
+                            or lines[j].strip() == ""
+                        ):
+                            block.append(lines[j])
+                            j += 1
+                        if j < n:
+                            block.append(lines[j])
+                            exc_line = lines[j].strip()
+                            j += 1
+                        else:
+                            exc_line = "UnknownException"
+
+                        frames_text = "".join(block)
+                        frames = frame_re.findall(frames_text)
+                        if frames:
+                            last_file, last_line, _ = frames[-1]
+                            location = f"{os.path.basename(last_file)}:{last_line}"
+                        else:
+                            location = fname
+
+                        site, ptype = _infer_site_and_type_from_traceback(frames_text, exc_line)
+                        key = (site, ptype, exc_line[:120], location)
+                        if key not in grouped:
+                            grouped[key] = {
+                                "company": site,
+                                "property_type": ptype,
+                                "reason": f"スタックトレース検知: {exc_line[:160]}",
+                                "exc_line": exc_line[:160],
+                                "location": location,
+                                "url": f"https://www.{site}.co.jp/" if site not in ("pipeline", "unknown") else "",
+                                "count": 0,
+                                "source": "log_traceback",
+                            }
+                        grouped[key]["count"] += 1
+                        i = j
+                    else:
+                        i += 1
+
+    results = sorted(grouped.values(), key=lambda x: x["count"], reverse=True)
+    return results[:max_targets]
+
+
+def notify_traceback_alerts(traceback_targets: list[dict]) -> bool:
+    """検出されたスタックトレースを Slack (#dev-agent) へ [AUTO_HEAL_TRACEBACK] として通知する。"""
+    if not traceback_targets:
+        return False
+    lines = [":rotating_light: [AUTO_HEAL_TRACEBACK] ログからスタックトレースを検知しました"]
+    for t in traceback_targets[:10]:
+        lines.append(
+            f"- サイト: {t.get('company', 'unknown')} | 種別: {t.get('property_type', 'unknown')} "
+            f"| 例外: {t.get('exc_line') or t.get('reason', '')} "
+            f"| 箇所: {t.get('location', 'unknown')} | 件数: {t.get('count', 1)}件"
+        )
+    try:
+        return bool(send_dev_report("\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to send traceback alert to Slack: %s", exc)
+        return False
+
+
 def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = None):
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
@@ -644,6 +784,18 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
         logger.info(f"Loaded {len(slack_targets)} error targets from Slack telemetry.")
     except Exception as se:  # noqa: BLE001
         logger.warning(f"Could not load Slack error targets: {se}")
+
+    # ログファイル内のスタックトレース (Traceback) 検知 ➔ Slackアラート送信 ＆ 修復対象合流
+    try:
+        tb_targets = scan_logs_for_tracebacks()
+        if tb_targets:
+            notify_traceback_alerts(tb_targets)
+            for tt in tb_targets:
+                if tt not in heal_targets:
+                    heal_targets.append(tt)
+            logger.info(f"Detected {len(tb_targets)} traceback groups from logs and alerted Slack.")
+    except Exception as tbe:  # noqa: BLE001
+        logger.warning(f"Could not scan logs for tracebacks: {tbe}")
 
     three_days_ago = timezone.now() - timedelta(days=3)
     # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665)

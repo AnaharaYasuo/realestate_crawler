@@ -191,7 +191,7 @@ jobs:
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
           if echo "$CHANGED_FILES" | grep -Eq "^(src/crawler/package/parser/|config/selectors/)"; then
             echo "Parser or selector changes detected in production deploy; triggering realestate-recrawl-anomalies-pipeline-prod..."
-            gcloud workflows run realestate-recrawl-anomalies-pipeline-prod \
+            gcloud workflows execute realestate-recrawl-anomalies-pipeline-prod \
               --location=asia-northeast1 || echo "::warning::Failed to trigger anomaly recrawl workflow (non-blocking)"
           else
             echo "No parser or selector changes in HEAD~1..HEAD; skipping immediate anomaly recrawl trigger."
