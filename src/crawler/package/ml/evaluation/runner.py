@@ -2,6 +2,7 @@
 バルク ML 評価の並列実行オーケストレーター (Issue #716)
 """
 
+import gc
 import logging
 import os
 import sys
@@ -131,8 +132,10 @@ def evaluate_single_model(
             duplicate_count += d_cnt
             logger.info("Evaluated %d properties for %s...", evaluated_count, model_name)
             sys.stdout.flush()
+            gc.collect()
     finally:
         close_old_connections()
+        gc.collect()
 
     return evaluated_count, total_skipped, passed_count, duplicate_count
 
