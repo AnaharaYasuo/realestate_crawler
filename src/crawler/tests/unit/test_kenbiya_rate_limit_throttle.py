@@ -121,5 +121,5 @@ async def test_kenbiya_throttle_jitter_range_05_to_15(monkeypatch):
         "asyncio.sleep", new=AsyncMock()
     ) as mock_sleep:
         await KenbiyaMansionParser._throttle_before_request()
-        mock_rand.assert_called_once_with(0.5, 1.5)
+        mock_rand.assert_called_once_with(1.5, 2.5)
         mock_sleep.assert_awaited_once_with(pytest.approx(2.0))
