@@ -146,7 +146,7 @@ class KenbiyaParserBase(ParserBase):
             min_interval = float(raw_interval) if raw_interval else 1.0
         except ValueError:
             min_interval = 1.0
-        jitter = random.uniform(0.5, 1.5)
+        jitter = random.uniform(1.5, 2.5)
         with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             target_time = max(
