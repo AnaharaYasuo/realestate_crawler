@@ -321,7 +321,7 @@ graph TD
   2. `wait_for_db.py` で DB 接続可能になるまで待機する。
   3. `verify_barrier_completion()` で最新クローラー実行の完了率を点検する。
   4. `send_aggregated_crawl_report()`（バリア結果にかかわらず送信し、その後、未達かつ `--force` 無しの場合は中断）: `_latest_execution_tasks()` で得た最新実行のタスク行を `pipeline_coordinator.aggregate_task_array_reports()` で集約し、`send_crawling_summary_alert()` で全タスク集約レポートを 1 回送信する（`asyncio.wait_for(timeout=SLACK_REPORT_TIMEOUT_SEC=10)` で有限時間に制限）。行が無い場合・識別可能な実行が無い場合は送信しない。失敗が無くても未実行ジョブ（総ジョブ数 − 実行完了数）が残る場合は「全ジョブ正常完了」と表示せず未実行件数を警告表示する。集約・送信の失敗は警告ログに留め後続を継続する。
-  5. データ検証 ➔ Auto-Heal 指示書生成 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を順に実行する。
+  5. データ検証 ➔ Auto-Heal 指示書生成 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を順に実行する。学習時の OOM 防止のため、`package.ml.training.regressors` では `ML_NUM_THREADS` 未指定時のデフォルトスレッド数を `2` に制限し、`RandomForestRegressor` の `n_jobs` は `1` に固定する（Issue #1672）。また、バルク価格推定（Step 3/5）の OOM 防止のため、`run_ml_pipeline.py` の `BULK_EVAL_CONCURRENCY` デフォルトを `1` に制限する（Issue #1683）。さらに、`package/ml/evaluation/runner.py` ではチャンク処理末尾およびモデル評価完了時に `gc.collect()` を実行してピークメモリを抑制する（Issue #1688）。
   6. `finally` で `scale_proxysql_mig(target_size=0)` を実行し ProxySQL を停止する。
 - **集約関数の配置**: `aggregate_task_array_reports()` は `package/utils/pipeline_coordinator.py` に置く（`run_pipeline` は import 時にシグナルハンドラを登録するため、ML Pipeline Job から import しない）。`run_pipeline.py` は集約・他タスク完了待機・集約レポート送信を行わないため、これらを import しない。
 
@@ -343,6 +343,15 @@ graph TD
 - **再帰的スレッド生成・OOMの根絶**:
   - `_treatPage` 内での自動 `_fetchNextPage` 呼び出しは、反復ループ（`_run`）実行中はバイパス（`is_iterative_running` 等）し、二重取得およびローカルルーティングにおけるネストした `threading.Thread` 生成を物理的に排除する。
   - 単体テスト等で `_treatPage` や `_fetchNextPage` が直接単独呼び出しされた場合の後方互換性は維持し、既存の単体テスト（`test_crawler_fixes_275.py`, `test_task_array_partial_execution_536.py`）を 100% 成功させる。
+
+### 6.10.5 HTTP 429/503 指数バックオフリトライ及び未回復時のサイト単位クローリング中止 (Issue #1676)
+- **基盤レイヤーでのリトライ (`ParserBase._getContent`)**:
+  - HTTP `429` (`RateLimitedException`) および `503` (`ServiceUnavailableException` / `ServerBusyException` の 503 応答) が発生した場合、全サイト共通の基盤レイヤー (`ParserBase._getContent`) にて指数バックオフ（`min(30, 2 ** (attempt + 1))` 秒）で最大 `MAX_CONSECUTIVE_TIMEOUTS` 回リトライを行う。
+  - リトライ上限に達しても回復しない場合は、エラーログ（`logging.error`）を出力した上で例外（`RateLimitedException` または `ServerBusyException`）を送出する。
+- **サイト単位のクローリング中止 (`ApiAsyncProcBase` / `ParseDetailPageAsyncBase` / `ParseMiddlePageAsyncBase`)**:
+  - `RateLimitedException` または 503 由来の `ServerBusyException` がリトライ後も回復せず送出された場合、そのサイト（`company` / `site_name`）を中止状態（`SiteCrawlAbortedException`）としてマークし、エラーログを出力する。
+  - 中止状態になったサイトに対しては、同一クロール実行内の後続・並列タスク（`_treatPage`、`_fetch_middle_page_response` 等）も即座に `SiteCrawlAbortedException` を送出してリクエスト送信を行わず、当該サイトに対するクローリングを中止する。
+  - `ParseDetailPageAsyncBase._run` 等で `RateLimitedException` / `SiteCrawlAbortedException` が発生した場合は握りつぶさず上位へ伝播させ、サイト単位のクローリングを確実に停止させる。
 - **リソース消費量の一定化**:
   - ページ数に関わらずアクティブなスレッド数およびイベントループ数を O(1) に固定し、cgroup メモリ上限超過による `Exit Code: -9`（OOM Kill）を完全に防止する。
 
