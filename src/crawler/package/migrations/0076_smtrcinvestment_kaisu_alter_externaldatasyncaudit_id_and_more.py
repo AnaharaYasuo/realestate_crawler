@@ -10,10 +10,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='smtrcinvestment',
-            name='kaisu',
-            field=models.IntegerField(blank=True, null=True),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name='smtrcinvestment',
+                    name='kaisu',
+                    field=models.IntegerField(blank=True, null=True),
+                ),
+            ],
+            database_operations=[],
         ),
         migrations.AlterField(
             model_name='externaldatasyncaudit',
