@@ -93,6 +93,10 @@ class ServerBusyException(SkipPropertyException):
     """Raised when the server is busy."""
 
 
+class ServiceUnavailableException(ServerBusyException):
+    """Raised when target server returns HTTP 503 Service Unavailable."""
+
+
 class SiteMaintenanceException(ServerBusyException):
     """Raised when the target website is under scheduled or emergency maintenance."""
 
@@ -2778,7 +2782,11 @@ class ParserBase(metaclass=ABCMeta):
             raise AccessBlockedException(
                 f"HTTP Status 403 Forbidden (Possible WAF/Bot Protection): {url}"
             )
-        if status in (500, 502, 503, 504):
+        if status == 503:
+            raise ServiceUnavailableException(
+                f"HTTP Status 503 Service Unavailable: {url}"
+            )
+        if status in (500, 502, 504):
             raise ServerBusyException(
                 f"Property page returned HTTP status {status}: {url}"
             )
@@ -2816,13 +2824,17 @@ class ParserBase(metaclass=ABCMeta):
                 )
                 self.consecutive_timeouts = 0
                 return data
-            except RateLimitedException as rle:
+            except (RateLimitedException, ServiceUnavailableException) as retry_exc:
                 backoff = min(30, 2 ** (attempt + 1))
-                logging.warning(
-                    f"Rate limited (429) on {url} (attempt {attempt + 1}/{max_timeouts}). Backing off {backoff}s: {rle}"
-                )
+                status_label = "429" if isinstance(retry_exc, RateLimitedException) else "503"
                 if attempt == max_timeouts - 1:
+                    logging.error(
+                        f"HTTP {status_label} did not recover after {max_timeouts} attempts on {url}: {retry_exc}"
+                    )
                     raise
+                logging.warning(
+                    f"HTTP {status_label} on {url} (attempt {attempt + 1}/{max_timeouts}). Backing off {backoff}s: {retry_exc}"
+                )
                 await asyncio.sleep(backoff)
             except (TimeoutError, aiohttp.ClientError) as e:
                 self._handle_client_error(e, url, attempt, max_timeouts)

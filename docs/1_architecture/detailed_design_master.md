@@ -343,6 +343,15 @@ graph TD
 - **再帰的スレッド生成・OOMの根絶**:
   - `_treatPage` 内での自動 `_fetchNextPage` 呼び出しは、反復ループ（`_run`）実行中はバイパス（`is_iterative_running` 等）し、二重取得およびローカルルーティングにおけるネストした `threading.Thread` 生成を物理的に排除する。
   - 単体テスト等で `_treatPage` や `_fetchNextPage` が直接単独呼び出しされた場合の後方互換性は維持し、既存の単体テスト（`test_crawler_fixes_275.py`, `test_task_array_partial_execution_536.py`）を 100% 成功させる。
+
+### 6.10.5 HTTP 429/503 指数バックオフリトライ及び未回復時のサイト単位クローリング中止 (Issue #1676)
+- **基盤レイヤーでのリトライ (`ParserBase._getContent`)**:
+  - HTTP `429` (`RateLimitedException`) および `503` (`ServiceUnavailableException` / `ServerBusyException` の 503 応答) が発生した場合、全サイト共通の基盤レイヤー (`ParserBase._getContent`) にて指数バックオフ（`min(30, 2 ** (attempt + 1))` 秒）で最大 `MAX_CONSECUTIVE_TIMEOUTS` 回リトライを行う。
+  - リトライ上限に達しても回復しない場合は、エラーログ（`logging.error`）を出力した上で例外（`RateLimitedException` または `ServerBusyException`）を送出する。
+- **サイト単位のクローリング中止 (`ApiAsyncProcBase` / `ParseDetailPageAsyncBase` / `ParseMiddlePageAsyncBase`)**:
+  - `RateLimitedException` または 503 由来の `ServerBusyException` がリトライ後も回復せず送出された場合、そのサイト（`company` / `site_name`）を中止状態（`SiteCrawlAbortedException`）としてマークし、エラーログを出力する。
+  - 中止状態になったサイトに対しては、同一クロール実行内の後続・並列タスク（`_treatPage`、`_fetch_middle_page_response` 等）も即座に `SiteCrawlAbortedException` を送出してリクエスト送信を行わず、当該サイトに対するクローリングを中止する。
+  - `ParseDetailPageAsyncBase._run` 等で `RateLimitedException` / `SiteCrawlAbortedException` が発生した場合は握りつぶさず上位へ伝播させ、サイト単位のクローリングを確実に停止させる。
 - **リソース消費量の一定化**:
   - ページ数に関わらずアクティブなスレッド数およびイベントループ数を O(1) に固定し、cgroup メモリ上限超過による `Exit Code: -9`（OOM Kill）を完全に防止する。
 
