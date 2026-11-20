@@ -2828,7 +2828,7 @@ class ParserBase(metaclass=ABCMeta):
                 backoff = min(30, 2 ** (attempt + 1))
                 status_label = "429" if isinstance(retry_exc, RateLimitedException) else "503"
                 if attempt == max_timeouts - 1:
-                    logging.error(
+                    logging.exception(
                         f"HTTP {status_label} did not recover after {max_timeouts} attempts on {url}: {retry_exc}"
                     )
                     raise
