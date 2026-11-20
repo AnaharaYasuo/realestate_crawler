@@ -41,6 +41,10 @@
   - `target_types` で指定された種別のみループして学習を実行。
   - ループごとにメモリを `gc.collect()`。
 
+### 3.2 `package.ml.training.regressors` (Issue #1672)
+- `_get_ml_thread_limit()`: 環境変数 `ML_NUM_THREADS` 未指定時のデフォルトスレッド数を `2` に制限し、2GiB RAM 環境でのメモリスパイクを抑制する。
+- `RandomForestRegressor`: joblib によるメモリ複製での OOM を防ぐため、`n_jobs=1` に固定する。
+
 ### 3.2 `package.ml.training.artifacts`
 - `save_metadata`:
   - 既存の `ensemble_weights.joblib`, `smearing_factors.joblib`, `location_encoders.joblib`, `p10_conformal.joblib` が存在する場合、読み込んで今回学習した種別のキーのみ更新・マージして保存する。

@@ -68,6 +68,15 @@ def test_regressors_and_tuning():
     assert best_params in PARAM_GRIDS["rf"]
 
 
+def test_regressor_memory_safety_thread_limits(monkeypatch):
+    """Issue #1672: デフォルトスレッド数2・RandomForest n_jobs=1 によるOOM防止"""
+    monkeypatch.delenv("ML_NUM_THREADS", raising=False)
+    rf_model = get_regressor("rf", use_anchor_residual=False)
+    assert rf_model.n_jobs == 1
+    lgb_model = get_regressor("lgb", use_anchor_residual=False)
+    assert lgb_model.n_jobs == 2
+
+
 def test_market_master_helpers():
     class DummyObj:
         address1 = "東京都"
