@@ -174,3 +174,7 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## ローカル本番実行の同一社直列制御と優先順位 (Issue #1674)
 - ローカル本番実行でもクラウド本番実行と同様に `active_company_counts` による同一社直列制御を適用し、`athome` を最先頭とする Slowest/Largest-Site-First 順で実行する。
+
+## 日次TTL経過再クロール Unresolved URL / 未マイグレーション解消 (Issue #1686)
+- `UrlRouter` で `toho-house.co.jp/sch/detail.php` および `rehouse.co.jp/buy/s_kodate/bkdetail/` を解決できるよう対応。
+- 未生成だった Django マイグレーション `0076_...`（`tokyukodate.setsumen` の `null=True` 反映等）を追加（既存の `smtrcinvestment.kaisu` は `SeparateDatabaseAndState` で安全に状態同期）。
