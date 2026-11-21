@@ -101,3 +101,6 @@
 | **総戸数** | `totalUnits` | |
 | **接道状況** | `roadCondition` | |
 | **管理費等** | `managementFee` | 区分の場合 |
+
+## 掲載終了判定 (ListingEndedException)
+- 詳細ページ（`_parsePropertyDetailPage`）において、「現在、こちらの物件は掲載を停止しております」「こちらの物件は掲載を終了」「掲載を終了しました」「掲載を終了いたしました」「お探しの物件は見つかりませんでした」等の掲載終了メッセージを検知した場合、`ListingEndedException("Misawa listing ended")` を送出し、不完全データとしての誤登録・異常検知を防止する。
