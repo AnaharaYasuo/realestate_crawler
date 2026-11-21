@@ -25,14 +25,21 @@ from package.parser.kenbiyaParser import (
 
 DETAIL_PARALLEL_LIMIT = int(os.getenv("KENBIYA_DETAIL_PARALLEL_LIMIT", "5"))
 MIDDLE_PARALLEL_LIMIT = 1
+COOLDOWN_WORK_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_WORK_SECONDS", "3600"))
+COOLDOWN_REST_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_REST_SECONDS", "900"))
 
-# Mansion (/pp1/)
-class ParseKenbiyaMansionDetailFuncAsync(ParseDetailPageAsyncBase):
-    def _generateParser(self): return KenbiyaMansionParser()
+
+class _KenbiyaDetailBase(ParseDetailPageAsyncBase):
     def _getLocalPararellLimit(self): return DETAIL_PARALLEL_LIMIT
     def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
     def _getTimeOutSecond(self): return 60
     def _getApiKey(self): return ""
+    def _get_cooldown_config(self): return (COOLDOWN_WORK_SECONDS, COOLDOWN_REST_SECONDS)
+
+
+# Mansion (/pp1/)
+class ParseKenbiyaMansionDetailFuncAsync(_KenbiyaDetailBase):
+    def _generateParser(self): return KenbiyaMansionParser()
 
 class ParseKenbiyaMansionStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return KenbiyaMansionParser()

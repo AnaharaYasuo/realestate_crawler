@@ -520,6 +520,51 @@ class DetailFetchCircuitBreaker:
 _detail_circuit_breaker = DetailFetchCircuitBreaker(
     threshold=int(os.getenv("DETAIL_CIRCUIT_BREAKER_THRESHOLD", "10"))
 )
+
+
+class CrawlCooldownController:
+    """Thread-safe controller that pauses detail fetches for rest_seconds after work_seconds."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._window_start: dict[str, float] = {}
+        self._cooldown_until: dict[str, float] = {}
+
+    def get_wait_seconds(self, host: str, work_seconds: float, rest_seconds: float, now: float | None = None) -> float:
+        if work_seconds <= 0 or rest_seconds <= 0:
+            return 0.0
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            cooldown_end = self._cooldown_until.get(host, 0.0)
+            if current < cooldown_end:
+                return cooldown_end - current
+            if cooldown_end > 0.0 and current >= cooldown_end:
+                # Cooldown finished; reset window
+                self._cooldown_until.pop(host, None)
+                self._window_start[host] = current
+                return 0.0
+            start = self._window_start.get(host)
+            if start is None:
+                self._window_start[host] = current
+                return 0.0
+            if current - start >= work_seconds:
+                self._cooldown_until[host] = current + rest_seconds
+                logging.info(
+                    f"[CRAWL_COOLDOWN] {host}: {work_seconds:.0f}s work window reached; "
+                    f"pausing for {rest_seconds:.0f}s."
+                )
+                return rest_seconds
+            return 0.0
+
+    async def wait_if_needed(self, host: str, work_seconds: float, rest_seconds: float) -> None:
+        while True:
+            wait_sec = self.get_wait_seconds(host, work_seconds, rest_seconds)
+            if wait_sec <= 0.0:
+                return
+            await asyncio.sleep(min(wait_sec, 30.0))
+
+
+_crawl_cooldown_controller = CrawlCooldownController()
 SUMIFU_MANSION_START_ENDPOINT = '/sumifu_mansion_start'
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
@@ -2180,6 +2225,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None, False, None
         return None, False, exc
 
+    def _get_cooldown_config(self) -> tuple[float, float] | None:
+        return None
+
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
         if _server_busy_abort_event.is_set():
@@ -2187,6 +2235,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         host = urlparse(str(self.url)).netloc.lower()
         if _detail_circuit_breaker.is_open(host):
             return None
+        cooldown_cfg = self._get_cooldown_config()
+        if cooldown_cfg is not None:
+            await _crawl_cooldown_controller.wait_if_needed(host, cooldown_cfg[0], cooldown_cfg[1])
         item = None
         _connector = self._generateConnector(self._getActiveEventLoop())
         await self.semaphore.acquire()
