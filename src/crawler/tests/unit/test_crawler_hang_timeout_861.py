@@ -159,3 +159,20 @@ def test_ensure_resources_stopped_job_hung_threshold():
     assert ensure_resources_stopped.get_job_hung_threshold("unknown-job", fallback_threshold=5000.0) == 5000.0
     # Explicit override takes priority even for known jobs
     assert ensure_resources_stopped.get_job_hung_threshold("realestate-crawler-pipeline-prod", fallback_threshold=3600.0) == 3600.0
+
+
+def test_is_completed_condition_handles_cloud_run_v2_states():
+    """_is_completed_condition must detect Cloud Run v2 state (CONDITION_FAILED/CONDITION_SUCCEEDED) as completed."""
+    from types import SimpleNamespace
+    from scripts import ensure_resources_stopped
+
+    # REST API dict format (Cloud Run v2)
+    assert ensure_resources_stopped._is_completed_condition({"type": "Completed", "state": "CONDITION_FAILED"}) is True
+    assert ensure_resources_stopped._is_completed_condition({"type": "Completed", "state": "CONDITION_SUCCEEDED"}) is True
+    assert ensure_resources_stopped._is_completed_condition({"type": "Completed", "state": "CONDITION_PENDING"}) is False
+    assert ensure_resources_stopped._is_completed_condition({"type": "Started", "state": "CONDITION_SUCCEEDED"}) is False
+
+    # gRPC object format (Cloud Run v2 & v1)
+    assert ensure_resources_stopped._is_completed_condition(SimpleNamespace(type_="Completed", state="State.CONDITION_FAILED")) is True
+    assert ensure_resources_stopped._is_completed_condition(SimpleNamespace(type="Completed", status="False")) is True
+    assert ensure_resources_stopped._is_completed_condition(SimpleNamespace(type="Completed", state="CONDITION_PENDING", status=None)) is False
