@@ -474,6 +474,45 @@ def _sync_save_error_html_by_url(
 
 
 TCP_CONNECTOR_LIMIT = 100
+
+
+class DetailFetchCircuitBreaker:
+    """Thread-safe circuit breaker to abort remaining detail fetches on consecutive SkipPropertyException (e.g. HTTP 503)."""
+
+    def __init__(self, threshold: int = 10) -> None:
+        self._threshold = threshold
+        self._lock = threading.Lock()
+        self._consecutive_skips: dict[str, int] = {}
+        self._opened_hosts: set[str] = set()
+
+    def is_open(self, host: str) -> bool:
+        with self._lock:
+            return host in self._opened_hosts
+
+    def record_success(self, host: str) -> None:
+        with self._lock:
+            self._consecutive_skips[host] = 0
+
+    def record_skip(self, host: str) -> bool:
+        """Record a skip (e.g. 503). Returns True if the circuit just opened."""
+        with self._lock:
+            if host in self._opened_hosts:
+                return False
+            count = self._consecutive_skips.get(host, 0) + 1
+            self._consecutive_skips[host] = count
+            if count >= self._threshold:
+                self._opened_hosts.add(host)
+                logging.error(
+                    f"[CIRCUIT_BREAKER_OPEN] {host}: {count} consecutive SkipPropertyException(s) detected; "
+                    "aborting remaining detail fetches."
+                )
+                return True
+            return False
+
+
+_detail_circuit_breaker = DetailFetchCircuitBreaker(
+    threshold=int(os.getenv("DETAIL_CIRCUIT_BREAKER_THRESHOLD", "10"))
+)
 SUMIFU_MANSION_START_ENDPOINT = '/sumifu_mansion_start'
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
@@ -2069,12 +2108,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
             return None, False, exc
         if isinstance(exc, SkipPropertyException):
+            host = urlparse(str(self.url)).netloc.lower()
+            _detail_circuit_breaker.record_skip(host)
             logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
             return None, False, None
         return None, False, exc
 
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
+        host = urlparse(str(self.url)).netloc.lower()
+        if _detail_circuit_breaker.is_open(host):
+            return None
         item = None
         _connector = self._generateConnector(self._getActiveEventLoop())
         await self.semaphore.acquire()
@@ -2106,6 +2150,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     async def _fetch_detail_item(self):
         try:
             item = await self._execute_single_detail_fetch()
+            if item is not None:
+                _detail_circuit_breaker.record_success(urlparse(str(self.url)).netloc.lower())
             return item, False, None
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             logging.debug("get item retry")

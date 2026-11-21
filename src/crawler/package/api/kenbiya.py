@@ -1,3 +1,5 @@
+import os
+
 from package.api.api import (
     API_KEY_KENBIYA_INVEST_APARTMENT_DETAIL,
     API_KEY_KENBIYA_INVEST_APARTMENT_START,
@@ -21,7 +23,7 @@ from package.parser.kenbiyaParser import (
     KenbiyaTochiParser,
 )
 
-DETAIL_PARALLEL_LIMIT = 1
+DETAIL_PARALLEL_LIMIT = int(os.getenv("KENBIYA_DETAIL_PARALLEL_LIMIT", "5"))
 MIDDLE_PARALLEL_LIMIT = 1
 
 # Mansion (/pp1/)
