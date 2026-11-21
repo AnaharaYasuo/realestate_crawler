@@ -121,6 +121,15 @@ class UrlRouter:
             "model_module": MITSUI_MODEL_MODULE,
             "model_cls": "MitsuiInvestmentApartment",
         },
+        {
+            "pattern": re.compile(r"rehouse\.co\.jp/buy/(?:s_)?(?:kodate|tohshi)/.*bkdetail/"),
+            "site": "mitsui",
+            "property_type": "invest_kodate",
+            "parser_module": MITSUI_PARSER_MODULE,
+            "parser_cls": "MitsuiInvestmentKodateParser",
+            "model_module": MITSUI_MODEL_MODULE,
+            "model_cls": "MitsuiInvestmentKodate",
+        },
 
         # 東急リバブル (Tokyu)
         {
