@@ -425,7 +425,8 @@ class HomesParser(ParserBase):
     def _apply_homes_unit_mansion_override(self, item, response: BeautifulSoup) -> None:
         senyu_tag = self._find_by_table_header(response, ["専有面積", "壁芯面積"])
         senyu_text = senyu_tag.get_text().strip() if senyu_tag else ""
-        parsed_senyu = converter.parse_menseki(senyu_text) if senyu_text else None
+        is_range_senyu = bool(senyu_text and ("～" in senyu_text or "〜" in senyu_text))
+        parsed_senyu = converter.parse_menseki(senyu_text) if (senyu_text and not is_range_senyu) else None
 
         kaisu_tag = self._find_by_table_header(response, ["所在階"])
         kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
