@@ -159,6 +159,15 @@ class UrlRouter:
             "model_module": TOKYU_MODEL_MODULE,
             "model_cls": "TokyuInvestmentApartment",
         },
+        {
+            "pattern": re.compile(r"livable\.co\.jp/(?:kodate|toushi|fudosan-toushi)/.*C[A-Z0-9]+"),
+            "site": "tokyu",
+            "property_type": "invest_kodate",
+            "parser_module": TOKYU_PARSER_MODULE,
+            "parser_cls": "TokyuInvestmentKodateParser",
+            "model_module": TOKYU_MODEL_MODULE,
+            "model_cls": "TokyuInvestmentKodate",
+        },
 
         # 住友不動産ステップ (Sumifu)
         {
