@@ -190,10 +190,13 @@ async def test_site_abort_stops_subsequent_tasks_for_same_site_only():
 
 def test_classify_fetch_exception_handles_server_busy_and_skip_without_name_error():
     from types import SimpleNamespace
-    from package.api.api import ParseDetailPageAsyncBase
+    from package.api.api import ParseDetailPageAsyncBase, _server_busy_abort_event
     from package.parser.baseParser import ServerBusyException, SkipPropertyException
 
     dummy = SimpleNamespace(url="https://example.com/detail/1", _get_cooldown_config=lambda: None)
 
-    assert ParseDetailPageAsyncBase._classify_fetch_exception(dummy, SkipPropertyException("skip")) == (None, False, None)
-    assert ParseDetailPageAsyncBase._classify_fetch_exception(dummy, ServerBusyException("busy")) == (None, False, None)
+    try:
+        assert ParseDetailPageAsyncBase._classify_fetch_exception(dummy, SkipPropertyException("skip")) == (None, False, None)
+        assert ParseDetailPageAsyncBase._classify_fetch_exception(dummy, ServerBusyException("busy")) == (None, False, None)
+    finally:
+        _server_busy_abort_event.clear()

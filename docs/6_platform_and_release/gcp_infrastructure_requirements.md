@@ -177,3 +177,8 @@
 
 
 
+
+
+## ProxySQL 停止保護フック (#1724)
+- `.agents/scripts/hook_guard.py` により、エージェントによる `gcloud(\.cmd)? compute instances stop ... proxysql` の直接実行を機械的にブロックする。
+- ProxySQL を停止する場合は、先に DB 接続中のプロセスをすべて停止し、アクティブな DB 接続がゼロであることを確認した上で安全停止フローを経由すること。
