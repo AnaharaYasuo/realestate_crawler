@@ -206,12 +206,12 @@ def test_property_type_detector_and_router_fixes():
     )
     assert daikyo_parser.__class__.__name__ == "DaikyoKodateParser"
 
-    # 3b. Mitsui kodate URL with invest_kodate prefers URL-matched MitsuiKodateParser over site-wide apartment
+    # 3b. Mitsui kodate URL with invest_kodate resolves to MitsuiInvestmentKodateParser
     mitsui_route_parser = UrlRouter.create_parser(
         url="https://www.rehouse.co.jp/buy/kodate/bkdetail/F15BPA17/",
         property_type="invest_kodate",
     )
-    assert mitsui_route_parser.__class__.__name__ == "MitsuiKodateParser"
+    assert mitsui_route_parser.__class__.__name__ == "MitsuiInvestmentKodateParser"
     assert PropertyTypeDetector._strip_title_site_suffix("物件名｜土地付き中古戸建") == "物件名｜土地付き中古戸建"
 
     # 4. Mitsui kodate with partial fixed-term tenancy in remarks and no yield must stay 'kodate'
