@@ -36,3 +36,7 @@
 
 ## 東宝ハウス タイトル末尾ブランド文言除去 (#1726)
 - `PropertyTypeDetector._strip_title_site_suffix` にて、2番目以降の `｜` セグメントに「不動産なら」「東宝ハウス」を含むサイト共通ブランド文言を除去し、マンション物件が `kodate` と誤判定されるのを防止する。
+
+
+## MizuhoBypass Playwright タイムアウト対策 (#1730)
+- `mizuho_bypass.py` の `get_mizuho_page_html` において、`page.goto` の `wait_until` を `"networkidle"` から `"domcontentloaded"` へ変更し、バックグラウンド通信による 20秒タイムアウトを防止する。
