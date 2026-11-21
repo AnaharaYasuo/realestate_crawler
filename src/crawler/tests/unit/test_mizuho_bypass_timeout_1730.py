@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_mizuho_bypass_uses_domcontentloaded_instead_of_networkidle():
     src = (
-        Path(__file__).resolve().parents[3]
+        Path(__file__).resolve().parents[2]
         / "package"
         / "utils"
         / "mizuho_bypass.py"
