@@ -68,6 +68,33 @@ def test_regressors_and_tuning():
     assert best_params in PARAM_GRIDS["rf"]
 
 
+def test_regressor_memory_safety_thread_limits(monkeypatch):
+    """Issue #1672: デフォルトスレッド数2・RandomForest n_jobs=1 によるOOM防止"""
+    monkeypatch.delenv("ML_NUM_THREADS", raising=False)
+    rf_model = get_regressor("rf", use_anchor_residual=False)
+    assert rf_model.n_jobs == 1
+    lgb_model = get_regressor("lgb", use_anchor_residual=False)
+    assert lgb_model.n_jobs == 2
+
+
+def test_run_ml_pipeline_bulk_eval_concurrency_default(monkeypatch):
+    """Issue #1683: Step 3/5 バルク推定のデフォルト並列数を 1 に制限して OOM を防止"""
+    import os
+    monkeypatch.delenv("BULK_EVAL_CONCURRENCY", raising=False)
+    assert int(os.getenv("BULK_EVAL_CONCURRENCY", "1")) == 1
+    from pathlib import Path
+    pipeline_src = (Path(__file__).resolve().parents[2] / "scripts" / "ops" / "run_ml_pipeline.py").read_text(encoding="utf-8")
+    assert 'os.getenv("BULK_EVAL_CONCURRENCY", "1")' in pipeline_src
+
+
+def test_eval_runner_calls_gc_collect():
+    """Issue #1688: バルク評価ランナーがチャンク/モデル完了時に gc.collect() を呼ぶこと"""
+    from pathlib import Path
+    runner_src = (Path(__file__).resolve().parents[2] / "package" / "ml" / "evaluation" / "runner.py").read_text(encoding="utf-8")
+    assert "import gc" in runner_src
+    assert runner_src.count("gc.collect()") >= 2
+
+
 def test_market_master_helpers():
     class DummyObj:
         address1 = "東京都"

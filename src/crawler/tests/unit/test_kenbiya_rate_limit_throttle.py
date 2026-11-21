@@ -77,8 +77,11 @@ async def test_kenbiya_handle_curl_cffi_response_404_and_429():
         assert res is None
         mock_sleep.assert_awaited_once_with(3)
 
-    with pytest.raises(LoadPropertyPageException):
+    from package.parser.baseParser import ListingEndedException, ServerBusyException
+    with pytest.raises(ServerBusyException):
         await parser._handle_curl_cffi_response(500, b"", "https://www.kenbiya.com/test")
+    with pytest.raises(ServerBusyException):
+        await parser._handle_curl_cffi_response(503, b"", "https://www.kenbiya.com/test")
 
 
 @pytest.mark.asyncio
@@ -118,5 +121,23 @@ async def test_kenbiya_throttle_jitter_range_05_to_15(monkeypatch):
         "asyncio.sleep", new=AsyncMock()
     ) as mock_sleep:
         await KenbiyaMansionParser._throttle_before_request()
-        mock_rand.assert_called_once_with(0.5, 1.5)
+        mock_rand.assert_called_once_with(1.5, 2.5)
         mock_sleep.assert_awaited_once_with(pytest.approx(2.0))
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_waf_cookie_warmup_skip_and_reset(monkeypatch):
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaParserBase
+
+    KenbiyaParserBase._waf_cookies = {"session": "abc"}
+    KenbiyaParserBase._waf_user_agent = "Mozilla/5.0"
+
+    await KenbiyaMansionParser._warmup_waf_cookies()
+    assert KenbiyaParserBase._waf_cookies == {"session": "abc"}
+
+    parser = KenbiyaMansionParser()
+    with patch("asyncio.sleep", new=AsyncMock()):
+        res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/")
+    assert res is None
+    assert KenbiyaParserBase._waf_cookies == {}

@@ -238,6 +238,9 @@ def _shutdown_local_worker_executor_nonblocking() -> None:
     _local_worker_executor = None
 
 
+_server_busy_abort_event = threading.Event()
+
+
 def _cancel_unstarted_futures_on_stop(timeout_expired: bool = True) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
@@ -319,7 +322,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     prev_alive_ids: tuple[int, ...] | None = None
     prev_progress_ts = _last_fire_and_forget_progress_ts
 
-    while not os.path.exists(STOP_FLAG_FILE):
+    while not os.path.exists(STOP_FLAG_FILE) and not _server_busy_abort_event.is_set():
         now = time.monotonic()
         if _is_wait_timeout_exceeded(now - start, now - last_progress_time, timeout, drain_timeout):
             break
@@ -338,7 +341,11 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     elapsed_final = time.monotonic() - start
     idle_final = time.monotonic() - last_progress_time
-    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and idle_final >= drain_timeout)
+    timeout_expired = (
+        _server_busy_abort_event.is_set()
+        or (timeout > 0 and elapsed_final >= timeout)
+        or (drain_timeout > 0 and idle_final >= drain_timeout)
+    )
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
@@ -1117,7 +1124,45 @@ class DynamicSemaphore:
         self._sem.release()
 
 
+class SiteCrawlAbortedException(Exception):
+    """Raised when crawling for a target site is aborted due to unrecoverable 429/503."""
+
+
 class ApiAsyncProcBase(metaclass=ABCMeta):
+    _ABORTED_SITES: ClassVar[set[str]] = set()
+    _ABORTED_SITES_LOCK: ClassVar[threading.Lock] = threading.Lock()
+
+    @classmethod
+    def is_site_aborted(cls, site_key: str) -> bool:
+        if not site_key:
+            return False
+        with cls._ABORTED_SITES_LOCK:
+            return site_key in cls._ABORTED_SITES
+
+    @classmethod
+    def mark_site_aborted(cls, site_key: str, reason: str = "") -> None:
+        if not site_key:
+            return
+        with cls._ABORTED_SITES_LOCK:
+            cls._ABORTED_SITES.add(site_key)
+        logger.error("Aborting crawl for site '%s' due to unrecoverable error: %s", site_key, reason)
+
+    @classmethod
+    def clear_aborted_sites(cls) -> None:
+        with cls._ABORTED_SITES_LOCK:
+            cls._ABORTED_SITES.clear()
+
+    def _resolve_site_abort_key(self) -> str:
+        comp = self._resolve_target_company()
+        if comp:
+            return str(comp).lower()
+        return self.__class__.__name__.lower()
+
+    def _check_site_aborted(self) -> str:
+        site_key = self._resolve_site_abort_key()
+        if self.is_site_aborted(site_key):
+            raise SiteCrawlAbortedException(f"Crawl already aborted for site: {site_key}")
+        return site_key
     def _touch_watchdog_progress(self, item=None):
         _mark_fire_and_forget_progress()
         try:
@@ -1593,12 +1638,20 @@ LOG_FAILED_TO_PARSE_MIDDLE_PAGE = "Failed to parse middle page: %s"
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _fetch_middle_page_response(self, session, current_url):
+        from package.parser.baseParser import RateLimitedException, ServiceUnavailableException
+
+        site_key = self._check_site_aborted()
         record_thread_activity("middle_page_fetch", current_url=str(current_url), parent_list_url=str(getattr(self, "url", "")))
         self._touch_watchdog_progress()
         try:
             if self._isBsMiddlePage():
                 return await self.parser.getResponseBs(session, current_url, self.parser.getCharset())
             return await self.parser.getResponse(session, current_url, self.parser.getCharset())
+        except (RateLimitedException, ServiceUnavailableException) as abort_exc:
+            self.mark_site_aborted(site_key, str(abort_exc))
+            raise SiteCrawlAbortedException(f"Crawl aborted for site '{site_key}': {abort_exc}") from abort_exc
+        except SiteCrawlAbortedException:
+            raise
         except Exception as e:
             logger.exception("Failed to fetch middle page: %s", current_url)
             await self._save_error_html_by_url(current_url, self.__class__.__name__, f"Middle Page Fetch Failure: {e!s}")
@@ -2000,18 +2053,27 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _run(self, _url):
         """詳細ページURLを受け取り、適切なパーサーでパース・保存を実行"""
+        from package.parser.baseParser import RateLimitedException, ServiceUnavailableException
+
         # Update parser dynamically based on current URL
         try:
             from package.utils.url_router import UrlRouter
             self.parser = UrlRouter.create_parser(_url) or self._generateParser()
         except Exception:
             self.parser = self._generateParser()
+        site_key = self._check_site_aborted()
         _loop = self._getActiveEventLoop()
         _timeout:int = self._generateTimeout()
         _connector = self._generateConnector(_loop)
+        item = None
         async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
             try:
                 item = await self._treatPage(session, self._getTreatPageArg())
+            except (RateLimitedException, ServiceUnavailableException) as abort_exc:
+                self.mark_site_aborted(site_key, str(abort_exc))
+                raise SiteCrawlAbortedException(f"Crawl aborted for site '{site_key}': {abort_exc}") from abort_exc
+            except SiteCrawlAbortedException:
+                raise
             except Exception as e:
                 logging.exception("Error during _treatPage: %s", e)
                 item = None
@@ -2107,6 +2169,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if isinstance(exc, (ParserFailureException, ValidationError)):
             logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
             return None, False, exc
+        if isinstance(exc, ServerBusyException):
+            logging.warning(f"ServerBusy detected{suffix} ({type(exc).__name__} for URL: {self.url}); aborting remaining detail workers.")
+            _server_busy_abort_event.set()
+            return None, False, None
         if isinstance(exc, SkipPropertyException):
             host = urlparse(str(self.url)).netloc.lower()
             _detail_circuit_breaker.record_skip(host)
@@ -2116,6 +2182,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
+        if _server_busy_abort_event.is_set():
+            raise ServerBusyException(f"Aborted due to prior ServerBusyException: {self.url}")
         host = urlparse(str(self.url)).netloc.lower()
         if _detail_circuit_breaker.is_open(host):
             return None

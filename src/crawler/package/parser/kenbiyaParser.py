@@ -146,7 +146,7 @@ class KenbiyaParserBase(ParserBase):
             min_interval = float(raw_interval) if raw_interval else 1.0
         except ValueError:
             min_interval = 1.0
-        jitter = random.uniform(0.5, 1.5)
+        jitter = random.uniform(1.5, 2.5)
         with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             target_time = max(
@@ -253,6 +253,43 @@ class KenbiyaParserBase(ParserBase):
             raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
+    _waf_cookies: dict[str, str] = {}
+    _waf_user_agent: str | None = None
+
+    @classmethod
+    async def _warmup_waf_cookies(cls, force: bool = False) -> None:
+        """実 Chrome で WAF 通過済み Cookie と User-Agent を取得・キャッシュする。"""
+        if os.getenv("KENBIYA_WAF_WARMUP_DISABLED", "false").lower() in ("true", "1"):
+            return
+        if cls._waf_cookies and not force:
+            return
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    channel="chrome",
+                    headless=False,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                try:
+                    context = await browser.new_context()
+                    page = await context.new_page()
+                    await page.add_init_script(
+                        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                    )
+                    await page.goto("https://www.kenbiya.com/", timeout=15000)
+                    ua = await page.evaluate("navigator.userAgent")
+                    cookies = {c["name"]: c["value"] for c in await context.cookies()}
+                    if cookies:
+                        cls._waf_cookies = cookies
+                    if ua:
+                        cls._waf_user_agent = ua
+                finally:
+                    await browser.close()
+        except Exception as e:
+            logging.warning(f"Kenbiya WAF cookie warmup skipped: {e}")
+
     _IMPERSONATE_PROFILES = (
         "edge99", "edge101",
         "chrome110", "chrome116", "chrome119", "chrome120", "chrome123", "chrome124",
@@ -289,6 +326,7 @@ class KenbiyaParserBase(ParserBase):
     ) -> tuple[int, bytes]:
         from curl_cffi.requests import AsyncSession
 
+        await self._warmup_waf_cookies()
         impersonate = os.getenv("KENBIYA_IMPERSONATE") or random.choice(
             self._IMPERSONATE_PROFILES
         )
@@ -298,11 +336,15 @@ class KenbiyaParserBase(ParserBase):
         req_headers.setdefault("Referer", random.choice(self._REFERERS))
         req_headers.setdefault("DNT", random.choice(("1", "0")))
         req_headers.setdefault("Upgrade-Insecure-Requests", "1")
+        if self._waf_user_agent:
+            req_headers["User-Agent"] = self._waf_user_agent
         async with AsyncSession(impersonate=impersonate) as cffi_session:
             req_kwargs: dict[str, Any] = {
                 "headers": req_headers,
                 "timeout": 15,
             }
+            if self._waf_cookies:
+                req_kwargs["cookies"] = dict(self._waf_cookies)
             if proxy_url:
                 req_kwargs["proxy"] = proxy_url
             resp = await cffi_session.get(url, **req_kwargs)
@@ -315,14 +357,18 @@ class KenbiyaParserBase(ParserBase):
             self.consecutive_timeouts = 0
             return raw_bytes
         if last_status == 403:
+            KenbiyaParserBase._waf_cookies = {}
             pw_content = await self._fetch_with_playwright(url)
             if pw_content is not None:
                 return pw_content
         if last_status == 404:
             raise ListingEndedException(f"Listing ended (404): {url}")
         if last_status == 429:
+            KenbiyaParserBase._waf_cookies = {}
             await asyncio.sleep(3)
             return None
+        if last_status in (500, 502, 503, 504):
+            raise ServerBusyException(f"HTTP {last_status} for {url}")
         raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
 
     async def _get_with_aiohttp(
