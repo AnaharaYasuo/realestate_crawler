@@ -76,9 +76,9 @@ def _kenbiya_on_pause(host: str) -> None:
 
 
 def _kenbiya_on_resume(host: str) -> None:
-    logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe and refreshing cookies...")
-    _run_router_ssh("ifup wan_pppoe")
-    time.sleep(5)
+    logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe, reloading routing table, and refreshing cookies...")
+    _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+    time.sleep(2)
     try:
         resp = requests.get(
             f"https://{host}/pp0/",
