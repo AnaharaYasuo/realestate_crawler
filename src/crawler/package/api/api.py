@@ -520,6 +520,115 @@ class DetailFetchCircuitBreaker:
 _detail_circuit_breaker = DetailFetchCircuitBreaker(
     threshold=int(os.getenv("DETAIL_CIRCUIT_BREAKER_THRESHOLD", "10"))
 )
+
+
+class CrawlCooldownController:
+    """Thread-safe controller that pauses detail fetches for rest_seconds after work_seconds or 429/503."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._window_start: dict[str, float] = {}
+        self._cooldown_until: dict[str, float] = {}
+        self._pause_executed: set[str] = set()
+        self._resume_executed: set[str] = set()
+        self._cookies: dict[str, str] = {}
+
+    def get_cookie_header(self, host: str) -> str:
+        with self._lock:
+            return self._cookies.get(host, "")
+
+    def set_cookie_header(self, host: str, cookie_header: str) -> None:
+        with self._lock:
+            self._cookies[host] = cookie_header
+
+    def trigger_cooldown(
+        self,
+        host: str,
+        rest_seconds: float,
+        reason: str = "429/503",
+        now: float | None = None,
+    ) -> bool:
+        """Trigger immediate cooldown for host. Returns True if newly triggered."""
+        if rest_seconds <= 0:
+            return False
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            if current < self._cooldown_until.get(host, 0.0):
+                return False
+            self._cooldown_until[host] = current + rest_seconds
+            self._pause_executed.discard(host)
+            self._resume_executed.discard(host)
+            logging.warning(
+                f"[CRAWL_COOLDOWN_TRIGGERED] {host}: {reason} detected; "
+                f"pausing for {rest_seconds:.0f}s."
+            )
+            return True
+
+    def get_wait_seconds(self, host: str, work_seconds: float, rest_seconds: float, now: float | None = None) -> float:
+        if work_seconds <= 0 or rest_seconds <= 0:
+            return 0.0
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            cooldown_end = self._cooldown_until.get(host, 0.0)
+            if current < cooldown_end:
+                return cooldown_end - current
+            if cooldown_end > 0.0 and current >= cooldown_end:
+                # Cooldown finished; reset window
+                self._cooldown_until.pop(host, None)
+                self._pause_executed.discard(host)
+                self._window_start[host] = current
+                return 0.0
+            start = self._window_start.get(host)
+            if start is None:
+                self._window_start[host] = current
+                return 0.0
+            if current - start >= work_seconds:
+                self._cooldown_until[host] = current + rest_seconds
+                self._pause_executed.discard(host)
+                self._resume_executed.discard(host)
+                logging.info(
+                    f"[CRAWL_COOLDOWN] {host}: {work_seconds:.0f}s work window reached; "
+                    f"pausing for {rest_seconds:.0f}s."
+                )
+                return rest_seconds
+            return 0.0
+
+    def claim_pause_hook(self, host: str) -> bool:
+        with self._lock:
+            if host in self._pause_executed:
+                return False
+            self._pause_executed.add(host)
+            return True
+
+    def claim_resume_hook(self, host: str) -> bool:
+        with self._lock:
+            if host in self._resume_executed:
+                return False
+            self._resume_executed.add(host)
+            return True
+
+    async def wait_if_needed(
+        self,
+        host: str,
+        work_seconds: float,
+        rest_seconds: float,
+        on_pause: Any = None,
+        on_resume: Any = None,
+    ) -> None:
+        was_paused = False
+        while True:
+            wait_sec = self.get_wait_seconds(host, work_seconds, rest_seconds)
+            if wait_sec <= 0.0:
+                if was_paused and on_resume is not None and self.claim_resume_hook(host):
+                    await asyncio.to_thread(on_resume, host)
+                return
+            was_paused = True
+            if on_pause is not None and self.claim_pause_hook(host):
+                await asyncio.to_thread(on_pause, host)
+            await asyncio.sleep(min(wait_sec, 30.0))
+
+
+_crawl_cooldown_controller = CrawlCooldownController()
 SUMIFU_MANSION_START_ENDPOINT = '/sumifu_mansion_start'
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
@@ -2175,10 +2284,20 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None, False, None
         if isinstance(exc, SkipPropertyException):
             host = urlparse(str(self.url)).netloc.lower()
-            _detail_circuit_breaker.record_skip(host)
+            cooldown_cfg = self._get_cooldown_config()
+            if cooldown_cfg is not None:
+                _crawl_cooldown_controller.trigger_cooldown(host, cooldown_cfg[1], reason=str(exc))
+            else:
+                _detail_circuit_breaker.record_skip(host)
             logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
             return None, False, None
         return None, False, exc
+
+    def _get_cooldown_config(self) -> tuple[float, float] | None:
+        return None
+
+    def _get_cooldown_hooks(self) -> tuple[Any, Any]:
+        return (None, None)
 
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
@@ -2187,6 +2306,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         host = urlparse(str(self.url)).netloc.lower()
         if _detail_circuit_breaker.is_open(host):
             return None
+        cooldown_cfg = self._get_cooldown_config()
+        if cooldown_cfg is not None:
+            on_pause, on_resume = self._get_cooldown_hooks()
+            await _crawl_cooldown_controller.wait_if_needed(
+                host, cooldown_cfg[0], cooldown_cfg[1], on_pause=on_pause, on_resume=on_resume
+            )
+        req_headers = dict(header) if isinstance(header, dict) else {}
+        cookie_hdr = _crawl_cooldown_controller.get_cookie_header(host)
+        if cookie_hdr:
+            req_headers["Cookie"] = cookie_hdr
         item = None
         _connector = self._generateConnector(self._getActiveEventLoop())
         await self.semaphore.acquire()
@@ -2195,7 +2324,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             record_thread_activity("detail_page_fetch", current_url=str(self.url))
             self._touch_watchdog_progress()
             async with aiohttp.ClientSession(
-                headers=header,
+                headers=req_headers,
                 connector=_connector,
                 timeout=self._generateTimeout()
             ) as dtl_session:
