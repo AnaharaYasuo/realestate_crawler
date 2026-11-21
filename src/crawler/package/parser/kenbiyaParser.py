@@ -141,7 +141,7 @@ class KenbiyaParserBase(ParserBase):
         """リクエスト送信間隔を全パーサー共通の共有ロックで担保（全環境で既定有効）"""
         if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
             return
-        raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
+        raw_interval = os.getenv("KENBIYA_MIN_INTERVAL_SEC") or os.getenv("KENBIYA_MIN_INTERVAL")
         try:
             min_interval = float(raw_interval) if raw_interval else 1.0
         except ValueError:
