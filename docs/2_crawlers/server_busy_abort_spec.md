@@ -40,3 +40,8 @@
 
 ## MizuhoBypass Playwright タイムアウト対策 (#1730)
 - `mizuho_bypass.py` の `get_mizuho_page_html` において、`page.goto` の `wait_until` を `"networkidle"` から `"domcontentloaded"` へ変更し、バックグラウンド通信による 20秒タイムアウトを防止する。
+
+
+## 事業用 URL 除外 ＆ athome invest_kodate ルーティング (#1739)
+- `run_ttl_expired_recrawl.py` において、`/jigyo/` および `/buyers/business/` を含む事業用物件 URL が `parser is None` となった場合は `unresolved_url` ではなく `business_excluded` として除外する。
+- `UrlRouter` に `athome.co.jp` の `invest_kodate` 用エントリ（`AthomeKodateParser` / `AthomeKodate`）を登録し、`IncompatiblePropertyTypeException` を防止する。

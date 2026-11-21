@@ -253,6 +253,15 @@ class UrlRouter:
             "model_module": ATHOME_MODEL_MODULE,
             "model_cls": "AthomeInvestmentApartment",
         },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/(?:kodate|buy_other)/"),
+            "site": "athome",
+            "property_type": "invest_kodate",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeKodateParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeKodate",
+        },
 
         # LIFULL HOME'S (Homes)
         {
