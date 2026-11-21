@@ -2,7 +2,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentApartment, MisawaInvestmentKodate
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ServerBusyException
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, ListingEndedException, MansionParserBase, ParserBase, TochiParserBase, ServerBusyException
 import re
 import datetime
 import logging
@@ -100,6 +100,18 @@ class MisawaParser(ParserBase):
         if any(msg in all_text for msg in ["システムメンテナンス中", "現在システムメンテナンスを実施しております", "ただいまメンテナンス中"]):
             raise ServerBusyException("Misawa system maintenance in progress")
 
+    def _check_misawa_listing_ended(self, response: BeautifulSoup):
+        body_text = response.body.get_text() if response.body else response.get_text()
+        ended_markers = (
+            "現在、こちらの物件は掲載を停止しております",
+            "こちらの物件は掲載を終了",
+            "掲載を終了しました",
+            "掲載を終了いたしました",
+            "お探しの物件は見つかりませんでした",
+        )
+        if any(msg in body_text for msg in ended_markers):
+            raise ListingEndedException("Misawa listing ended")
+
     async def parsePropertyListPage(self, response: BeautifulSoup):
         self._check_misawa_maintenance(response)
         sections = response.select('div.searchList div.section')
@@ -180,6 +192,7 @@ class MisawaParser(ParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         self._check_misawa_maintenance(response)
+        self._check_misawa_listing_ended(response)
         # Basic Info
         item.propertyName = self._parsePropertyName(response)
         item.priceStr = self._parsePriceStr(response)
