@@ -2703,6 +2703,9 @@ class ParserBase(metaclass=ABCMeta):
         # 同一の投資カテゴリ間（例: investment と apartment）の等価な差分はパーサー切り替えを行わない
         if PropertyTypeDetector.is_investment(self.property_type) and PropertyTypeDetector.is_investment(detected_type):
             return (self, item)
+        # 東急リバブルの /fudosan-toushi/ は投資用物件の正規パスのため mansion へ切り替えない
+        if "/fudosan-toushi/" in str(url) and detected_type == "mansion":
+            return (self, item)
         log_prefix = f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}'"
         if (
             self.sectional_unit_guard_enabled
