@@ -121,6 +121,15 @@ class UrlRouter:
             "model_module": MITSUI_MODEL_MODULE,
             "model_cls": "MitsuiInvestmentApartment",
         },
+        {
+            "pattern": re.compile(r"rehouse\.co\.jp/buy/(?:s_)?(?:kodate|tohshi)/.*bkdetail/"),
+            "site": "mitsui",
+            "property_type": "invest_kodate",
+            "parser_module": MITSUI_PARSER_MODULE,
+            "parser_cls": "MitsuiInvestmentKodateParser",
+            "model_module": MITSUI_MODEL_MODULE,
+            "model_cls": "MitsuiInvestmentKodate",
+        },
 
         # 東急リバブル (Tokyu)
         {
@@ -158,6 +167,15 @@ class UrlRouter:
             "parser_cls": "TokyuInvestmentApartmentParser",
             "model_module": TOKYU_MODEL_MODULE,
             "model_cls": "TokyuInvestmentApartment",
+        },
+        {
+            "pattern": re.compile(r"livable\.co\.jp/(?:kodate|toushi|fudosan-toushi)/.*C[A-Z0-9]+"),
+            "site": "tokyu",
+            "property_type": "invest_kodate",
+            "parser_module": TOKYU_PARSER_MODULE,
+            "parser_cls": "TokyuInvestmentKodateParser",
+            "model_module": TOKYU_MODEL_MODULE,
+            "model_cls": "TokyuInvestmentKodate",
         },
 
         # 住友不動産ステップ (Sumifu)
@@ -252,6 +270,15 @@ class UrlRouter:
             "parser_cls": "AthomeInvestmentApartmentParser",
             "model_module": ATHOME_MODEL_MODULE,
             "model_cls": "AthomeInvestmentApartment",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/(?:kodate|buy_other)/"),
+            "site": "athome",
+            "property_type": "invest_kodate",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeKodateParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeKodate",
         },
 
         # LIFULL HOME'S (Homes)

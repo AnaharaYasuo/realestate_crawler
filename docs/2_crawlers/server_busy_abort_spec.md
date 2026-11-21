@@ -40,3 +40,7 @@
 
 ## MizuhoBypass Playwright タイムアウト対策 (#1730)
 - `mizuho_bypass.py` の `get_mizuho_page_html` において、`page.goto` の `wait_until` を `"networkidle"` から `"domcontentloaded"` へ変更し、バックグラウンド通信による 20秒タイムアウトを防止する。
+
+
+## 三井のリハウス 投資戸建ルーティング追加 (#1737)
+- `UrlRouter` に `invest_kodate` 用の `MitsuiInvestmentKodateParser`（`MitsuiInvestmentKodate`）を登録し、`/buy/kodate/` 等の投資戸建判定時に `IncompatiblePropertyTypeException` でスキップされるのを防止する。
