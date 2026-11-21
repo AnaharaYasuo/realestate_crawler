@@ -32,3 +32,11 @@
   - `work_seconds`（健美家デフォルト: `3600` 秒）経過、または `trigger_cooldown()`（HTTP 429/503 検知時）が呼ばれると、`rest_seconds`（健美家デフォルト: `1800` 秒）の休止ウィンドウに入る。
   - 休止開始時に `ifdown wan_pppoe` を実行し、休止終了時に `ifup wan_pppoe` とトップページアクセスによる Cookie 再取得を実行する（各 1 回のみ排他実行）。
   - 詳細ページワーカーは `_execute_single_detail_fetch()` で休止終了時刻まで `await asyncio.sleep(...)` で待機し、休止明けに再取得した Cookie を付与して処理を再開する。
+
+
+## 東宝ハウス タイトル末尾ブランド文言除去 (#1726)
+- `PropertyTypeDetector._strip_title_site_suffix` にて、2番目以降の `｜` セグメントに「不動産なら」「東宝ハウス」を含むサイト共通ブランド文言を除去し、マンション物件が `kodate` と誤判定されるのを防止する。
+
+
+## MizuhoBypass Playwright タイムアウト対策 (#1730)
+- `mizuho_bypass.py` の `get_mizuho_page_html` において、`page.goto` の `wait_until` を `"networkidle"` から `"domcontentloaded"` へ変更し、バックグラウンド通信による 20秒タイムアウトを防止する。
