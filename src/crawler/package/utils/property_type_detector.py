@@ -270,7 +270,16 @@ class PropertyTypeDetector:
         segments = re.split(r"[｜|]", title)
         if len(segments) <= 1:
             return title
-        kept = [seg for idx, seg in enumerate(segments) if idx == 0 or not cls._is_multi_category_seo_segment(seg)]
+        kept = [
+            seg
+            for idx, seg in enumerate(segments)
+            if idx == 0
+            or (
+                not cls._is_multi_category_seo_segment(seg)
+                and "不動産なら" not in seg
+                and "東宝ハウス" not in seg
+            )
+        ]
         return "｜".join(kept) if kept else title
 
     @classmethod
