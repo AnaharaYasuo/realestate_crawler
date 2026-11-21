@@ -111,6 +111,11 @@ def _evaluate_run_command(cmd: str) -> dict | None:
             "decision": "deny",
             "reason": "Principle 6 violation: Direct push to 'production' is forbidden. Use a release PR from 'master' to 'production'.",
         }
+    if re.search(r"gcloud(?:\.cmd)?[\"']?\s+compute\s+instances\s+stop\b.*proxysql", cmd, re.IGNORECASE) and not is_search_cmd:
+        return {
+            "decision": "deny",
+            "reason": "ProxySQL protection: Direct 'gcloud compute instances stop ... proxysql' is forbidden. Stop all DB-connected processes first and verify zero active DB connections before stopping ProxySQL.",
+        }
     if re.search(r"gh\s+pr\s+checks\b.*--watch\b", cmd):
         return {
             "decision": "deny",
