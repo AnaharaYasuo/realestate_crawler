@@ -62,3 +62,30 @@ async def test_homes_investment_unit_mansion_valid_exclusive_area():
     assert item.tochiMenseki is None
     assert getattr(item, "senyuMenseki", None) == Decimal("25.50")
     assert getattr(item, "propertyType", None) == "Mansion"
+
+
+@pytest.mark.asyncio
+async def test_homes_investment_kodate_land_area_with_range_exclusive_area():
+    """専有面積(最小 - 最大)が範囲表記の一棟物件でも土地面積が抽出されることを検証 (Issue #1671)"""
+    html = """
+    <html>
+      <head><title>【ホームズ】一棟売りアパート</title></head>
+      <body>
+        <h1>一棟売り物件</h1>
+        <table>
+          <tr><th>価格</th><td>5,000万円</td></tr>
+          <tr><th>利回り</th><td>8.00%</td></tr>
+          <tr><th>土地面積</th><td>604.36㎡ 【182.81坪】</td></tr>
+          <tr><th>建物面積</th><td>205.36㎡</td></tr>
+          <tr><th>専有面積(最小 - 最大)</th><td>43.06㎡ ～ 43.06㎡</td></tr>
+        </table>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    item = parser._parsePropertyDetailPage(item, soup)
+
+    assert item.tochiMenseki == Decimal("604.36")
+    assert item.tatemonoMenseki == Decimal("205.36")

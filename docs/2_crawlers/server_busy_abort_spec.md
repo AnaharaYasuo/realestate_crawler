@@ -36,3 +36,15 @@
 
 ## 東宝ハウス タイトル末尾ブランド文言除去 (#1726)
 - `PropertyTypeDetector._strip_title_site_suffix` にて、2番目以降の `｜` セグメントに「不動産なら」「東宝ハウス」を含むサイト共通ブランド文言を除去し、マンション物件が `kodate` と誤判定されるのを防止する。
+
+
+## MizuhoBypass Playwright タイムアウト対策 (#1730)
+- `mizuho_bypass.py` の `get_mizuho_page_html` において、`page.goto` の `wait_until` を `"networkidle"` から `"domcontentloaded"` へ変更し、バックグラウンド通信による 20秒タイムアウトを防止する。
+
+
+## 三井のリハウス 投資戸建ルーティング追加 (#1737)
+- `UrlRouter` に `invest_kodate` 用の `MitsuiInvestmentKodateParser`（`MitsuiInvestmentKodate`）を登録し、`/buy/kodate/` 等の投資戸建判定時に `IncompatiblePropertyTypeException` でスキップされるのを防止する。
+
+
+## 三井のリハウス 種別切替後の URL パス拒否ガード緩和 (#1746)
+- `MitsuiMansionParser` / `MitsuiTochiParser` / `MitsuiKodateParser` において、`item._switched_from_property_type` が設定されている場合（`_maybe_switch_parser` による種別切替後）は URL パスのみによる `SkipPropertyException` 拒否を行わない。

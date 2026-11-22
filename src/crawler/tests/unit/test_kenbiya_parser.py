@@ -337,3 +337,14 @@ def test_kenbiya_impersonate_profiles_and_accept_languages():
         for profile in KenbiyaMansionParser._IMPERSONATE_PROFILES:
             session = AsyncSession(impersonate=profile)
             assert session is not None
+
+
+def test_kenbiya_madori_fallback_key():
+    """スペック表キーが「間取」の場合でも間取りが抽出されることを検証 (Issue #1718, #1721)"""
+    from bs4 import BeautifulSoup
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaKodateParser
+
+    html = "<html><body><table><tr><th>間取</th><td>3LDK</td></tr></table></body></html>"
+    soup = BeautifulSoup(html, "html.parser")
+    assert KenbiyaMansionParser()._parseMadori(soup) == "3LDK"
+    assert KenbiyaKodateParser()._parseMadori(soup) == "3LDK"

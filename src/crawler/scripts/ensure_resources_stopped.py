@@ -358,6 +358,26 @@ def _get_mig_uptime_seconds(
     return None
 
 
+def _is_completed_condition(cond: object) -> bool:
+    """Cloud Run v1/v2 の Condition オブジェクトまたは辞書が完了状態か判定する。"""
+    if isinstance(cond, dict):
+        cond_type = cond.get("type") or cond.get("type_")
+        state_val = str(cond.get("state", "")).upper()
+        status_val = str(cond.get("status", "")).upper()
+    else:
+        cond_type = getattr(cond, "type_", None) or getattr(cond, "type", None)
+        state_val = str(getattr(cond, "state", "")).upper()
+        status_val = str(getattr(cond, "status", "")).upper()
+
+    if cond_type != "Completed":
+        return False
+    if "CONDITION_SUCCEEDED" in state_val or "CONDITION_FAILED" in state_val:
+        return True
+    if "TRUE" in status_val or "FALSE" in status_val:
+        return True
+    return False
+
+
 def _get_active_cloud_run_executions(
     project_id: str,
     region: str,
@@ -408,11 +428,9 @@ def _get_active_cloud_run_executions(
                         if not completion_time:
                             conditions = getattr(ex, "conditions", []) or []
                             for cond in conditions:
-                                if getattr(cond, "type_", None) == "Completed" or getattr(cond, "type", None) == "Completed":
-                                    status_val = str(getattr(cond, "status", ""))
-                                    if "TRUE" in status_val.upper() or "FALSE" in status_val.upper():
-                                        completion_time = True
-                                        break
+                                if _is_completed_condition(cond):
+                                    completion_time = True
+                                    break
                         cancelled = getattr(ex, "cancelled", False)
                         if not completion_time and not cancelled:
                             create_time = getattr(ex, "create_time", None)
@@ -560,7 +578,7 @@ def _get_active_cloud_run_executions(
                     is_completed = bool(ex.get("completionTime"))
                     if not is_completed:
                         for cond in ex.get("conditions", []):
-                            if cond.get("type") == "Completed" and cond.get("status") in ("True", "False"):
+                            if _is_completed_condition(cond):
                                 is_completed = True
                                 break
                     is_cancelled = bool(ex.get("cancelled"))

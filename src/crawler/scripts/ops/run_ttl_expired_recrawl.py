@@ -1691,6 +1691,8 @@ async def _fetch_and_enqueue_batch_target(
         property_type=target.property_type if target.property_type != "unknown" else None,
     )
     if parser is None:
+        if any(seg in target.property_url for seg in ("/jigyo/", "/buyers/business/")):
+            return "business_excluded"
         logger.warning("[TTLRecrawl] No parser resolved for URL: %s", target.property_url)
         return "unresolved_url"
 
@@ -1738,6 +1740,8 @@ async def crawl_single_ttl_target(
         property_type=target.property_type if target.property_type != "unknown" else None,
     )
     if parser is None:
+        if any(seg in target.property_url for seg in ("/jigyo/", "/buyers/business/")):
+            return "business_excluded"
         logger.warning("[TTLRecrawl] No parser resolved for URL: %s", target.property_url)
         return "unresolved_url"
 
