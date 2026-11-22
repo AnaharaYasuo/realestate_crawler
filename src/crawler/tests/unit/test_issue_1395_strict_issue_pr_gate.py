@@ -121,6 +121,43 @@ def test_hook_guard_blocks_git_push_branch_without_issue_number():
     assert allowed_delete["decision"] == "allow"
 
 
+def test_hook_guard_blocks_branch_creation_without_issue_number():
+    """Issue番号を含まないブランチ作成（checkout -b / switch -c / worktree add -b / branch）を deny し、Issue番号入りは allow すること (Issue #1765)"""
+    mod = _load_hook_guard()
+
+    denied_cmds = [
+        "git checkout -b feat/kenbiya-kanagawa-saitama-aichi",
+        "git switch -c fix/no-issue-slug",
+        "git worktree add .worktrees/feat-no-issue -b feat/no-issue-slug origin/master",
+        "git -C .worktrees/foo checkout -B feat/no-issue",
+        "git branch feat/no-issue-branch",
+        "git branch -m feat/old-branch feat/still-no-issue",
+    ]
+    for cmd in denied_cmds:
+        verdict = mod.evaluate_tool_call(
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}}
+        )
+        assert verdict["decision"] == "deny", f"Expected deny for: {cmd}"
+
+    allowed_cmds = [
+        "git checkout -b feat/1765-hook-branch-guard",
+        "git switch -c fix/1765-hook-branch-guard",
+        "git worktree add .worktrees/feat-1765-guard -b feat/1765-hook-branch-guard origin/master",
+        "git branch feat/1765-new-branch",
+        "git branch -m feat/old-branch feat/1765-renamed-branch",
+        "git branch -a",
+        "git branch -D feat/old-branch",
+        "git branch -u origin/feat/1765-guard",
+        "git checkout master",
+        "git switch master",
+    ]
+    for cmd in allowed_cmds:
+        verdict = mod.evaluate_tool_call(
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}}
+        )
+        assert verdict["decision"] == "allow", f"Expected allow for: {cmd}"
+
+
 def test_issue_gate_workflow_enforces_open_issue_closing_keyword_and_unchecked_criteria():
     """issue-gate.yml が pulls.listFiles と ci_governance_gate.py を呼び出し、自動クローズおよび必須チェック失敗を実行すること"""
     content = ISSUE_GATE_WORKFLOW_PATH.read_text(encoding="utf-8")

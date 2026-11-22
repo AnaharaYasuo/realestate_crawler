@@ -1275,11 +1275,6 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         item.annualRent = converter.parse_price(rent_str)
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
         self._athome_derive_rent_from_yield(item)
-        if not item.grossYield or not item.annualRent:
-            raise SkipPropertyException(
-                f"Athome investment listing missing yield/rent: "
-                f"{(getattr(item, 'propertyName', '') or '')[:60]}"
-            )
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.currentStatus = item.genkyo
         item.kouzou = (

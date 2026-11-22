@@ -8,7 +8,9 @@ Mechanically enforces:
 3. Principle 6 (2-Stage Release): Denies direct `git push origin production`.
 """
 import json
+import os
 import re
+import subprocess
 import sys
 
 
@@ -21,7 +23,41 @@ def _is_protected_main_tree_path(path: str) -> bool:
     )
 
 
+def _extract_created_branch_name(cmd: str) -> str | None:
+    """Return newly created/renamed branch name if cmd creates or renames a git branch."""
+    git_prefix = r"\bgit\s+(?:-C\s+\S+\s+)*"
+    patterns = (
+        rf"{git_prefix}checkout\s+(?:[^\s;&|]+\s+)*-[bB]\s+([A-Za-z0-9._/-]+)",
+        rf"{git_prefix}switch\s+(?:[^\s;&|]+\s+)*(?:-[cC]|--create|--force-create)\s+([A-Za-z0-9._/-]+)",
+        rf"{git_prefix}worktree\s+add\s+(?:[^\s;&|]+\s+)*-[bB]\s+([A-Za-z0-9._/-]+)",
+        rf"{git_prefix}branch\s+(?:-[mM]|--move)\s+(?:[A-Za-z0-9._/-]+\s+)?([A-Za-z0-9._/-]+)",
+        rf"{git_prefix}branch\s+(?!-)([A-Za-z0-9._/-]+)",
+    )
+    for pat in patterns:
+        m = re.search(pat, cmd)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _check_branch_creation_guard(cmd: str) -> dict | None:
+    branch = _extract_created_branch_name(cmd)
+    if branch and branch not in ("master", "production", "main", "HEAD") and not re.search(r"\d+", branch):
+        return {
+            "decision": "deny",
+            "reason": (
+                f"Principle 4 violation: Creating or renaming branch '{branch}' without a GitHub Issue number "
+                "in the branch name is forbidden (e.g. feat/<issue_num>-<slug>)."
+            ),
+        }
+    return None
+
+
 def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
+    branch_verdict = _check_branch_creation_guard(cmd)
+    if branch_verdict is not None:
+        return branch_verdict
+
     if re.search(r"\bgh\s+pr\s+create\b", cmd):
         is_release_pr = bool(re.search(r"(?:--base|-B)\s+['\"]?production\b", cmd))
         title_match = re.search(r"(?:--title|-t)\s+['\"]\[#(\d+)\]\s+", cmd)
@@ -32,7 +68,21 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                 "decision": "deny",
                 "reason": "Principle 4 violation: Issue-less, untagged, or mismatched PR creation is forbidden. Prefix --title with '[#<IssueNumber>] ' and include matching 'Closes #<IssueNumber>' in --body.",
             }
-        if not is_release_pr:
+        if not is_release_pr and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                open_prs = subprocess.check_output(
+                    ["gh", "pr", "list", "--author", "@me", "--state", "open", "--base", "master", "--json", "number", "--jq", "length"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+                if open_prs.isdigit() and int(open_prs) > 0:
+                    return {
+                        "decision": "deny",
+                        "reason": "Single-PR guard: An open PR targeting 'master' already exists. Push additional commits to the existing PR branch instead of creating a new PR.",
+                    }
+            except (subprocess.SubprocessError, OSError):
+                open_prs = ""
+        if not is_release_pr and not os.environ.get("PYTEST_CURRENT_TEST"):
             try:
                 diff_out = subprocess.check_output(
                     ["git", "diff", "--name-only", "origin/master...HEAD"],
@@ -45,8 +95,8 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                         "decision": "deny",
                         "reason": "Principle 4 (SDD) violation: PR to master must include a 7-domain SSOT specification update (docs/1_... through docs/7_.../*.md).",
                     }
-            except Exception:
-                pass
+            except (subprocess.SubprocessError, OSError):
+                open_prs = ""
 
     push_match = re.search(
         r"\bgit\s+(?:-C\s+\S+\s+)?push\s+(?:-[a-zA-Z-]+\s+)*origin\s+(?!--delete\b|-d\b|:)([A-Za-z0-9._/-]+)",
