@@ -284,7 +284,7 @@ class KenbiyaParserBase(ParserBase):
                     await page.add_init_script(
                         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
                     )
-                    await page.goto("https://www.kenbiya.com/", timeout=15000)
+                    await page.goto(KENBIYA_HOME_URL, timeout=15000)
                     ua = await page.evaluate("navigator.userAgent")
                     cookies = {c["name"]: c["value"] for c in await context.cookies()}
                     if cookies:
@@ -315,7 +315,7 @@ class KenbiyaParserBase(ParserBase):
     )
 
     _REFERERS = (
-        "https://www.kenbiya.com/",
+        KENBIYA_HOME_URL,
         "https://www.kenbiya.com/pp1/",
         "https://www.kenbiya.com/pp8/",
         "https://www.google.co.jp/",
