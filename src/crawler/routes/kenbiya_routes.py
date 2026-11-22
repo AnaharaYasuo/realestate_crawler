@@ -36,11 +36,23 @@ def _handle_detail(parser_async_cls):
     parser_async_cls().main(url)
     return "finish", 200
 
+def _run_extra_areas(parser_async_cls, urls: tuple[str, ...]):
+    """神奈川県・埼玉県・愛知県の各エリアページを順次クロールする。"""
+    for url in urls:
+        parser_async_cls().main(url)
+
+
 # --- Mansion (/pp1/) ---
 @kenbiya_bp.route(API_KEY_KENBIYA_MANSION_START, methods=['POST', 'GET'])
 def kenbiya_mansion_start():
-    # 健美家 区分マンション (東京都)
-    return ParseKenbiyaMansionStartAsync().main("https://www.kenbiya.com/pp1/s/tokyo/")
+    # 健美家 区分マンション (東京・神奈川・埼玉・愛知)
+    res = ParseKenbiyaMansionStartAsync().main("https://www.kenbiya.com/pp1/s/tokyo/")
+    _run_extra_areas(ParseKenbiyaMansionStartAsync, (
+        "https://www.kenbiya.com/pp1/s/kanagawa/",
+        "https://www.kenbiya.com/pp1/s/saitama/",
+        "https://www.kenbiya.com/pp1/t/aichi/",
+    ))
+    return res
 
 kenbiyaMansionStart = kenbiya_mansion_start
 
@@ -51,8 +63,14 @@ kenbiyaMansionDetail = kenbiya_mansion_detail
 # --- Kodate (/pp8/) ---
 @kenbiya_bp.route(API_KEY_KENBIYA_KODATE_START, methods=['POST', 'GET'])
 def kenbiya_kodate_start():
-    # 健美家 戸建賃貸 (東京都)
-    return ParseKenbiyaKodateStartAsync().main("https://www.kenbiya.com/pp8/s/tokyo/")
+    # 健美家 戸建賃貸 (東京・神奈川・埼玉・愛知)
+    res = ParseKenbiyaKodateStartAsync().main("https://www.kenbiya.com/pp8/s/tokyo/")
+    _run_extra_areas(ParseKenbiyaKodateStartAsync, (
+        "https://www.kenbiya.com/pp8/s/kanagawa/",
+        "https://www.kenbiya.com/pp8/s/saitama/",
+        "https://www.kenbiya.com/pp8/t/aichi/",
+    ))
+    return res
 
 kenbiyaKodateStart = kenbiya_kodate_start
 
@@ -63,8 +81,14 @@ kenbiyaKodateDetail = kenbiya_kodate_detail
 # --- Tochi (/pp5/) ---
 @kenbiya_bp.route(API_KEY_KENBIYA_TOCHI_START, methods=['POST', 'GET'])
 def kenbiya_tochi_start():
-    # 健美家 土地 (東京都)
-    return ParseKenbiyaTochiStartAsync().main("https://www.kenbiya.com/pp5/s/tokyo/")
+    # 健美家 土地 (東京・神奈川・埼玉・愛知)
+    res = ParseKenbiyaTochiStartAsync().main("https://www.kenbiya.com/pp5/s/tokyo/")
+    _run_extra_areas(ParseKenbiyaTochiStartAsync, (
+        "https://www.kenbiya.com/pp5/s/kanagawa/",
+        "https://www.kenbiya.com/pp5/s/saitama/",
+        "https://www.kenbiya.com/pp5/t/aichi/",
+    ))
+    return res
 
 kenbiyaTochiStart = kenbiya_tochi_start
 
@@ -75,8 +99,14 @@ kenbiyaTochiDetail = kenbiya_tochi_detail
 # --- Invest Apartment (/pp2/) ---
 @kenbiya_bp.route(API_KEY_KENBIYA_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def kenbiya_invest_apartment_start():
-    # 健美家 一棟アパート (東京都)
-    return ParseKenbiyaInvestApartmentStartAsync().main("https://www.kenbiya.com/pp2/s/tokyo/")
+    # 健美家 一棟アパート (東京・神奈川・埼玉・愛知)
+    res = ParseKenbiyaInvestApartmentStartAsync().main("https://www.kenbiya.com/pp2/s/tokyo/")
+    _run_extra_areas(ParseKenbiyaInvestApartmentStartAsync, (
+        "https://www.kenbiya.com/pp2/s/kanagawa/",
+        "https://www.kenbiya.com/pp2/s/saitama/",
+        "https://www.kenbiya.com/pp2/t/aichi/",
+    ))
+    return res
 
 kenbiyaInvestApartmentStart = kenbiya_invest_apartment_start
 
@@ -87,8 +117,14 @@ kenbiyaInvestApartmentDetail = kenbiya_invest_apartment_detail
 # --- Invest Building (/pp3/, /pp4/) ---
 @kenbiya_bp.route(API_KEY_KENBIYA_INVEST_BUILDING_START, methods=['POST', 'GET'])
 def kenbiya_invest_building_start():
-    # 健美家 一棟マンション・ビル (東京都)
-    return ParseKenbiyaInvestBuildingStartAsync().main("https://www.kenbiya.com/pp3/s/tokyo/")
+    # 健美家 一棟マンション・ビル (東京・神奈川・埼玉・愛知)
+    res = ParseKenbiyaInvestBuildingStartAsync().main("https://www.kenbiya.com/pp3/s/tokyo/")
+    _run_extra_areas(ParseKenbiyaInvestBuildingStartAsync, (
+        "https://www.kenbiya.com/pp3/s/kanagawa/",
+        "https://www.kenbiya.com/pp3/s/saitama/",
+        "https://www.kenbiya.com/pp3/t/aichi/",
+    ))
+    return res
 
 kenbiyaInvestBuildingStart = kenbiya_invest_building_start
 
