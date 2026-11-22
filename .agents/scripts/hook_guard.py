@@ -8,7 +8,9 @@ Mechanically enforces:
 3. Principle 6 (2-Stage Release): Denies direct `git push origin production`.
 """
 import json
+import os
 import re
+import subprocess
 import sys
 
 
