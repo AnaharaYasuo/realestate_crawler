@@ -4,7 +4,12 @@
 健美家（Kenbiya）は、一棟アパート・一棟マンション・区分マンション・戸建て・土地等の収益・投資用不動産を中心とした大手ポータルサイトである。
 本ドキュメントでは、健美家のURL体系、F5 BIG-IP WAFによるレートリミット挙動（HTTP 429）、およびクローラー・価格推定APIでの耐障害性向上仕様を定義する。
 
-## 2. URL体系
+## 2. URL体系およびクロール対象エリア (Issue #1762)
+- クロール対象エリア（全5種別共通：区分マンション `/pp1/`、一棟アパート `/pp2/`、一棟マンション・ビル `/pp3/`、土地 `/pp5/`、戸建賃貸 `/pp8/`）:
+  - 東京都: `https://www.kenbiya.com/<category>/s/tokyo/`
+  - 神奈川県: `https://www.kenbiya.com/<category>/s/kanagawa/`
+  - 埼玉県: `https://www.kenbiya.com/<category>/s/saitama/`
+  - 愛知県: `https://www.kenbiya.com/<category>/t/aichi/`
 - 物件詳細URL: `https://www.kenbiya.com/pp2/s/<prefecture>/<city>/.../re_<property_id>/`
 - メール通知URL: `https://www.kenbiya.com/.../?utm_source=newmail&utm_medium=email&utm_campaign=newmail`
 - 追跡用クエリパラメータ（`utm_*`, `mail_*` 等）は物件特定には無関係であり、パースおよび保存前に `UrlMatcher.normalize()` により除去・正規化を行う。
