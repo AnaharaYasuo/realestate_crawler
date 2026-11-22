@@ -157,6 +157,12 @@ class KenbiyaParserBase(ParserBase):
         if sleep_duration > 0:
             await asyncio.sleep(sleep_duration)
 
+    @staticmethod
+    async def _goto_with_home_warmup(page: Any, url: str) -> None:
+        if url.rstrip("/") != "https://www.kenbiya.com":
+            await page.goto("https://www.kenbiya.com/", wait_until="domcontentloaded", timeout=20000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+
     async def _fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright
 
@@ -212,15 +218,7 @@ class KenbiyaParserBase(ParserBase):
                         _block_unnecessary_resources,
                     )
                     try:
-                        if url.rstrip("/") != "https://www.kenbiya.com":
-                            await page.goto(
-                                "https://www.kenbiya.com/",
-                                wait_until="domcontentloaded",
-                                timeout=20000,
-                            )
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=20000
-                        )
+                        await self._goto_with_home_warmup(page, url)
                         await page.wait_for_timeout(1500)
                         content_str = await page.content()
                         return content_str.encode("utf-8")
