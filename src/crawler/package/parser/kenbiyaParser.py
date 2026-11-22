@@ -42,6 +42,7 @@ KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
+KENBIYA_HOME_URL = "https://www.kenbiya.com/"
 _KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
 _KENBIYA_MAGUCHI_RE = re.compile(
     r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
@@ -157,6 +158,12 @@ class KenbiyaParserBase(ParserBase):
         if sleep_duration > 0:
             await asyncio.sleep(sleep_duration)
 
+    @staticmethod
+    async def _goto_with_home_warmup(page: Any, url: str) -> None:
+        if url.rstrip("/") != KENBIYA_HOME_URL.rstrip("/"):
+            await page.goto(KENBIYA_HOME_URL, wait_until="domcontentloaded", timeout=20000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+
     async def _fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright
 
@@ -212,9 +219,7 @@ class KenbiyaParserBase(ParserBase):
                         _block_unnecessary_resources,
                     )
                     try:
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=20000
-                        )
+                        await self._goto_with_home_warmup(page, url)
                         await page.wait_for_timeout(1500)
                         content_str = await page.content()
                         return content_str.encode("utf-8")
@@ -228,11 +233,11 @@ class KenbiyaParserBase(ParserBase):
     async def _try_playwright_on_403(
         self, session: aiohttp.ClientSession, status: int, url: str
     ) -> bytes | None:
-        if status != 403 or not isinstance(session, aiohttp.ClientSession):
+        if status not in (403, 429) or not isinstance(session, aiohttp.ClientSession):
             return None
         try:
             pw_bytes = await self._fetch_with_playwright(url)
-            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512]:
+            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512] and b"429 Too Many Requests" not in pw_bytes[:512]:
                 return pw_bytes
         except Exception as pw_err:
             logging.warning(f"Kenbiya Playwright fallback failed for {url}: {pw_err}")
@@ -246,11 +251,12 @@ class KenbiyaParserBase(ParserBase):
         attempt: int,
         max_timeouts: int,
     ) -> Optional[bytes]:
-        if response.status == 403:
-            pw_content = await self._try_playwright_on_403(session, 403, url)
+        if response.status in (403, 429):
+            pw_content = await self._try_playwright_on_403(session, response.status, url)
             if pw_content is not None:
                 return pw_content
-            raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
+            if response.status == 403:
+                raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
     _waf_cookies: dict[str, str] = {}
@@ -278,7 +284,7 @@ class KenbiyaParserBase(ParserBase):
                     await page.add_init_script(
                         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
                     )
-                    await page.goto("https://www.kenbiya.com/", timeout=15000)
+                    await page.goto(KENBIYA_HOME_URL, timeout=15000)
                     ua = await page.evaluate("navigator.userAgent")
                     cookies = {c["name"]: c["value"] for c in await context.cookies()}
                     if cookies:
@@ -309,7 +315,7 @@ class KenbiyaParserBase(ParserBase):
     )
 
     _REFERERS = (
-        "https://www.kenbiya.com/",
+        KENBIYA_HOME_URL,
         "https://www.kenbiya.com/pp1/",
         "https://www.kenbiya.com/pp8/",
         "https://www.google.co.jp/",
