@@ -19,3 +19,13 @@ def test_hook_guard_has_single_pr_guard():
         / "hook_guard.py"
     ).read_text(encoding="utf-8")
     assert "Single-PR guard" in guard_src
+
+
+def test_nomura_investment_parser_does_not_skip_missing_yield_or_rent():
+    nomura_src = (
+        Path(__file__).resolve().parents[2]
+        / "package"
+        / "parser"
+        / "nomuraParser.py"
+    ).read_text(encoding="utf-8")
+    assert "Nomura invest listing missing published yield/rent" not in nomura_src
