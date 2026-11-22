@@ -207,9 +207,7 @@ class KenbiyaParserBase(ParserBase):
                         req = route.request
                         res_type = getattr(req, "resource_type", "")
                         req_url = getattr(req, "url", "")
-                        if res_type in {"image", "media", "font", "stylesheet", "other"}:
-                            await route.abort()
-                        elif isinstance(req_url, str) and STATIC_ASSET_PATTERN.search(req_url):
+                        if res_type in {"image", "media", "font", "stylesheet", "other"} or isinstance(req_url, str) and STATIC_ASSET_PATTERN.search(req_url):
                             await route.abort()
                         else:
                             await route.continue_()
@@ -626,7 +624,11 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("交通", "")
+        return (
+            specs.get("交通", "")
+            or specs.get("アクセス", "")
+            or specs.get("最寄駅", "")
+        )
 
     def _parseRights(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -837,7 +839,11 @@ class KenbiyaParserBase(ParserBase):
             item.roadWidth = road_width_val
             item.roadWidthStr = f"{road_width_val}m"
 
-        traffic_text = specs.get("交通", "")
+        traffic_text = (
+            specs.get("交通", "")
+            or specs.get("アクセス", "")
+            or specs.get("最寄駅", "")
+        )
         if traffic_text:
             item.traffic = traffic_text
             self._parse_traffic(item, traffic_text)

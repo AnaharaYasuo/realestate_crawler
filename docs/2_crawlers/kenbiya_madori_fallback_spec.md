@@ -1,7 +1,7 @@
 # 健美家（kenbiya）間取り抽出フォールバック仕様
 
 ## 概要
-`KenbiyaMansionParser` および `KenbiyaKodateParser` において、物件詳細ページのスペック表キーが「間取り」ではなく「間取」と表記される場合でも欠損せず抽出できるようにする。
+`KenbiyaMansionParser` および `KenbiyaKodateParser` において、物件詳細ページのスペック表キーが「間取り」ではなく「間取」と表記される場合でも欠損せず抽出できるようにする。また、交通情報についても「交通」「アクセス」「最寄駅」のフォールバックを適用し、`DataValidator` において投資用戸建・投資用区分マンション（`grossYield` / `yieldRate` 保有物件）の間取り・交通欠損を許容する。
 
 ## 関連 Issue
-- Issue #1718, #1721
+- Issue #1718, #1721, #1747, #1748
