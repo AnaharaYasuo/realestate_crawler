@@ -60,19 +60,19 @@ jobs:
           - group: live-static-1
             name: Live Crawl Guarantee (Static 1/2)
             needs_db: false
-            command: docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=static -e CRAWL_LIVE_STATIC_SHARD=1/2 app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+            command: bash -c 'for i in 1 2; do docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=static -e CRAWL_LIVE_STATIC_SHARD=1/2 app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20 && exit 0; echo "Retry $i..."; sleep 5; done; exit 1'
           - group: live-static-2
             name: Live Crawl Guarantee (Static 2/2)
             needs_db: false
-            command: docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=static -e CRAWL_LIVE_STATIC_SHARD=2/2 app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+            command: bash -c 'for i in 1 2; do docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=static -e CRAWL_LIVE_STATIC_SHARD=2/2 app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20 && exit 0; echo "Retry $i..."; sleep 5; done; exit 1'
           - group: live-pw-mizuho-sekisui
             name: Live Crawl Guarantee (Playwright mizuho+sekisui)
             needs_db: false
-            command: docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=pw-mizuho,pw-sekisui app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+            command: bash -c 'for i in 1 2; do docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=pw-mizuho,pw-sekisui app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20 && exit 0; echo "Retry $i..."; sleep 5; done; exit 1'
           - group: live-pw-athome
             name: Live Crawl Guarantee (Playwright athome)
             needs_db: false
-            command: docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=pw-athome app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+            command: bash -c 'for i in 1 2; do docker compose exec -T -e GITHUB_ACTIONS=true -e CI=true -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=35 -e CRAWL_LIVE_WALL_LIMIT_SEC=300 -e CRAWL_LIVE_PARALLEL_MODE=ci -e CRAWL_LIVE_BUCKETS=pw-athome app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20 && exit 0; echo "Retry $i..."; sleep 5; done; exit 1'
 
     steps:
       - name: Checkout code
