@@ -34,6 +34,20 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
             }
         if not is_release_pr:
             try:
+                open_prs = subprocess.check_output(
+                    ["gh", "pr", "list", "--author", "@me", "--state", "open", "--base", "master", "--json", "number", "--jq", "length"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+                if open_prs.isdigit() and int(open_prs) > 0:
+                    return {
+                        "decision": "deny",
+                        "reason": "Single-PR guard: An open PR targeting 'master' already exists. Push additional commits to the existing PR branch instead of creating a new PR.",
+                    }
+            except Exception:
+                pass
+        if not is_release_pr:
+            try:
                 diff_out = subprocess.check_output(
                     ["git", "diff", "--name-only", "origin/master...HEAD"],
                     text=True,
