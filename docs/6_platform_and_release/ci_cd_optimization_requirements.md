@@ -42,3 +42,6 @@
 
 ## Live Crawl Guarantee 自動リトライ (#1757)
 - `.github/workflows/test.yml` の `Live Crawl Guarantee` 4ジョブ（`Static 1/2`, `Static 2/2`, `Playwright mizuho+sekisui`, `Playwright athome`）に最大2回の自動リトライを組み込み、一時的な外部サイト不調によるフレーキー失敗を防止する。
+
+## 単一 PR 強制ガード (#1759)
+- `.agents/scripts/hook_guard.py` にて、`--base master` の `gh pr create` 実行時に既存のオープン PR が存在する場合はブロックし、既存ブランチへの積み上げを強制する。
