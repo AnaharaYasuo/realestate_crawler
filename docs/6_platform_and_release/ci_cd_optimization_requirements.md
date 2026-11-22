@@ -38,3 +38,7 @@
   - `master` マージ後の Release PR の CI 通過時間が 15 秒以内であること。
 - **NFR-003 (Live Crawl テスト実行時間と耐障害性)**:
   - Live Crawl Guarantee Tests の各マトリクスジョブの壁時計上限を 300 秒（従来 750 秒）とし、特定の会社・サイトのflakyな失敗時に他の正常なテストを巻き込まず、当該ジョブのみ単独で再実行可能とすること。
+
+
+## Live Crawl Guarantee 自動リトライ (#1757)
+- `.github/workflows/test.yml` の `Live Crawl Guarantee` 4ジョブ（`Static 1/2`, `Static 2/2`, `Playwright mizuho+sekisui`, `Playwright athome`）に最大2回の自動リトライを組み込み、一時的な外部サイト不調によるフレーキー失敗を防止する。
