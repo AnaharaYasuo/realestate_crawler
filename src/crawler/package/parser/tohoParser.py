@@ -103,6 +103,15 @@ class TohoBaseParser(ParserBase):
                 val = dd.get_text(" ", strip=True)
                 specs[key] = val
 
+        for row in response.select("div.tab_std"):
+            t = row.select_one("div.hyo_t")
+            txt = row.select_one("div.hyo_txt")
+            if t and txt:
+                key = t.get_text(strip=True)
+                val = txt.get_text(" ", strip=True)
+                if key and key not in specs:
+                    specs[key] = val
+
         response._cached_specs = specs
         return specs
 
