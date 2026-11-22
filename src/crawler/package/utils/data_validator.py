@@ -89,12 +89,7 @@ class PropertyDataValidator:
             and _blank(getattr(item, "busStation1", None))
             and _blank(getattr(item, "transport1", None))
         )
-        is_invest = (
-            "invest" in ptype
-            or "apartment" in ptype
-            or cls._is_low_price_allowed(item, ptype)
-            or cls._is_invest_unit_mansion(item)
-        )
+        is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
         if not has_traffic_name:
             if not is_invest:
                 reasons.append(ERR_MISSING_TRAFFIC)

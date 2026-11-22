@@ -106,13 +106,16 @@ def reconnect_router_pppoe(
             # 3.5. Randomize WAN MAC address before bringing up PPPoE
             new_mac = _generate_random_mac()
             logger.info("Updating router WAN MAC address to %s...", new_mac)
-            page.evaluate(f"""async () => {{
-                const fs = await L.resolveDefault(L.require('fs'));
-                await fs.exec('/sbin/uci', ['set', 'network.wan.macaddr={new_mac}']);
-                await fs.exec('/sbin/uci', ['commit', 'network']);
-                return await fs.exec('/etc/init.d/network', ['reload']);
-            }}""")
-            result["new_mac"] = new_mac
+            try:
+                page.evaluate(f"""async () => {{
+                    const fs = await L.resolveDefault(L.require('fs'));
+                    await fs.exec('/sbin/uci', ['set', 'network.wan.macaddr={new_mac}']);
+                    await fs.exec('/sbin/uci', ['commit', 'network']);
+                    return await fs.exec('/etc/init.d/network', ['reload']);
+                }}""")
+                result["new_mac"] = new_mac
+            except Exception as mac_err:
+                logger.warning("Failed to update router WAN MAC address (continuing with ifup): %s", mac_err)
 
             # 4. Trigger /sbin/ifup
             logger.info("Bringing up %s...", interface)
