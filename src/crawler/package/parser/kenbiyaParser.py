@@ -42,6 +42,7 @@ KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
+KENBIYA_HOME_URL = "https://www.kenbiya.com/"
 _KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
 _KENBIYA_MAGUCHI_RE = re.compile(
     r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
@@ -159,8 +160,8 @@ class KenbiyaParserBase(ParserBase):
 
     @staticmethod
     async def _goto_with_home_warmup(page: Any, url: str) -> None:
-        if url.rstrip("/") != "https://www.kenbiya.com":
-            await page.goto("https://www.kenbiya.com/", wait_until="domcontentloaded", timeout=20000)
+        if url.rstrip("/") != KENBIYA_HOME_URL.rstrip("/"):
+            await page.goto(KENBIYA_HOME_URL, wait_until="domcontentloaded", timeout=20000)
         await page.goto(url, wait_until="domcontentloaded", timeout=20000)
 
     async def _fetch_with_playwright(self, url: str) -> bytes:
