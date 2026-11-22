@@ -48,3 +48,7 @@
 
 ## 三井のリハウス 種別切替後の URL パス拒否ガード緩和 (#1746)
 - `MitsuiMansionParser` / `MitsuiTochiParser` / `MitsuiKodateParser` において、`item._switched_from_property_type` が設定されている場合（`_maybe_switch_parser` による種別切替後）は URL パスのみによる `SkipPropertyException` 拒否を行わない。
+
+
+## Athome 投資物件の利回り・賃料未掲載許容 (#1759)
+- `AthomeInvestmentApartmentParser` において、一棟売アパート等で利回り（`grossYield`）または年間賃料（`annualRent`）が未掲載の場合に `SkipPropertyException` でスキップしていた必須チェックを撤廃し、未掲載のまま保存可能にする。
