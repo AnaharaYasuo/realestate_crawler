@@ -212,6 +212,12 @@ class KenbiyaParserBase(ParserBase):
                         _block_unnecessary_resources,
                     )
                     try:
+                        if url.rstrip("/") != "https://www.kenbiya.com":
+                            await page.goto(
+                                "https://www.kenbiya.com/",
+                                wait_until="domcontentloaded",
+                                timeout=20000,
+                            )
                         await page.goto(
                             url, wait_until="domcontentloaded", timeout=20000
                         )
@@ -228,11 +234,11 @@ class KenbiyaParserBase(ParserBase):
     async def _try_playwright_on_403(
         self, session: aiohttp.ClientSession, status: int, url: str
     ) -> bytes | None:
-        if status != 403 or not isinstance(session, aiohttp.ClientSession):
+        if status not in (403, 429) or not isinstance(session, aiohttp.ClientSession):
             return None
         try:
             pw_bytes = await self._fetch_with_playwright(url)
-            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512]:
+            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512] and b"429 Too Many Requests" not in pw_bytes[:512]:
                 return pw_bytes
         except Exception as pw_err:
             logging.warning(f"Kenbiya Playwright fallback failed for {url}: {pw_err}")
@@ -246,11 +252,12 @@ class KenbiyaParserBase(ParserBase):
         attempt: int,
         max_timeouts: int,
     ) -> Optional[bytes]:
-        if response.status == 403:
-            pw_content = await self._try_playwright_on_403(session, 403, url)
+        if response.status in (403, 429):
+            pw_content = await self._try_playwright_on_403(session, response.status, url)
             if pw_content is not None:
                 return pw_content
-            raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
+            if response.status == 403:
+                raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
 
     _waf_cookies: dict[str, str] = {}

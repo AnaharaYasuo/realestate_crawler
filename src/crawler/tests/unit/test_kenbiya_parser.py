@@ -348,3 +348,20 @@ def test_kenbiya_madori_fallback_key():
     soup = BeautifulSoup(html, "html.parser")
     assert KenbiyaMansionParser()._parseMadori(soup) == "3LDK"
     assert KenbiyaKodateParser()._parseMadori(soup) == "3LDK"
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_429_triggers_playwright_fallback(monkeypatch):
+    """429応答時にPlaywrightフォールバックが呼ばれることを検証"""
+    from unittest.mock import AsyncMock, MagicMock
+    import aiohttp
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+
+    parser = KenbiyaMansionParser()
+    fake_session = MagicMock(spec=aiohttp.ClientSession)
+    fake_resp = MagicMock(spec=aiohttp.ClientResponse)
+    fake_resp.status = 429
+
+    monkeypatch.setattr(parser, "_fetch_with_playwright", AsyncMock(return_value=b"<html><body>OK</body></html>"))
+    res = await parser._handle_response_or_403(fake_session, fake_resp, "https://www.kenbiya.com/pp1/s/tokyo/re_1/", 0, 3)
+    assert res == b"<html><body>OK</body></html>"
