@@ -178,3 +178,6 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 ## 日次TTL経過再クロール Unresolved URL / 未マイグレーション解消 (Issue #1686)
 - `UrlRouter` で `toho-house.co.jp/sch/detail.php` および `rehouse.co.jp/buy/s_kodate/bkdetail/` を解決できるよう対応。
 - 未生成だった Django マイグレーション `0076_...`（`tokyukodate.setsumen` の `null=True` 反映等）を追加（既存の `smtrcinvestment.kaisu` は `SeparateDatabaseAndState` で安全に状態同期）。
+
+## ブランチ作成時の Issue 番号強制 PreToolUse フックガード (Issue #1765)
+- `.agents/scripts/hook_guard.py` により、ブランチ作成コマンド（`git checkout -b <branch>`、`git switch -c <branch>`、`git worktree add ... -b <branch>`、`git branch <branch>`、`git branch -m <old> <new>`）で GitHub Issue 番号（数字トークン）を含まないブランチを作成・リネームしようとした時点で即座に `deny` し、Issue 未紐付けブランチの発生を入口で機械的に防止する。
