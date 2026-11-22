@@ -408,3 +408,41 @@ async def test_kenbiya_fetch_with_playwright_visits_home_first(monkeypatch):
     res = await KenbiyaMansionParser()._fetch_with_playwright("https://www.kenbiya.com/pp1/s/tokyo/re_1/")
     assert res == b"<html><body>OK</body></html>"
     assert visited == ["https://www.kenbiya.com/", "https://www.kenbiya.com/pp1/s/tokyo/re_1/"]
+
+
+def test_kenbiya_traffic_fallback_and_invest_kodate_validation():
+    """交通フォールバック（アクセス/最寄駅）と投資用戸建・区分マンションの間取り・交通許容テスト"""
+    from bs4 import BeautifulSoup
+    from decimal import Decimal
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+    from package.models.kenbiya import KenbiyaMansion, KenbiyaKodate
+    from package.utils.data_validator import PropertyDataValidator, ERR_MISSING_MADORI, ERR_MISSING_TRAFFIC
+
+    html = """
+    <html><body><div class="property"><dl>
+      <dt>物件名</dt><dd>テスト区分マンション</dd>
+      <dt>価格</dt><dd>1,500万円</dd>
+      <dt>アクセス</dt><dd>JR中央線 三鷹駅 徒歩5分</dd>
+      <dt>築年月</dt><dd>1995年3月</dd>
+      <dt>専有面積</dt><dd>20.5㎡</dd>
+    </dl></div></body></html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parser = KenbiyaMansionParser()
+    item = KenbiyaMansion()
+    parser._parsePropertyDetailPage(item, soup)
+    assert item.station1 == "三鷹"
+    assert item.walkMinutes1 == 5
+
+    kodate = KenbiyaKodate()
+    kodate.price = 2000
+    kodate.address = "神奈川県平塚市"
+    kodate.grossYield = Decimal("8.5")
+    kodate.tochiMenseki = Decimal("100.0")
+    kodate.tatemonoMenseki = Decimal("80.0")
+    kodate.chikunengetsu = "2000-01-01"
+    reasons = []
+    PropertyDataValidator._check_common_required(kodate, "kodate", reasons)
+    PropertyDataValidator._check_madori_and_age(kodate, reasons)
+    assert ERR_MISSING_MADORI not in reasons
+    assert ERR_MISSING_TRAFFIC not in reasons
