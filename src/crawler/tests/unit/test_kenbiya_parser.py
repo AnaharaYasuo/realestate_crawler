@@ -386,6 +386,7 @@ async def test_kenbiya_fetch_with_playwright_visits_home_first(monkeypatch):
     fake_page.close = AsyncMock()
 
     fake_context = MagicMock()
+    fake_context.add_init_script = AsyncMock()
     fake_context.new_page = AsyncMock(return_value=fake_page)
     fake_context.close = AsyncMock()
 
