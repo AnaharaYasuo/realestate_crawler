@@ -1163,19 +1163,8 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
     @staticmethod
     def _require_invest_yield_and_rent(item) -> None:
-        try:
-            gy = float(item.grossYield or 0)
-        except (TypeError, ValueError):
-            gy = 0.0
-        ar = item.annualRent or item.monthlyRent or 0
-        try:
-            ar_f = float(ar)
-        except (TypeError, ValueError):
-            ar_f = 0.0
-        if gy <= 0 or ar_f <= 0:
-            raise SkipPropertyException(
-                "Nomura invest listing missing published yield/rent"
-            )
+        """利回り・賃料が未掲載の投資物件もスキップせず保存を許可する (#1759)。"""
+        _ = item
 
     def _parseHikiwatashiInvest(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
