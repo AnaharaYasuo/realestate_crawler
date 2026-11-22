@@ -227,7 +227,7 @@ class UrlRouter:
 
         # アットホーム (Athome)
         {
-            "pattern": re.compile(r"athome\.co\.jp/mansion/"),
+            "pattern": re.compile(r"athome\.co\.jp/(?:mansion|buy_other)/"),
             "site": "athome",
             "property_type": "mansion",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -236,7 +236,7 @@ class UrlRouter:
             "model_cls": "AthomeMansion",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/kodate/"),
+            "pattern": re.compile(r"athome\.co\.jp/(?:kodate|buy_other)/"),
             "site": "athome",
             "property_type": "kodate",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -263,7 +263,7 @@ class UrlRouter:
             "model_cls": "AthomeTochi",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "pattern": re.compile(r"athome\.co\.jp/(?:buy_other|kodate)/"),
             "site": "athome",
             "property_type": "apartment",
             "parser_module": ATHOME_PARSER_MODULE,
