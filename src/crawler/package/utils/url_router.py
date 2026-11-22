@@ -17,6 +17,7 @@ SUMIFU_PARSER_MODULE = "package.parser.sumifuParser"
 SUMIFU_MODEL_MODULE = "package.models.sumifu"
 ATHOME_PARSER_MODULE = "package.parser.athomeParser"
 ATHOME_MODEL_MODULE = "package.models.athome"
+ATHOME_BUY_OTHER_PATTERN = re.compile(r"athome\.co\.jp/buy_other/")
 HOMES_PARSER_MODULE = "package.parser.homesParser"
 HOMES_MODEL_MODULE = "package.models.homes"
 SMTRC_PARSER_MODULE = "package.parser.smtrcParser"
@@ -254,7 +255,7 @@ class UrlRouter:
             "model_cls": "AthomeTochi",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "pattern": ATHOME_BUY_OTHER_PATTERN,
             "site": "athome",
             "property_type": "tochi",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -272,7 +273,7 @@ class UrlRouter:
             "model_cls": "AthomeInvestmentApartment",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "pattern": ATHOME_BUY_OTHER_PATTERN,
             "site": "athome",
             "property_type": "mansion",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -281,7 +282,7 @@ class UrlRouter:
             "model_cls": "AthomeMansion",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "pattern": ATHOME_BUY_OTHER_PATTERN,
             "site": "athome",
             "property_type": "kodate",
             "parser_module": ATHOME_PARSER_MODULE,
