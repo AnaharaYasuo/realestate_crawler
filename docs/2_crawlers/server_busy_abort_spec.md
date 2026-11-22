@@ -44,3 +44,7 @@
 
 ## 三井のリハウス 投資戸建ルーティング追加 (#1737)
 - `UrlRouter` に `invest_kodate` 用の `MitsuiInvestmentKodateParser`（`MitsuiInvestmentKodate`）を登録し、`/buy/kodate/` 等の投資戸建判定時に `IncompatiblePropertyTypeException` でスキップされるのを防止する。
+
+
+## 三井のリハウス 種別切替後の URL パス拒否ガード緩和 (#1746)
+- `MitsuiMansionParser` / `MitsuiTochiParser` / `MitsuiKodateParser` において、`item._switched_from_property_type` が設定されている場合（`_maybe_switch_parser` による種別切替後）は URL パスのみによる `SkipPropertyException` 拒否を行わない。
