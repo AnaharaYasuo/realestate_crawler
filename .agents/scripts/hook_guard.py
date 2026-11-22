@@ -44,8 +44,8 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                         "decision": "deny",
                         "reason": "Single-PR guard: An open PR targeting 'master' already exists. Push additional commits to the existing PR branch instead of creating a new PR.",
                     }
-            except Exception:
-                pass
+            except (subprocess.SubprocessError, OSError):
+                open_prs = ""
         if not is_release_pr:
             try:
                 diff_out = subprocess.check_output(
@@ -59,8 +59,8 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                         "decision": "deny",
                         "reason": "Principle 4 (SDD) violation: PR to master must include a 7-domain SSOT specification update (docs/1_... through docs/7_.../*.md).",
                     }
-            except Exception:
-                pass
+            except (subprocess.SubprocessError, OSError):
+                open_prs = ""
 
     push_match = re.search(
         r"\bgit\s+(?:-C\s+\S+\s+)?push\s+(?:-[a-zA-Z-]+\s+)*origin\s+(?!--delete\b|-d\b|:)([A-Za-z0-9._/-]+)",
