@@ -365,3 +365,45 @@ async def test_kenbiya_429_triggers_playwright_fallback(monkeypatch):
     monkeypatch.setattr(parser, "_fetch_with_playwright", AsyncMock(return_value=b"<html><body>OK</body></html>"))
     res = await parser._handle_response_or_403(fake_session, fake_resp, "https://www.kenbiya.com/pp1/s/tokyo/re_1/", 0, 3)
     assert res == b"<html><body>OK</body></html>"
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_fetch_with_playwright_visits_home_first(monkeypatch):
+    """_fetch_with_playwrightが対象URL遷移前に健美家トップへアクセスしてCookieを生成することを検証"""
+    from unittest.mock import AsyncMock, MagicMock
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+
+    visited = []
+    fake_page = MagicMock()
+
+    async def fake_goto(url, **kwargs):
+        visited.append(url)
+
+    fake_page.goto = AsyncMock(side_effect=fake_goto)
+    fake_page.route = AsyncMock()
+    fake_page.wait_for_timeout = AsyncMock()
+    fake_page.content = AsyncMock(return_value="<html><body>OK</body></html>")
+    fake_page.close = AsyncMock()
+
+    fake_context = MagicMock()
+    fake_context.new_page = AsyncMock(return_value=fake_page)
+    fake_context.close = AsyncMock()
+
+    fake_browser = MagicMock()
+    fake_browser.new_context = AsyncMock(return_value=fake_context)
+    fake_browser.close = AsyncMock()
+
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch = AsyncMock(return_value=fake_browser)
+
+    class FakeAsyncPlaywright:
+        async def __aenter__(self):
+            return fake_pw
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: FakeAsyncPlaywright())
+    res = await KenbiyaMansionParser()._fetch_with_playwright("https://www.kenbiya.com/pp1/s/tokyo/re_1/")
+    assert res == b"<html><body>OK</body></html>"
+    assert visited == ["https://www.kenbiya.com/", "https://www.kenbiya.com/pp1/s/tokyo/re_1/"]
