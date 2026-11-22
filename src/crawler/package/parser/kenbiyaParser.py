@@ -914,7 +914,7 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        val = specs.get("間取り", "")
+        val = specs.get("間取り", "") or specs.get("間取", "")
         if not val:
             return ""
         for token in val.split():
@@ -1061,7 +1061,7 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "")
+        return specs.get("間取り", "") or specs.get("間取", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._populate_common_fields(item, response)
