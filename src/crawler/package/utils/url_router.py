@@ -227,7 +227,7 @@ class UrlRouter:
 
         # アットホーム (Athome)
         {
-            "pattern": re.compile(r"athome\.co\.jp/(?:mansion|buy_other)/"),
+            "pattern": re.compile(r"athome\.co\.jp/mansion/"),
             "site": "athome",
             "property_type": "mansion",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -236,7 +236,7 @@ class UrlRouter:
             "model_cls": "AthomeMansion",
         },
         {
-            "pattern": re.compile(r"athome\.co\.jp/(?:kodate|buy_other)/"),
+            "pattern": re.compile(r"athome\.co\.jp/kodate/"),
             "site": "athome",
             "property_type": "kodate",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -270,6 +270,24 @@ class UrlRouter:
             "parser_cls": "AthomeInvestmentApartmentParser",
             "model_module": ATHOME_MODEL_MODULE,
             "model_cls": "AthomeInvestmentApartment",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "site": "athome",
+            "property_type": "mansion",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeMansionParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeMansion",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "site": "athome",
+            "property_type": "kodate",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeKodateParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeKodate",
         },
         {
             "pattern": re.compile(r"athome\.co\.jp/(?:kodate|buy_other)/"),
