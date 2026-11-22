@@ -35,6 +35,7 @@ from package.parser.baseParser import (
     ParserBase,
     ParserFailureException,
     ReadPropertyNameException,
+    ServerBusyException,
     SkipPropertyException,
     check_site_maintenance,
 )
@@ -238,6 +239,9 @@ def _shutdown_local_worker_executor_nonblocking() -> None:
     _local_worker_executor = None
 
 
+_server_busy_abort_event = threading.Event()
+
+
 def _cancel_unstarted_futures_on_stop(timeout_expired: bool = True) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
@@ -319,7 +323,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     prev_alive_ids: tuple[int, ...] | None = None
     prev_progress_ts = _last_fire_and_forget_progress_ts
 
-    while not os.path.exists(STOP_FLAG_FILE):
+    while not os.path.exists(STOP_FLAG_FILE) and not _server_busy_abort_event.is_set():
         now = time.monotonic()
         if _is_wait_timeout_exceeded(now - start, now - last_progress_time, timeout, drain_timeout):
             break
@@ -338,7 +342,11 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     elapsed_final = time.monotonic() - start
     idle_final = time.monotonic() - last_progress_time
-    timeout_expired = (timeout > 0 and elapsed_final >= timeout) or (drain_timeout > 0 and idle_final >= drain_timeout)
+    timeout_expired = (
+        _server_busy_abort_event.is_set()
+        or (timeout > 0 and elapsed_final >= timeout)
+        or (drain_timeout > 0 and idle_final >= drain_timeout)
+    )
     _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
@@ -474,6 +482,154 @@ def _sync_save_error_html_by_url(
 
 
 TCP_CONNECTOR_LIMIT = 100
+
+
+class DetailFetchCircuitBreaker:
+    """Thread-safe circuit breaker to abort remaining detail fetches on consecutive SkipPropertyException (e.g. HTTP 503)."""
+
+    def __init__(self, threshold: int = 10) -> None:
+        self._threshold = threshold
+        self._lock = threading.Lock()
+        self._consecutive_skips: dict[str, int] = {}
+        self._opened_hosts: set[str] = set()
+
+    def is_open(self, host: str) -> bool:
+        with self._lock:
+            return host in self._opened_hosts
+
+    def record_success(self, host: str) -> None:
+        with self._lock:
+            self._consecutive_skips[host] = 0
+
+    def record_skip(self, host: str) -> bool:
+        """Record a skip (e.g. 503). Returns True if the circuit just opened."""
+        with self._lock:
+            if host in self._opened_hosts:
+                return False
+            count = self._consecutive_skips.get(host, 0) + 1
+            self._consecutive_skips[host] = count
+            if count >= self._threshold:
+                self._opened_hosts.add(host)
+                logging.error(
+                    f"[CIRCUIT_BREAKER_OPEN] {host}: {count} consecutive SkipPropertyException(s) detected; "
+                    "aborting remaining detail fetches."
+                )
+                return True
+            return False
+
+
+_detail_circuit_breaker = DetailFetchCircuitBreaker(
+    threshold=int(os.getenv("DETAIL_CIRCUIT_BREAKER_THRESHOLD", "10"))
+)
+
+
+class CrawlCooldownController:
+    """Thread-safe controller that pauses detail fetches for rest_seconds after work_seconds or 429/503."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._window_start: dict[str, float] = {}
+        self._cooldown_until: dict[str, float] = {}
+        self._pause_executed: set[str] = set()
+        self._resume_executed: set[str] = set()
+        self._cookies: dict[str, str] = {}
+
+    def get_cookie_header(self, host: str) -> str:
+        with self._lock:
+            return self._cookies.get(host, "")
+
+    def set_cookie_header(self, host: str, cookie_header: str) -> None:
+        with self._lock:
+            self._cookies[host] = cookie_header
+
+    def trigger_cooldown(
+        self,
+        host: str,
+        rest_seconds: float,
+        reason: str = "429/503",
+        now: float | None = None,
+    ) -> bool:
+        """Trigger immediate cooldown for host. Returns True if newly triggered."""
+        if rest_seconds <= 0:
+            return False
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            if current < self._cooldown_until.get(host, 0.0):
+                return False
+            self._cooldown_until[host] = current + rest_seconds
+            self._pause_executed.discard(host)
+            self._resume_executed.discard(host)
+            logging.warning(
+                f"[CRAWL_COOLDOWN_TRIGGERED] {host}: {reason} detected; "
+                f"pausing for {rest_seconds:.0f}s."
+            )
+            return True
+
+    def get_wait_seconds(self, host: str, work_seconds: float, rest_seconds: float, now: float | None = None) -> float:
+        if work_seconds <= 0 or rest_seconds <= 0:
+            return 0.0
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            cooldown_end = self._cooldown_until.get(host, 0.0)
+            if current < cooldown_end:
+                return cooldown_end - current
+            if cooldown_end > 0.0 and current >= cooldown_end:
+                # Cooldown finished; reset window
+                self._cooldown_until.pop(host, None)
+                self._pause_executed.discard(host)
+                self._window_start[host] = current
+                return 0.0
+            start = self._window_start.get(host)
+            if start is None:
+                self._window_start[host] = current
+                return 0.0
+            if current - start >= work_seconds:
+                self._cooldown_until[host] = current + rest_seconds
+                self._pause_executed.discard(host)
+                self._resume_executed.discard(host)
+                logging.info(
+                    f"[CRAWL_COOLDOWN] {host}: {work_seconds:.0f}s work window reached; "
+                    f"pausing for {rest_seconds:.0f}s."
+                )
+                return rest_seconds
+            return 0.0
+
+    def claim_pause_hook(self, host: str) -> bool:
+        with self._lock:
+            if host in self._pause_executed:
+                return False
+            self._pause_executed.add(host)
+            return True
+
+    def claim_resume_hook(self, host: str) -> bool:
+        with self._lock:
+            if host in self._resume_executed:
+                return False
+            self._resume_executed.add(host)
+            return True
+
+    async def wait_if_needed(
+        self,
+        host: str,
+        work_seconds: float,
+        rest_seconds: float,
+        on_pause: Any = None,
+        on_resume: Any = None,
+    ) -> None:
+        was_paused = False
+        while True:
+            wait_sec = self.get_wait_seconds(host, work_seconds, rest_seconds)
+            if wait_sec <= 0.0:
+                if was_paused and on_resume is not None and self.claim_resume_hook(host):
+                    await asyncio.to_thread(on_resume, host)
+                return
+            was_paused = True
+            if on_pause is not None and self.claim_pause_hook(host):
+                await asyncio.to_thread(on_pause, host)
+            await asyncio.sleep(min(wait_sec, 30.0))
+
+
+_crawl_cooldown_controller = CrawlCooldownController()
 SUMIFU_MANSION_START_ENDPOINT = '/sumifu_mansion_start'
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
@@ -1078,7 +1234,45 @@ class DynamicSemaphore:
         self._sem.release()
 
 
+class SiteCrawlAbortedException(Exception):
+    """Raised when crawling for a target site is aborted due to unrecoverable 429/503."""
+
+
 class ApiAsyncProcBase(metaclass=ABCMeta):
+    _ABORTED_SITES: ClassVar[set[str]] = set()
+    _ABORTED_SITES_LOCK: ClassVar[threading.Lock] = threading.Lock()
+
+    @classmethod
+    def is_site_aborted(cls, site_key: str) -> bool:
+        if not site_key:
+            return False
+        with cls._ABORTED_SITES_LOCK:
+            return site_key in cls._ABORTED_SITES
+
+    @classmethod
+    def mark_site_aborted(cls, site_key: str, reason: str = "") -> None:
+        if not site_key:
+            return
+        with cls._ABORTED_SITES_LOCK:
+            cls._ABORTED_SITES.add(site_key)
+        logger.error("Aborting crawl for site '%s' due to unrecoverable error: %s", site_key, reason)
+
+    @classmethod
+    def clear_aborted_sites(cls) -> None:
+        with cls._ABORTED_SITES_LOCK:
+            cls._ABORTED_SITES.clear()
+
+    def _resolve_site_abort_key(self) -> str:
+        comp = self._resolve_target_company()
+        if comp:
+            return str(comp).lower()
+        return self.__class__.__name__.lower()
+
+    def _check_site_aborted(self) -> str:
+        site_key = self._resolve_site_abort_key()
+        if self.is_site_aborted(site_key):
+            raise SiteCrawlAbortedException(f"Crawl already aborted for site: {site_key}")
+        return site_key
     def _touch_watchdog_progress(self, item=None):
         _mark_fire_and_forget_progress()
         try:
@@ -1554,12 +1748,20 @@ LOG_FAILED_TO_PARSE_MIDDLE_PAGE = "Failed to parse middle page: %s"
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _fetch_middle_page_response(self, session, current_url):
+        from package.parser.baseParser import RateLimitedException, ServiceUnavailableException
+
+        site_key = self._check_site_aborted()
         record_thread_activity("middle_page_fetch", current_url=str(current_url), parent_list_url=str(getattr(self, "url", "")))
         self._touch_watchdog_progress()
         try:
             if self._isBsMiddlePage():
                 return await self.parser.getResponseBs(session, current_url, self.parser.getCharset())
             return await self.parser.getResponse(session, current_url, self.parser.getCharset())
+        except (RateLimitedException, ServiceUnavailableException) as abort_exc:
+            self.mark_site_aborted(site_key, str(abort_exc))
+            raise SiteCrawlAbortedException(f"Crawl aborted for site '{site_key}': {abort_exc}") from abort_exc
+        except SiteCrawlAbortedException:
+            raise
         except Exception as e:
             logger.exception("Failed to fetch middle page: %s", current_url)
             await self._save_error_html_by_url(current_url, self.__class__.__name__, f"Middle Page Fetch Failure: {e!s}")
@@ -1961,18 +2163,27 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _run(self, _url):
         """詳細ページURLを受け取り、適切なパーサーでパース・保存を実行"""
+        from package.parser.baseParser import RateLimitedException, ServiceUnavailableException
+
         # Update parser dynamically based on current URL
         try:
             from package.utils.url_router import UrlRouter
             self.parser = UrlRouter.create_parser(_url) or self._generateParser()
         except Exception:
             self.parser = self._generateParser()
+        site_key = self._check_site_aborted()
         _loop = self._getActiveEventLoop()
         _timeout:int = self._generateTimeout()
         _connector = self._generateConnector(_loop)
+        item = None
         async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
             try:
                 item = await self._treatPage(session, self._getTreatPageArg())
+            except (RateLimitedException, ServiceUnavailableException) as abort_exc:
+                self.mark_site_aborted(site_key, str(abort_exc))
+                raise SiteCrawlAbortedException(f"Crawl aborted for site '{site_key}': {abort_exc}") from abort_exc
+            except SiteCrawlAbortedException:
+                raise
             except Exception as e:
                 logging.exception("Error during _treatPage: %s", e)
                 item = None
@@ -2068,13 +2279,44 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if isinstance(exc, (ParserFailureException, ValidationError)):
             logging.warning(f"Parsing/Data failure{suffix} for URL: {self.url}: {exc}")
             return None, False, exc
+        if isinstance(exc, ServerBusyException):
+            logging.warning(f"ServerBusy detected{suffix} ({type(exc).__name__} for URL: {self.url}); aborting remaining detail workers.")
+            _server_busy_abort_event.set()
+            return None, False, None
         if isinstance(exc, SkipPropertyException):
+            host = urlparse(str(self.url)).netloc.lower()
+            cooldown_cfg = self._get_cooldown_config()
+            if cooldown_cfg is not None:
+                _crawl_cooldown_controller.trigger_cooldown(host, cooldown_cfg[1], reason=str(exc))
+            else:
+                _detail_circuit_breaker.record_skip(host)
             logging.info(f"Skipping property{suffix} (ServerBusy/Blocked/Other): {type(exc).__name__} for URL: {self.url}")
             return None, False, None
         return None, False, exc
 
+    def _get_cooldown_config(self) -> tuple[float, float] | None:
+        return None
+
+    def _get_cooldown_hooks(self) -> tuple[Any, Any]:
+        return (None, None)
+
     async def _execute_single_detail_fetch(self):
         """詳細ページ単一回フェッチを実行"""
+        if _server_busy_abort_event.is_set():
+            raise ServerBusyException(f"Aborted due to prior ServerBusyException: {self.url}")
+        host = urlparse(str(self.url)).netloc.lower()
+        if _detail_circuit_breaker.is_open(host):
+            return None
+        cooldown_cfg = self._get_cooldown_config()
+        if cooldown_cfg is not None:
+            on_pause, on_resume = self._get_cooldown_hooks()
+            await _crawl_cooldown_controller.wait_if_needed(
+                host, cooldown_cfg[0], cooldown_cfg[1], on_pause=on_pause, on_resume=on_resume
+            )
+        req_headers = dict(header) if isinstance(header, dict) else {}
+        cookie_hdr = _crawl_cooldown_controller.get_cookie_header(host)
+        if cookie_hdr:
+            req_headers["Cookie"] = cookie_hdr
         item = None
         _connector = self._generateConnector(self._getActiveEventLoop())
         await self.semaphore.acquire()
@@ -2083,7 +2325,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             record_thread_activity("detail_page_fetch", current_url=str(self.url))
             self._touch_watchdog_progress()
             async with aiohttp.ClientSession(
-                headers=header,
+                headers=req_headers,
                 connector=_connector,
                 timeout=self._generateTimeout()
             ) as dtl_session:
@@ -2106,6 +2348,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     async def _fetch_detail_item(self):
         try:
             item = await self._execute_single_detail_fetch()
+            if item is not None:
+                _detail_circuit_breaker.record_success(urlparse(str(self.url)).netloc.lower())
             return item, False, None
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             logging.debug("get item retry")

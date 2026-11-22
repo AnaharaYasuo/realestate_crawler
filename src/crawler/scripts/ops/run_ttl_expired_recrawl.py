@@ -1364,7 +1364,7 @@ def _fallback_flush_item_by_item(chunk: list[_FetchedOutcomeItem]) -> list[str]:
             outcomes.extend(res)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[TTLRecrawl] Per-item fallback flush failed for %s: %s", item.target.property_url, exc)
-            outcomes.append("error")
+            outcomes.append("item_error")
     return outcomes
 
 
@@ -1691,6 +1691,8 @@ async def _fetch_and_enqueue_batch_target(
         property_type=target.property_type if target.property_type != "unknown" else None,
     )
     if parser is None:
+        if any(seg in target.property_url for seg in ("/jigyo/", "/buyers/business/")):
+            return "business_excluded"
         logger.warning("[TTLRecrawl] No parser resolved for URL: %s", target.property_url)
         return "unresolved_url"
 
@@ -1738,6 +1740,8 @@ async def crawl_single_ttl_target(
         property_type=target.property_type if target.property_type != "unknown" else None,
     )
     if parser is None:
+        if any(seg in target.property_url for seg in ("/jigyo/", "/buyers/business/")):
+            return "business_excluded"
         logger.warning("[TTLRecrawl] No parser resolved for URL: %s", target.property_url)
         return "unresolved_url"
 
@@ -1829,6 +1833,8 @@ class _BatchRunState:
         self.completed += 1
         if outcome in ("refreshed", "delisted", "invalid_saved"):
             self.consecutive_hard_errors = 0
+        elif outcome == "item_error":
+            self.stats["error"] = self.stats.get("error", 0) + 1
         elif outcome == "error":
             self.consecutive_hard_errors += 1
             if self.consecutive_hard_errors >= self.max_consecutive_failures:

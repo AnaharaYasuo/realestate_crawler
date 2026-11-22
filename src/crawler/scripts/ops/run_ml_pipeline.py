@@ -536,8 +536,8 @@ def main(argv=None):
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=int(os.getenv("BULK_EVAL_CONCURRENCY", "2")),
-        help="Concurrency for bulk ML evaluation in Step 4 (default: BULK_EVAL_CONCURRENCY or 2, Issue #1507)",
+        default=int(os.getenv("BULK_EVAL_CONCURRENCY", "1")),
+        help="Concurrency for bulk ML evaluation in Step 4 (default: BULK_EVAL_CONCURRENCY or 1, Issue #1683)",
     )
     args = parser.parse_args(argv)
 

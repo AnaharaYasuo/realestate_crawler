@@ -36,3 +36,11 @@
    - `KenbiyaParserBase._throttle_before_request` がローカル環境下でも呼び出され、指定インターバル（`KENBIYA_MIN_INTERVAL`）を満たすスリープ制御が行われることをモック/実測テストで検証。
 2. **既存テストおよびハーネス (`test_architecture_harness.py`)**:
    - リファクタリングおよび追加がプロジェクトアーキテクチャ規約に合致していることを検証。
+
+## curl_cffi による TLS フィンガープリント模倣と直列実行 (Issue #1628)
+- `kenbiyaParser.py` では `curl_cffi` (`AsyncSession(impersonate="chrome")`) を使用し、Chrome の TLS/HTTP2 フィンガープリントを模倣する。
+- `KENBIYA_MIN_INTERVAL` のデフォルトを `1.0` 秒（+ `0.5〜1.5` 秒のランダムジッター）に設定する（Issue #1639, #1652）。
+- `run_all_crawlers.py` で `kenbiya` 実行時は `parallel=1`（直列実行）を強制する。
+
+## マルチイベントループ対応 (Issue #1646)
+- `KenbiyaParserBase._request_lock` を `asyncio.Lock()` から `threading.Lock()` へ変更し、異なるイベントループから呼ばれた際の `RuntimeError: ... is bound to a different event loop` を防止する。

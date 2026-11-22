@@ -41,3 +41,7 @@
 ## 3. テスト計画 (Test Plan)
 - `tests/unit/test_bounded_local_worker_1046.py`: デフォルト並行度が 3 であること、および環境変数による上書きが動作することを確認。
 - `tests/unit/test_rate_limiter_fix.py`: 1,000 件連続で `_apply_download_delay_if_needed` が呼ばれても、個々の待機時間が安全閾値（数秒以内）に収まり、数千秒に累積しないことを検証。
+
+### 健美家（kenbiya）個別スロットル仕様（Issue #1698）
+- `KenbiyaParserBase._throttle_before_request` は `KENBIYA_MIN_INTERVAL`（既定 `1.0` 秒）に加え、ランダムジッター `random.uniform(1.5, 2.5)` 秒（期待値 `2.0` 秒）を付与し、平均リクエスト間隔 `3.0` 秒（`2.5〜3.5` 秒）を担保する。
+- `KenbiyaParserBase` は実 Chrome（`channel="chrome"`, `headless=False`）で `https://www.kenbiya.com/` の WAF 通過済み Cookie と `User-Agent` を取得・キャッシュし、`curl_cffi` リクエストへ引き継ぐ（ハイブリッド方式）。403/429 発生時はキャッシュを無効化して再取得を試みる。

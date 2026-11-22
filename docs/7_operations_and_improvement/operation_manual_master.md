@@ -147,3 +147,34 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 **最終更新**: 2026年11月16日  
 **バージョン**: 1.9 (Issue #1474: TTL再クロールの日次クォータ平滑化および社別均等配分機能の導入、Issue #1498: クローリング直後および割安物件通知直後の即時Issue起票・自動修正連動と重複抑止・全件一括消化の徹底)
 
+
+## クローラー実行優先順位 (Issue #1616)
+- Slowest/Largest-Site-First 原則に基づき、掲載件数が多く Playwright を使用する等クロールに時間がかかるサイトから優先して実行する。
+- **[#1621] TTL 再クロール サーキットブレーカー分離**: 個別アイテムのフラッシュ失敗（`item_error`）は `stats["error"]` に計上しつつ、グローバルの `consecutive_hard_errors` には加算せず、インフラ障害のみをサーキットブレーカー対象とする。
+- **[#1618] HomesInvestmentApartmentParser `annualRent` 必須チェック緩和**: 賃料・利回り未記載の投資用物件で `SkipPropertyException` を送出せず、`annualRent` 未設定のまま TTL 更新を継続する。
+
+- **[#1636] PR 連動自動マイグレーション生成**: `.github/workflows/auto-makemigrations.yml` により、`src/crawler/package/models/**` を変更する PR で `makemigrations --noinput` を自動実行し、生成されたマイグレーションを PR ブランチへ自動コミット・プッシュする。
+
+## ローカル本番実行時のストレージバックエンド自動選択 (Issue #1644)
+- `STORAGE_BACKEND` が未設定かつ `DB_PORT=6033`（IAP トンネル経由の本番 DB 接続）の場合、`ObjectStorageManager` は自動的に `gcs` バックエンドを選択する。
+
+## 健美家マンション所在階バリデーション修正 (Issue #1649)
+- `data_validator.py` の `_check_mansion_specs` で `item.floor` / `item.floorStr` も参照するよう修正し、`KenbiyaMansion` での誤検知（316件の `所在階が未抽出` 警告）を解消する。
+
+## 野村不動産リストリンク抽出のエリアURL除外 (Issue #1661)
+- `NomuraParserBase._normalize_property_list_href` で `/area/` を含む一覧ページ URL を除外し、詳細パーサーへの誤投入による `SkipPropertyException` を防止する。
+
+## Cloud Workflows `checkFinalStatus` 修正 (Issue #1664)
+- `terraform/workflows/daily_pipeline.yaml` の `checkFinalStatus` で `dict` 型の `crawlerError` に対して `string()` ではなく `json.encode_to_string(crawlerError)` を使用するよう修正。
+
+---
+### 追記 (#1666): ログ内スタックトレース検知 ＆ Deploy Production 非同期化
+- `auto_heal_parsers.py` に `scan_logs_for_tracebacks` / `notify_traceback_alerts` を追加し、`logs/` 配下の直近ログから `Traceback (most recent call last):` を検出して Slack（`#dev-agent`）へ `[AUTO_HEAL_TRACEBACK]` アラートを送信するとともに、`auto_heal_instruction.json` の修復対象へ自動合流させる。
+- `.github/workflows/deploy-production.yml` の異常物件再クロール起動を `gcloud workflows run`（同期）から `gcloud workflows execute`（非同期）へ変更し、本番デプロイの停滞を解消する。
+
+## ローカル本番実行の同一社直列制御と優先順位 (Issue #1674)
+- ローカル本番実行でもクラウド本番実行と同様に `active_company_counts` による同一社直列制御を適用し、`athome` を最先頭とする Slowest/Largest-Site-First 順で実行する。
+
+## 日次TTL経過再クロール Unresolved URL / 未マイグレーション解消 (Issue #1686)
+- `UrlRouter` で `toho-house.co.jp/sch/detail.php` および `rehouse.co.jp/buy/s_kodate/bkdetail/` を解決できるよう対応。
+- 未生成だった Django マイグレーション `0076_...`（`tokyukodate.setsumen` の `null=True` 反映等）を追加（既存の `smtrcinvestment.kaisu` は `SeparateDatabaseAndState` で安全に状態同期）。

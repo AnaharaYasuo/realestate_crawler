@@ -2,7 +2,9 @@ import asyncio
 from decimal import Decimal
 import logging
 import os
+import random
 import re
+import threading
 import time
 from typing import Any, Optional
 from urllib.parse import urljoin
@@ -40,6 +42,7 @@ KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
+KENBIYA_HOME_URL = "https://www.kenbiya.com/"
 _KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
 _KENBIYA_MAGUCHI_RE = re.compile(
     r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
@@ -106,7 +109,7 @@ class KenbiyaParserBase(ParserBase):
             return None
         raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
 
-    _request_lock = asyncio.Lock()
+    _request_lock = threading.Lock()
     _last_request_time: float = 0.0
 
     @classmethod
@@ -141,15 +144,25 @@ class KenbiyaParserBase(ParserBase):
             return
         raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
         try:
-            min_interval = float(raw_interval) if raw_interval else 2.0
+            min_interval = float(raw_interval) if raw_interval else 1.0
         except ValueError:
-            min_interval = 2.0
-        async with KenbiyaParserBase._request_lock:
+            min_interval = 1.0
+        jitter = random.uniform(1.5, 2.5)
+        with KenbiyaParserBase._request_lock:
             now = time.monotonic()
-            elapsed = now - KenbiyaParserBase._last_request_time
-            if elapsed < min_interval:
-                await asyncio.sleep(min_interval - elapsed)
-            KenbiyaParserBase._last_request_time = time.monotonic()
+            target_time = max(
+                now, KenbiyaParserBase._last_request_time + min_interval + jitter
+            )
+            sleep_duration = target_time - now
+            KenbiyaParserBase._last_request_time = target_time
+        if sleep_duration > 0:
+            await asyncio.sleep(sleep_duration)
+
+    @staticmethod
+    async def _goto_with_home_warmup(page: Any, url: str) -> None:
+        if url.rstrip("/") != KENBIYA_HOME_URL.rstrip("/"):
+            await page.goto(KENBIYA_HOME_URL, wait_until="domcontentloaded", timeout=20000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
 
     async def _fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright
@@ -206,9 +219,7 @@ class KenbiyaParserBase(ParserBase):
                         _block_unnecessary_resources,
                     )
                     try:
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=20000
-                        )
+                        await self._goto_with_home_warmup(page, url)
                         await page.wait_for_timeout(1500)
                         content_str = await page.content()
                         return content_str.encode("utf-8")
@@ -222,11 +233,11 @@ class KenbiyaParserBase(ParserBase):
     async def _try_playwright_on_403(
         self, session: aiohttp.ClientSession, status: int, url: str
     ) -> bytes | None:
-        if status != 403 or not isinstance(session, aiohttp.ClientSession):
+        if status not in (403, 429) or not isinstance(session, aiohttp.ClientSession):
             return None
         try:
             pw_bytes = await self._fetch_with_playwright(url)
-            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512]:
+            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512] and b"429 Too Many Requests" not in pw_bytes[:512]:
                 return pw_bytes
         except Exception as pw_err:
             logging.warning(f"Kenbiya Playwright fallback failed for {url}: {pw_err}")
@@ -240,12 +251,155 @@ class KenbiyaParserBase(ParserBase):
         attempt: int,
         max_timeouts: int,
     ) -> Optional[bytes]:
-        if response.status == 403:
-            pw_content = await self._try_playwright_on_403(session, 403, url)
+        if response.status in (403, 429):
+            pw_content = await self._try_playwright_on_403(session, response.status, url)
             if pw_content is not None:
                 return pw_content
-            raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
+            if response.status == 403:
+                raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
         return await self._handle_response(response, url, attempt, max_timeouts)
+
+    _waf_cookies: dict[str, str] = {}
+    _waf_user_agent: str | None = None
+
+    @classmethod
+    async def _warmup_waf_cookies(cls, force: bool = False) -> None:
+        """実 Chrome で WAF 通過済み Cookie と User-Agent を取得・キャッシュする。"""
+        if os.getenv("KENBIYA_WAF_WARMUP_DISABLED", "false").lower() in ("true", "1"):
+            return
+        if cls._waf_cookies and not force:
+            return
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    channel="chrome",
+                    headless=False,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                try:
+                    context = await browser.new_context()
+                    page = await context.new_page()
+                    await page.add_init_script(
+                        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                    )
+                    await page.goto(KENBIYA_HOME_URL, timeout=15000)
+                    ua = await page.evaluate("navigator.userAgent")
+                    cookies = {c["name"]: c["value"] for c in await context.cookies()}
+                    if cookies:
+                        cls._waf_cookies = cookies
+                    if ua:
+                        cls._waf_user_agent = ua
+                finally:
+                    await browser.close()
+        except Exception as e:
+            logging.warning(f"Kenbiya WAF cookie warmup skipped: {e}")
+
+    _IMPERSONATE_PROFILES = (
+        "edge99", "edge101",
+        "chrome110", "chrome116", "chrome119", "chrome120", "chrome123", "chrome124",
+        "chrome131", "chrome133a", "chrome136", "chrome142", "chrome145", "chrome146",
+        "safari15_3", "safari15_5", "safari17_0", "safari18_0", "safari184",
+        "firefox133", "firefox135", "firefox144", "firefox147",
+    )
+    _ACCEPT_LANGUAGES = (
+        "ja,en-US;q=0.9,en;q=0.8",
+        "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja;q=1.0,en;q=0.5",
+        "ja-JP,ja;q=0.9",
+        "ja,en;q=0.9,en-US;q=0.8",
+        "ja-JP,en-US;q=0.9,en;q=0.8",
+        "ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "ja-JP,ja;q=0.8,en-US;q=0.6,en;q=0.4",
+    )
+
+    _REFERERS = (
+        KENBIYA_HOME_URL,
+        "https://www.kenbiya.com/pp1/",
+        "https://www.kenbiya.com/pp8/",
+        "https://www.google.co.jp/",
+        "https://www.google.com/",
+    )
+    _ACCEPT_ENCODINGS = (
+        "gzip, deflate, br, zstd",
+        "gzip, deflate, br",
+        "gzip, deflate",
+    )
+
+    async def _get_with_curl_cffi(
+        self, url: str, headers: dict[str, str], proxy_url: str | None
+    ) -> tuple[int, bytes]:
+        from curl_cffi.requests import AsyncSession
+
+        await self._warmup_waf_cookies()
+        impersonate = os.getenv("KENBIYA_IMPERSONATE") or random.choice(
+            self._IMPERSONATE_PROFILES
+        )
+        req_headers = dict(headers)
+        req_headers.setdefault("Accept-Language", random.choice(self._ACCEPT_LANGUAGES))
+        req_headers.setdefault("Accept-Encoding", random.choice(self._ACCEPT_ENCODINGS))
+        req_headers.setdefault("Referer", random.choice(self._REFERERS))
+        req_headers.setdefault("DNT", random.choice(("1", "0")))
+        req_headers.setdefault("Upgrade-Insecure-Requests", "1")
+        if self._waf_user_agent:
+            req_headers["User-Agent"] = self._waf_user_agent
+        async with AsyncSession(impersonate=impersonate) as cffi_session:
+            req_kwargs: dict[str, Any] = {
+                "headers": req_headers,
+                "timeout": 15,
+            }
+            if self._waf_cookies:
+                req_kwargs["cookies"] = dict(self._waf_cookies)
+            if proxy_url:
+                req_kwargs["proxy"] = proxy_url
+            resp = await cffi_session.get(url, **req_kwargs)
+            return resp.status_code, resp.content
+
+    async def _handle_curl_cffi_response(
+        self, last_status: int, raw_bytes: bytes, url: str
+    ) -> bytes | None:
+        if last_status == 200:
+            self.consecutive_timeouts = 0
+            return raw_bytes
+        if last_status == 403:
+            KenbiyaParserBase._waf_cookies = {}
+            pw_content = await self._fetch_with_playwright(url)
+            if pw_content is not None:
+                return pw_content
+        if last_status == 404:
+            raise ListingEndedException(f"Listing ended (404): {url}")
+        if last_status == 429:
+            KenbiyaParserBase._waf_cookies = {}
+            await asyncio.sleep(3)
+            return None
+        if last_status in (500, 502, 503, 504):
+            raise ServerBusyException(f"HTTP {last_status} for {url}")
+        raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
+
+    async def _get_with_aiohttp(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        headers: dict[str, str],
+        proxy_url: str | None,
+        attempt: int,
+        max_timeouts: int,
+    ) -> tuple[int, bytes | None]:
+        get_kwargs: dict[str, Any] = {
+            "headers": headers,
+            "timeout": aiohttp.ClientTimeout(total=15),
+        }
+        if proxy_url:
+            get_kwargs["proxy"] = proxy_url
+        last_status: int | None = None
+        content: bytes | None = None
+        async with session.get(url, **get_kwargs) as response:
+            last_status = response.status
+            content = await self._handle_response_or_403(
+                session, response, url, attempt, max_timeouts
+            )
+        return last_status, content
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
@@ -260,20 +414,27 @@ class KenbiyaParserBase(ParserBase):
         max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
         proxy_url = self.get_proxy_url()
+        import importlib.util
+
+        use_curl_cffi = (
+            type(session) is aiohttp.ClientSession
+            and os.getenv("KENBIYA_USE_CURL_CFFI", "true").lower() in ("true", "1")
+            and importlib.util.find_spec("curl_cffi") is not None
+        )
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
             await self._throttle_before_request()
             try:
-                get_kwargs: dict[str, Any] = {
-                    "headers": headers,
-                    "timeout": aiohttp.ClientTimeout(total=15),
-                }
-                if proxy_url:
-                    get_kwargs["proxy"] = proxy_url
-                async with session.get(url, **get_kwargs) as response:
-                    last_status = response.status
-                    content = await self._handle_response_or_403(
-                        session, response, url, attempt, max_timeouts
+                if use_curl_cffi:
+                    last_status, raw_bytes = await self._get_with_curl_cffi(
+                        url, headers, proxy_url
+                    )
+                    content = await self._handle_curl_cffi_response(
+                        last_status, raw_bytes, url
+                    )
+                else:
+                    last_status, content = await self._get_with_aiohttp(
+                        session, url, headers, proxy_url, attempt, max_timeouts
                     )
                 if content is not None:
                     return content
@@ -285,7 +446,7 @@ class KenbiyaParserBase(ParserBase):
                 ServerDownException,
             ):
                 raise
-            except (TimeoutError, aiohttp.ClientError) as e:
+            except (aiohttp.ClientError, OSError) as e:
                 self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(
@@ -759,7 +920,7 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        val = specs.get("間取り", "")
+        val = specs.get("間取り", "") or specs.get("間取", "")
         if not val:
             return ""
         for token in val.split():
@@ -906,7 +1067,7 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "")
+        return specs.get("間取り", "") or specs.get("間取", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._populate_common_fields(item, response)

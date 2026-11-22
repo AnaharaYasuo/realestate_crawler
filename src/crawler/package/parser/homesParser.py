@@ -212,6 +212,11 @@ class HomesParser(ParserBase):
         html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
         return BeautifulSoup(html_str, "html.parser")
 
+    @staticmethod
+    def _is_valid_next_href(href: str) -> bool:
+        h = (href or "").strip()
+        return bool(h) and not h.startswith("javascript:") and h != "#"
+
     def _homes_find_next_anchor_url(self, response: BeautifulSoup) -> str:
         next_tag = (
             response.select_one("a.next")
@@ -220,14 +225,16 @@ class HomesParser(ParserBase):
         )
         if not next_tag:
             for a in response.find_all("a", href=True):
+                if not self._is_valid_next_href(a.get("href", "")):
+                    continue
                 text = a.get_text().strip()
                 if "次" in text or text == ">" or text == "»":
                     next_tag = a
                     break
         if not next_tag:
             return ""
-        href = next_tag.get("href")
-        return self.getRootDestUrl(href) if href else ""
+        href = (next_tag.get("href") or "").strip()
+        return self.getRootDestUrl(href) if self._is_valid_next_href(href) else ""
 
     def _homes_increment_canonical_page(self, response: BeautifulSoup) -> str:
         # フォールバック: canonical URLをベースに page パラメータをインクリメント
@@ -418,7 +425,8 @@ class HomesParser(ParserBase):
     def _apply_homes_unit_mansion_override(self, item, response: BeautifulSoup) -> None:
         senyu_tag = self._find_by_table_header(response, ["専有面積", "壁芯面積"])
         senyu_text = senyu_tag.get_text().strip() if senyu_tag else ""
-        parsed_senyu = converter.parse_menseki(senyu_text) if senyu_text else None
+        is_range_senyu = bool(senyu_text and ("～" in senyu_text or "〜" in senyu_text))
+        parsed_senyu = converter.parse_menseki(senyu_text) if (senyu_text and not is_range_senyu) else None
 
         kaisu_tag = self._find_by_table_header(response, ["所在階"])
         kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
@@ -759,10 +767,6 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
                         item.monthlyRent = rent_val // 12
             except (TypeError, ValueError, InvalidOperation):
                 pass
-        if not item.annualRent:
-            raise SkipPropertyException(
-                "Homes invest: missing annualRent on listing (skip and try next)"
-            )
 
     def _get_table_text(self, response: BeautifulSoup, selector: str, headers: list) -> str:
         tag = response.select_one(selector) or self._find_by_table_header(response, headers)

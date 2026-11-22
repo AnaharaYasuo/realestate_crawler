@@ -33,3 +33,8 @@
    - WAFブロック時の Playwright ステルス取得において、画像（png, jpg, webp 等）、CSS、フォント（woff, ttf 等）、メディア等の静的アセットへのリクエストを `page.route` で即座に `abort()` 遮断する。
    - これにより、健美家サーバーおよび WAF への通信負荷を最小化し、ページ描画時間とメモリ使用量を大幅に低減する。
 
+
+
+## curl_cffi TLSプロファイル・ヘッダー分散仕様
+- `KENBIYA_IMPERSONATE` 環境変数が未設定の場合、`_IMPERSONATE_PROFILES`（`safari15_5`, `edge101`, `chrome124`, `chrome110`, `safari17_0`）からランダムに選択する。
+- `Accept-Language` ヘッダーも `_ACCEPT_LANGUAGES` からランダムに選択し、単一プロファイルによる 429 レートリミット遮断を回避する。

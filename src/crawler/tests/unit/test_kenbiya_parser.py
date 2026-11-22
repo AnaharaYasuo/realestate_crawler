@@ -323,3 +323,88 @@ def test_kenbiya_price_fallback_selector():
     assert parser._parsePrice(soup) == 45800000
     assert parser._parsePriceStr(soup) == "4,580万円"
 
+
+
+def test_kenbiya_impersonate_profiles_and_accept_languages():
+    import importlib.util
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+    assert "safari15_5" in KenbiyaMansionParser._IMPERSONATE_PROFILES
+    assert "edge101" in KenbiyaMansionParser._IMPERSONATE_PROFILES
+    assert len(KenbiyaMansionParser._IMPERSONATE_PROFILES) >= 20
+    assert len(KenbiyaMansionParser._ACCEPT_LANGUAGES) >= 2
+    if importlib.util.find_spec("curl_cffi") is not None:
+        from curl_cffi.requests import AsyncSession
+        for profile in KenbiyaMansionParser._IMPERSONATE_PROFILES:
+            session = AsyncSession(impersonate=profile)
+            assert session is not None
+
+
+def test_kenbiya_madori_fallback_key():
+    """スペック表キーが「間取」の場合でも間取りが抽出されることを検証 (Issue #1718, #1721)"""
+    from bs4 import BeautifulSoup
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaKodateParser
+
+    html = "<html><body><table><tr><th>間取</th><td>3LDK</td></tr></table></body></html>"
+    soup = BeautifulSoup(html, "html.parser")
+    assert KenbiyaMansionParser()._parseMadori(soup) == "3LDK"
+    assert KenbiyaKodateParser()._parseMadori(soup) == "3LDK"
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_429_triggers_playwright_fallback(monkeypatch):
+    """429応答時にPlaywrightフォールバックが呼ばれることを検証"""
+    from unittest.mock import AsyncMock, MagicMock
+    import aiohttp
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+
+    parser = KenbiyaMansionParser()
+    fake_session = MagicMock(spec=aiohttp.ClientSession)
+    fake_resp = MagicMock(spec=aiohttp.ClientResponse)
+    fake_resp.status = 429
+
+    monkeypatch.setattr(parser, "_fetch_with_playwright", AsyncMock(return_value=b"<html><body>OK</body></html>"))
+    res = await parser._handle_response_or_403(fake_session, fake_resp, "https://www.kenbiya.com/pp1/s/tokyo/re_1/", 0, 3)
+    assert res == b"<html><body>OK</body></html>"
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_fetch_with_playwright_visits_home_first(monkeypatch):
+    """_fetch_with_playwrightが対象URL遷移前に健美家トップへアクセスしてCookieを生成することを検証"""
+    from unittest.mock import AsyncMock, MagicMock
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
+
+    visited = []
+    fake_page = MagicMock()
+
+    async def fake_goto(url, **kwargs):
+        visited.append(url)
+
+    fake_page.goto = AsyncMock(side_effect=fake_goto)
+    fake_page.route = AsyncMock()
+    fake_page.wait_for_timeout = AsyncMock()
+    fake_page.content = AsyncMock(return_value="<html><body>OK</body></html>")
+    fake_page.close = AsyncMock()
+
+    fake_context = MagicMock()
+    fake_context.add_init_script = AsyncMock()
+    fake_context.new_page = AsyncMock(return_value=fake_page)
+    fake_context.close = AsyncMock()
+
+    fake_browser = MagicMock()
+    fake_browser.new_context = AsyncMock(return_value=fake_context)
+    fake_browser.close = AsyncMock()
+
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch = AsyncMock(return_value=fake_browser)
+
+    class FakeAsyncPlaywright:
+        async def __aenter__(self):
+            return fake_pw
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: FakeAsyncPlaywright())
+    res = await KenbiyaMansionParser()._fetch_with_playwright("https://www.kenbiya.com/pp1/s/tokyo/re_1/")
+    assert res == b"<html><body>OK</body></html>"
+    assert visited == ["https://www.kenbiya.com/", "https://www.kenbiya.com/pp1/s/tokyo/re_1/"]

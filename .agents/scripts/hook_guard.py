@@ -32,6 +32,21 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                 "decision": "deny",
                 "reason": "Principle 4 violation: Issue-less, untagged, or mismatched PR creation is forbidden. Prefix --title with '[#<IssueNumber>] ' and include matching 'Closes #<IssueNumber>' in --body.",
             }
+        if not is_release_pr:
+            try:
+                diff_out = subprocess.check_output(
+                    ["git", "diff", "--name-only", "origin/master...HEAD"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                changed = [line.strip() for line in diff_out.splitlines() if line.strip()]
+                if changed and not any(re.match(r"^docs/[1-7]_", f) for f in changed):
+                    return {
+                        "decision": "deny",
+                        "reason": "Principle 4 (SDD) violation: PR to master must include a 7-domain SSOT specification update (docs/1_... through docs/7_.../*.md).",
+                    }
+            except Exception:
+                pass
 
     push_match = re.search(
         r"\bgit\s+(?:-C\s+\S+\s+)?push\s+(?:-[a-zA-Z-]+\s+)*origin\s+(?!--delete\b|-d\b|:)([A-Za-z0-9._/-]+)",
@@ -95,6 +110,11 @@ def _evaluate_run_command(cmd: str) -> dict | None:
         return {
             "decision": "deny",
             "reason": "Principle 6 violation: Direct push to 'production' is forbidden. Use a release PR from 'master' to 'production'.",
+        }
+    if re.search(r"gcloud(?:\.cmd)?[\"']?\s+compute\s+instances\s+stop\b.*proxysql", cmd, re.IGNORECASE) and not is_search_cmd:
+        return {
+            "decision": "deny",
+            "reason": "ProxySQL protection: Direct 'gcloud compute instances stop ... proxysql' is forbidden. Stop all DB-connected processes first and verify zero active DB connections before stopping ProxySQL.",
         }
     if re.search(r"gh\s+pr\s+checks\b.*--watch\b", cmd):
         return {

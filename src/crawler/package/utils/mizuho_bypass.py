@@ -397,12 +397,12 @@ async def get_mizuho_page_html(url: str) -> bytes:
                 page = await context.new_page()
                 await page.goto(
                     MIZUHO_BASE_URL,
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                     timeout=20000,
                 )
                 await page.wait_for_timeout(1000)
                 response = await page.goto(
-                    url, wait_until="networkidle", timeout=30000
+                    url, wait_until="domcontentloaded", timeout=30000
                 )
                 await page.wait_for_timeout(1500)
                 status = response.status if response else None

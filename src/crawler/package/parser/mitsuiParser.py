@@ -684,7 +684,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._MITSUI_TOCHI_PATH, self._MITSUI_KODATE_PATH)):
+        if not getattr(item, "_switched_from_property_type", None) and any(p in page_url for p in (self._MITSUI_TOCHI_PATH, self._MITSUI_KODATE_PATH)):
             raise SkipPropertyException(f"Non-mansion URL in MitsuiMansionParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -973,7 +973,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_KODATE_PATH)):
+        if not getattr(item, "_switched_from_property_type", None) and any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_KODATE_PATH)):
             raise SkipPropertyException(f"Non-tochi URL in MitsuiTochiParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -1204,7 +1204,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower().split("?", 1)[0]
-        if any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_TOCHI_PATH)):
+        if not getattr(item, "_switched_from_property_type", None) and any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_TOCHI_PATH)):
             raise SkipPropertyException(f"Non-kodate URL in MitsuiKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
