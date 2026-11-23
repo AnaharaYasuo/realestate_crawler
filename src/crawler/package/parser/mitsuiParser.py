@@ -1219,6 +1219,8 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
             not item.tochiMenseki or item.tochiMenseki <= 0
         ):
             raise SkipPropertyException(f"MitsuiKodate missing both areas: {page_url}")
+        if getattr(item, "price", None) is not None and 0 < float(item.price) < 1_000_000:
+            raise SkipPropertyException(f"MitsuiKodate anomalous low price ({item.price}): {page_url}")
         
         item.kaisuKouzou = self._parseKaisuKouzou(response)
         item.kouzou = self._parseKouzou(response)

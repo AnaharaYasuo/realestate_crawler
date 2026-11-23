@@ -36,10 +36,10 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 2. **調査・事実確認先行原則 ＆ 試行回数記録（サーキットブレーカー誤作動の完全防止）**:
    - **【着手前インクリメントの絶対禁止】**: コード変更やエラー再現確認を行う前の段階で、機械的に `sync_auto_heal_issues.py --record-attempt <N>` を実行してはならない。未調査のまま試行回数のみを消費し、上限（2回）超過によって誤った `auto-heal:needs-human` エスカレーションを引き起こすことを完全に防ぐ。
    - **【実態調査・再現確認の先行義務】**: まず各対象 Issue の該当パーサー、直近エラーログ（`Temp/auto_heal_instruction.json` 等）、および実際の物件ページ疎通（動的生HTML・HTTPステータス等）を調査し、「パーサーの不整合」「既に先行PRで解消済み」「一時的ネットワーク障害」等の事実を確定させる。
+   - **【人手対応へのエスカレーション全面禁止】**: いかなる場合も `--escalate` や `auto-heal:needs-human` ラベルを付与して人手対応へ引き継いではならない。404・接続タイムアウト・サイト側元データ未記載等の場合であっても人手へ丸投げせず、別サンプルURLの取得・GCS保存HTMLの解析・パーサー/バリデーション/クローラー側の根本修正（掲載終了検知、未記載許容、通信リトライ・プロキシ対応等）を自律的に完遂すること。
    - **【試行回数の記録タイミング】**:
-     - 調査・修正を試みた結果、自動解決不能（仕様変更の大規模化やCAPTCHA等の本質的ブロック）であることが判明した、または修正・テストを試みてなお失敗した場合にのみ `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。
+     - 調査・修正を試みてテスト失敗した場合にのみ `python src/crawler/scripts/ops/sync_auto_heal_issues.py --record-attempt <N>` を実行する。
      - 既に解消済みの場合は `--record-attempt` ではなく `sync_auto_heal_issues.py` の自動クローズ判定または PR 受入基準更新（`--mark-criteria-done <N>`）を行う。
-     - 試行上限（2回）を超過して `escalated: true`（`auto-heal:needs-human`）となった Issue はバッチから除外して人手対応へ引き継ぐ。
 3. **独立 Worktree での SDD × TDD × Parser 一括修正 ➔ `production` マージ＆本番デプロイ完遂**:
    - **【最重要・完了定義】各自動修復のゴールは「`production` ブランチへのマージ完了および本番デプロイ（`Deploy Production`）の成功確認」である。PR作成時点や `master` マージ時点で作業を終了してはならない。**
    - 必ず `.worktrees/fix-auto-heal-batch-<timestamp>`（ブランチ `fix/auto-heal-batch-<timestamp>`）を作成して作業する。
@@ -47,7 +47,7 @@ description: 直近のクローリング監視や全アラートSlackチャン�
    - 検証ゲート（`pytest`、`test_architecture_harness.py`、`check_local_sonar.py --diff`、ライブ疎通検証）がすべて合格したら、対象全 Issue に対して `python src/crawler/scripts/ops/sync_auto_heal_issues.py --mark-criteria-done <N>` で受入基準を `[x]` に更新する。
    - **Stage 1 (`master` マージ)**: PR（タイトル `fix(auto-heal): resolve batch parser anomalies (#<N1>, #<N2>, ...)`、本文 `Closes #<N1>\nCloses #<N2>...`）を作成し、`check_pr_ci_status.py` で全CI合格を確認して `master` へマージする。
    - **Stage 2 (`production` マージ ＆ デプロイ完了確認)**: 自動生成（または手動作成）された `master` ➔ `production` リリースPR の CI 合格を確認して `production` へマージし、GitHub Actions `Deploy Production` ワークフローが `success` で完了（Cloud Run 本番反映 ＆ 異常物件再クロール起動）するところまで必ず見届けてから Worktree をクリーンアップする。
-   - サイト側の大規模仕様変更・CAPTCHA遮断等で自動修正不能なものは `python src/crawler/scripts/ops/sync_auto_heal_issues.py --escalate <N> --reason "<根本原因>"` を実行して人手対応へ引き継ぐ。
+   - **人手対応へのエスカレーション（`--escalate`）は全面禁止**とし、自律的に調査・修正・検証を完遂すること。
 
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
 * まず `python src/crawler/scripts/debug_tools/auto_heal_parsers.py --pull-from-gcs` でクラウド最新の `Temp/auto_heal_instruction.json` を同期する（ローカルDB接続済みの場合は引数なしで直接再集計も可能）。指示書に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
