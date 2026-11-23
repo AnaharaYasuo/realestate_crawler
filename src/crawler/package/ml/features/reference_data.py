@@ -7,6 +7,7 @@ import logging
 import math
 import re
 import threading
+import unicodedata
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,8 @@ logger = logging.getLogger(__name__)
 _muni_cache: dict[tuple[str, str], MunicipalRecord] = {}
 _muni_pref_cache: dict[str, list[MunicipalRecord]] = {}
 _station_cache: dict[str, StationRecord] = {}
+_station_norm_cache: dict[str, StationRecord] = {}
+_station_cache_loaded: bool = False
 _lp_cache: dict[tuple[str, str, str], LandPriceRecord] = {}
 _lp_pref_res_cache: dict[str, list[LandPriceRecord]] = {}
 _lp_pref_comm_cache: dict[str, list[LandPriceRecord]] = {}
@@ -152,13 +155,64 @@ def _init_lp_cache(lp_cls) -> bool:
     return True
 
 
+_STATION_BRACKET_RE = re.compile(r"「([^」]+)」")
+_STATION_KANA_TRANS = str.maketrans({"ッ": "ツ", "ヶ": "ケ", "ヵ": "カ"})
+
+
+def _normalize_station_lookup_key(name: str) -> str:
+    """駅名検索用の表記ゆれ正規化キーを生成する（全角英数・カギ括弧・小書きカタカナ統一）"""
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFKC", str(name)).strip()
+    m = _STATION_BRACKET_RE.search(s)
+    if m:
+        s = m.group(1).strip()
+    s = s.replace("駅", "").replace(" ", "").replace("\u3000", "")
+    return s.translate(_STATION_KANA_TRANS)
+
+
 def _load_stations(station_cls) -> bool:
+    global _station_cache_loaded
     if _station_cache:
+        _station_cache_loaded = True
         return False
     for row in station_cls.objects.values("station_name", "passenger_volume"):
-        rec = StationRecord(station_name=row["station_name"], passenger_volume=int(row["passenger_volume"]))
-        _station_cache[rec.station_name] = rec
+        name = row["station_name"]
+        if not name:
+            continue
+        vol = int(row["passenger_volume"] or 0)
+        rec = StationRecord(station_name=name, passenger_volume=vol)
+        existing = _station_cache.get(name)
+        if existing is None or vol > existing.passenger_volume:
+            _station_cache[name] = rec
+        norm_key = _normalize_station_lookup_key(name)
+        if norm_key:
+            existing_norm = _station_norm_cache.get(norm_key)
+            if existing_norm is None or vol > existing_norm.passenger_volume:
+                _station_norm_cache[norm_key] = rec
+    _station_cache_loaded = True
     return bool(_station_cache)
+
+
+def ensure_station_cache(force_refresh: bool = False) -> bool:
+    """StationPotential のみを軽量・安全にロードし、空キャッシュ参照を防止する (Issue #1777)"""
+    global _station_cache_loaded
+    if not force_refresh and (_station_cache or _station_cache_loaded):
+        return bool(_station_cache)
+    with _cache_lock:
+        if not force_refresh and (_station_cache or _station_cache_loaded):
+            return bool(_station_cache)
+        if force_refresh:
+            _station_cache.clear()
+            _station_norm_cache.clear()
+            _station_cache_loaded = False
+        try:
+            from package.models.evaluation import StationPotential
+            return _load_stations(StationPotential)
+        except Exception as e:
+            logger.warning("ML: ensure_station_cache failed to load StationPotential (falling back): %s", e)
+            _station_cache_loaded = True
+            return False
 
 
 def _load_hazards(hazard_cls) -> bool:
@@ -247,9 +301,10 @@ def _all_caches_populated() -> bool:
 
 
 def _clear_all_caches() -> None:
-    global _caches_initialized
+    global _caches_initialized, _station_cache_loaded
     _caches_initialized = False
-    for cache in (_muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache,
+    _station_cache_loaded = False
+    for cache in (_muni_cache, _muni_pref_cache, _station_cache, _station_norm_cache, _lp_cache, _lp_pref_res_cache,
                   _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache,
                   _future_pop_cache, _future_pref_cache, _muni_yearly_cache, _muni_yearly_pref_cache,
                   _station_yearly_cache, _urban_zone_cache, _urban_zone_pref_cache,
@@ -390,9 +445,30 @@ def query_municipal_potential(address1: str, address2: str) -> tuple[float | Non
 def query_station_volume(station1: str) -> int | None:
     if not station1:
         return None
-    station_clean = station1.replace("駅", "")
+    if not _station_cache and not _station_cache_loaded:
+        ensure_station_cache()
+
+    station_clean = station1.strip().replace("駅", "")
     station_pot = _station_cache.get(station_clean)
-    return station_pot.passenger_volume if station_pot else None
+    if station_pot is not None:
+        return station_pot.passenger_volume
+
+    norm_key = _normalize_station_lookup_key(station1)
+    if norm_key:
+        station_pot = _station_norm_cache.get(norm_key) or _station_cache.get(norm_key)
+        if station_pot is not None:
+            return station_pot.passenger_volume
+
+    # 路線名＋中黒（例: 「山手線・原宿」「犬山線・徳重・名古屋芸大」）へのフォールバック
+    if "・" in norm_key:
+        parts = [p for p in norm_key.split("・") if p]
+        for idx in range(1, len(parts)):
+            candidate = "・".join(parts[idx:])
+            station_pot = _station_norm_cache.get(candidate) or _station_cache.get(candidate)
+            if station_pot is not None:
+                return station_pot.passenger_volume
+
+    return None
 
 
 def calculate_effective_walk_min(walk_min: int, bus_use: int, bus_min: float, bus_walk: float, pop_density: float) -> float:
