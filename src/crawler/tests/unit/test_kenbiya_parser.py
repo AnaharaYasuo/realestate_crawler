@@ -445,4 +445,4 @@ def test_kenbiya_traffic_fallback_and_invest_kodate_validation():
     PropertyDataValidator._check_common_required(kodate, "kodate", reasons)
     PropertyDataValidator._check_madori_and_age(kodate, reasons)
     assert ERR_MISSING_MADORI not in reasons
-    assert ERR_MISSING_TRAFFIC not in reasons
+    assert ERR_MISSING_TRAFFIC in reasons
