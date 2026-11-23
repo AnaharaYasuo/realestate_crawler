@@ -181,9 +181,15 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
                 + "\n\n".join(sample_texts)
             )
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
+            from package.utils.gemini_rate_limiter import (
+                DEFAULT_GEMINI_PRIMARY_MODEL,
+                generate_content_with_fallback,
+            )
+
+            response, _used_model = generate_content_with_fallback(
+                client,
+                prompt,
+                primary_model=DEFAULT_GEMINI_PRIMARY_MODEL,
             )
             if response and hasattr(response, "text") and response.text:
                 return response.text.strip()

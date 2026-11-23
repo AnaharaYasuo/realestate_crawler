@@ -171,13 +171,18 @@ def run_bulk_diagnosis_with_gemini(
         logger.warning("GEMINI_API_KEY not set or genai module unavailable. Using fallback manifest.")
         return default_result
 
-    model_name = "gemini-2.5-flash"
+    from package.utils.gemini_rate_limiter import (
+        DEFAULT_GEMINI_PRIMARY_MODEL,
+        generate_content_with_fallback,
+    )
+
     try:
         http_options = types.HttpOptions(timeout=30000) if types else None
         with genai.Client(api_key=api_key, http_options=http_options) as client:
-            resp = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
+            resp, _used_model = generate_content_with_fallback(
+                client,
+                prompt,
+                primary_model=DEFAULT_GEMINI_PRIMARY_MODEL,
             )
             raw_text = (getattr(resp, "text", "") or "").strip()
             # Clean markdown codeblocks if present

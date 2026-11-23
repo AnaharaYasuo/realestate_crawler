@@ -15,12 +15,90 @@ import os
 import random
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# 全 Gemini 呼び出し箇所の共通モデル SSOT (Issue #1782)
+# 最も安定応答する gemini-flash-lite-latest をプライマリとし、段階的にフォールバックする
+DEFAULT_GEMINI_PRIMARY_MODEL = "gemini-flash-lite-latest"
+DEFAULT_GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
+)
+DEPRECATED_GEMINI_MODELS: frozenset[str] = frozenset({
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+})
+
+
+def resolve_gemini_model_chain(
+    primary_model: str | None = None,
+    fallback_models: Sequence[str] = DEFAULT_GEMINI_FALLBACK_MODELS,
+) -> list[str]:
+    """廃止モデルを自動除外し、プライマリから段階的に落とす重複なしモデル列を返す。"""
+    raw_candidates: list[str] = []
+    if primary_model and primary_model.strip():
+        cand = primary_model.strip()
+        if cand not in DEPRECATED_GEMINI_MODELS:
+            raw_candidates.append(cand)
+    raw_candidates.append(DEFAULT_GEMINI_PRIMARY_MODEL)
+    raw_candidates.extend(fallback_models)
+
+    chain: list[str] = []
+    seen: set[str] = set()
+    for model in raw_candidates:
+        m = (model or "").strip()
+        if not m or m in seen or m in DEPRECATED_GEMINI_MODELS:
+            continue
+        seen.add(m)
+        chain.append(m)
+    return chain
+
+
+def generate_content_with_fallback(
+    client: Any,
+    contents: Any,
+    *,
+    primary_model: str | None = None,
+    fallback_models: Sequence[str] = DEFAULT_GEMINI_FALLBACK_MODELS,
+    config: Any = None,
+    limiter: GeminiFlashRateLimiter | None = None,
+) -> tuple[Any, str]:
+    """google-genai SDK の generate_content を段階的フォールバックチェーンで実行する。"""
+    chain = resolve_gemini_model_chain(primary_model=primary_model, fallback_models=fallback_models)
+    last_exc: Exception | None = None
+    for idx, model_name in enumerate(chain):
+        try:
+            call_kwargs: dict[str, Any] = {"model": model_name, "contents": contents}
+            if config is not None:
+                call_kwargs["config"] = config
+            if limiter is not None:
+                resp = limiter.execute(client.models.generate_content, **call_kwargs)
+            else:
+                resp = client.models.generate_content(**call_kwargs)
+            return resp, model_name
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if idx + 1 < len(chain):
+                logger.warning(
+                    "Gemini call failed on %s (%s); falling back to %s",
+                    model_name,
+                    exc,
+                    chain[idx + 1],
+                )
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("No valid Gemini model available in fallback chain")
 
 _RETRYABLE_TOKENS: tuple[str, ...] = (
     "429",
