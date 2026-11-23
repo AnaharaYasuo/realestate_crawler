@@ -449,7 +449,7 @@ class DaikyoMansionParser(DaikyoParser, MansionParserBase):
 
         prop_name = getattr(item, "propertyName", "") or ""
         bukken_type = specs.get("物件種別", "") or specs.get("種別", "")
-        if any(kw in prop_name for kw in ("一棟マンション", "一棟アパート", "一棟売")) or any(
+        if any(kw in prop_name for kw in ("一棟マンション", "一棟売")) or any(
             kw in bukken_type for kw in ("一棟", "アパート", "戸建", "土地")
         ):
             from package.parser.baseParser import SkipPropertyException

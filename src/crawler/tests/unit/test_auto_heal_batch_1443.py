@@ -63,6 +63,7 @@ def test_afr_tochi_skips_kodate_and_parses_kenpeiritsu_kanji_1444():
     <html><body>
       <h2>北九州市小倉北区篠崎5丁目</h2>
       <table>
+        <tr><th>物件種別</th><td>中古一戸建て</td></tr>
         <tr><th>価格</th><td>3,750万円</td></tr>
         <tr><th>土地面積</th><td>248.49m²</td></tr>
         <tr><th>建物面積</th><td>107.44m²</td></tr>

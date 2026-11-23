@@ -508,11 +508,9 @@ class AfrTochiParser(AfrParser, TochiParserBase):
         specs = self._get_specs(response)
 
         bukken_type = specs.get("物件種別", "")
-        if any(kw in bukken_type for kw in ("戸建", "マンション", "アパート", "一棟")) or (
-            specs.get("建物面積") and specs.get("間取り")
-        ):
+        if any(kw in bukken_type for kw in ("戸建", "マンション", "アパート", "一棟")):
             from package.parser.baseParser import SkipPropertyException
-            raise SkipPropertyException("AfrTochi: Non-tochi property (has building/layout).")
+            raise SkipPropertyException(f"AfrTochi: Non-tochi property skipped (物件種別={bukken_type}).")
 
         # 土地面積
         item.tochiMensekiStr = specs.get("土地面積", "")
