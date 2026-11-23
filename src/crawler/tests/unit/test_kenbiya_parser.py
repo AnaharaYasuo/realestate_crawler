@@ -446,3 +446,143 @@ def test_kenbiya_traffic_fallback_and_invest_kodate_validation():
     PropertyDataValidator._check_madori_and_age(kodate, reasons)
     assert ERR_MISSING_MADORI not in reasons
     assert ERR_MISSING_TRAFFIC in reasons
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_cross_process_throttle_shares_state(tmp_path, monkeypatch):
+    """プロセス間共有ファイルロックで送信間隔が共有状態ファイルに記録・適用されること"""
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    state_file = tmp_path / "kenbiya_rate_limit.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_MIN_INTERVAL", "1.0")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    sleep_mock = AsyncMock()
+    with patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock), patch(
+        "package.parser.kenbiyaParser.random.uniform", return_value=1.5
+    ):
+        await KenbiyaParserBase._throttle_before_request()
+        await KenbiyaParserBase._throttle_before_request()
+
+    assert state_file.exists()
+    # 2回目の呼び出しは 1.0 + 1.5 = 2.5s 近いスリープが要求される
+    assert sleep_mock.await_count >= 1
+    assert sleep_mock.await_args_list[-1].args[0] >= 2.0
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_503_shared_circuit_breaker_stops_other_requests(
+    tmp_path, monkeypatch
+):
+    """503検知時に共有サーキットブレーカーが開き、後続リクエストが即座にServerBusyExceptionで停止すること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.parser.baseParser import ServerBusyException
+
+    state_file = tmp_path / "kenbiya_503_state.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_503_CIRCUIT_COOLDOWN_SEC", "60")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    from unittest.mock import patch
+
+    with patch.object(KenbiyaParserBase, "_disconnect_pppoe_on_503") as mock_disconnect:
+        KenbiyaParserBase._record_503_circuit_open("https://www.kenbiya.com/pp1/s/tokyo/n-49/")
+        # 既にサーキット開放中なら2回目は切断を重複実行しない
+        KenbiyaParserBase._record_503_circuit_open("https://www.kenbiya.com/pp1/s/tokyo/n-50/")
+        mock_disconnect.assert_called_once_with("https://www.kenbiya.com/pp1/s/tokyo/n-49/")
+
+    with pytest.raises(ServerBusyException, match="shared 503 circuit breaker active"):
+        await KenbiyaParserBase._throttle_before_request()
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_global_rpm_cap_and_long_pause(tmp_path, monkeypatch):
+    """大量件数クロール時にグローバルRPM上限と定期ロングポーズが発動すること"""
+    from unittest.mock import AsyncMock, patch
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    state_file = tmp_path / "kenbiya_rpm_state.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_MIN_INTERVAL", "0.5")
+    monkeypatch.setenv("KENBIYA_GLOBAL_MAX_RPM", "2")
+    monkeypatch.setenv("KENBIYA_LONG_PAUSE_EVERY", "2")
+    monkeypatch.setenv("KENBIYA_LONG_PAUSE_SEC", "10")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    sleep_mock = AsyncMock()
+    with patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock), patch(
+        "package.parser.kenbiyaParser.random.uniform", return_value=1.0
+    ):
+        await KenbiyaParserBase._throttle_before_request()  # 1回目
+        await KenbiyaParserBase._throttle_before_request()  # 2回目 -> ロングポーズ発動 (+10s以上)
+        await KenbiyaParserBase._throttle_before_request()  # 3回目 -> RPM=2超過 -> 60秒ウィンドウ待機
+
+    sleeps = [call.args[0] for call in sleep_mock.await_args_list]
+    # 2回目でロングポーズ（10s以上）、3回目でRPMウィンドウ待機（40s以上）が要求される
+    assert any(s >= 10.0 for s in sleeps)
+    assert sleeps[-1] >= 40.0
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_503_triggers_pppoe_recovery_and_resumes_in_place(
+    tmp_path, monkeypatch
+):
+    """503受信時にプロセスを終了せず、PPPoE解放・指定時間スリープ・再接続後に同一URLを再開できること"""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    state_file = tmp_path / "kenbiya_503_recovery_state.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_MIN_INTERVAL", "0.1")
+    monkeypatch.setenv("KENBIYA_GLOBAL_MAX_RPM", "100")
+    monkeypatch.setenv("KENBIYA_LONG_PAUSE_EVERY", "0")
+    monkeypatch.setenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "1200")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    parser = ConcreteKenbiyaParser()
+    call_count = 0
+
+    def mock_get(url, headers=None, timeout=None):
+        nonlocal call_count
+        call_count += 1
+        mock_resp = MagicMock()
+        if call_count == 1:
+            mock_resp.status = 503
+            mock_resp.read = AsyncMock(return_value=b"Service Unavailable")
+        else:
+            mock_resp.status = 200
+            mock_resp.read = AsyncMock(return_value=b"<html>ok</html>")
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_resp)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    sleep_mock = AsyncMock()
+    rotate_mock = AsyncMock()
+    with patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock), patch.object(
+        KenbiyaParserBase, "_rotate_pppoe_ip", rotate_mock
+    ):
+        body = await parser._getContent(mock_session, "https://www.kenbiya.com/pp1/s/tokyo/n-56/")
+
+    assert body == b"<html>ok</html>"
+    assert call_count == 2
+    assert rotate_mock.await_count == 1
+    assert rotate_mock.await_args.args[0] == "https://www.kenbiya.com/pp1/s/tokyo/n-56/"
+    assert rotate_mock.await_args.args[1] == 1200.0
+
+
+
+
