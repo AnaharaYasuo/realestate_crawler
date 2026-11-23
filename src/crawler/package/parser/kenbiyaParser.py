@@ -251,6 +251,16 @@ class KenbiyaParserBase(ParserBase):
             logging.debug(f"Failed to write Kenbiya shared rate-limit state: {e}")
 
     @classmethod
+    def get_active_rotation_remaining_seconds(cls) -> float:
+        """共有状態ファイル上のPPPoEローテーション残り秒数を返す（未実行・無効時は0.0）"""
+        if not cls._is_cross_process_coordination_enabled():
+            return 0.0
+        state_path = cls._get_rate_limit_state_path()
+        state = cls._read_shared_state(state_path)
+        remaining = state.get("rotating_until", 0.0) - time.time()
+        return remaining if remaining > 0.0 else 0.0
+
+    @classmethod
     async def _rotate_pppoe_ip(
         cls, trigger_url: str, wait_sec: float, state_path: str, lock_path: str
     ) -> None:
