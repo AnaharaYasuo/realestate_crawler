@@ -944,11 +944,19 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return (
+        val = (
             specs.get("交通", "")
             or specs.get("アクセス", "")
             or specs.get("最寄駅", "")
+            or specs.get("沿線・駅", "")
         )
+        if val:
+            return val
+        if response is not None:
+            m = re.search(r"[^\s]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
+            if m:
+                return m.group(0).strip()
+        return ""
 
     def _parseRights(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -1246,7 +1254,17 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        val = specs.get("間取り", "") or specs.get("間取", "")
+        val = (
+            specs.get("間取り", "")
+            or specs.get("間取", "")
+            or specs.get("間取り詳細", "")
+            or specs.get("部屋構成", "")
+        )
+        if not val and response is not None:
+            m = re.search(r"(?:[1-9]\d?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
+            if m:
+                return m.group(0)
+            return ""
         if not val:
             return ""
         for token in val.split():
@@ -1393,7 +1411,17 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "")
+        val = (
+            specs.get("間取り", "")
+            or specs.get("間取", "")
+            or specs.get("間取り詳細", "")
+            or specs.get("部屋構成", "")
+        )
+        if not val and response is not None:
+            m = re.search(r"(?:[1-9]\d?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
+            if m:
+                return m.group(0)
+        return val
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._populate_common_fields(item, response)
@@ -1432,6 +1460,14 @@ class KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase):
         specs = self._populate_common_fields(item, response)
         item.tochiMenseki = self._parseTochiMenseki(response, specs)
         item.tochiMensekiStr = specs.get("土地面積", "")
+        if (
+            getattr(item, "price", None) is not None
+            and 0 < float(item.price) < 1_000_000
+            and item.tochiMenseki is not None
+            and float(item.tochiMenseki) <= 5.0
+        ):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException("KenbiyaTochi: Placeholder/consultation listing (price<100万 and area<=5㎡).")
 
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)

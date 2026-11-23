@@ -985,6 +985,8 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         self._ensure_mansion_located_floor(item, response, page_url, specs=specs)
         if not item.senyuMenseki or float(item.senyuMenseki) <= 5.0:
             raise SkipPropertyException(f"Athome mansion invalid senyuMenseki ({item.senyuMenseki}) skipped: {page_url}")
+        if getattr(item, "price", None) is not None and 0 < float(item.price) < 1_000_000:
+            raise SkipPropertyException(f"Athome mansion anomalous low price ({item.price}) skipped: {page_url}")
         item.saikou = specs.get("主要採光面", "")
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)

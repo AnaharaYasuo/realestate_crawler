@@ -145,8 +145,18 @@ class KeikyuParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    def _apply_keikyu_traffic(self, item, specs: dict) -> None:
-        traffic_str = specs.get("交通", "") or specs.get("路線・駅", "")
+    def _apply_keikyu_traffic(self, item, specs: dict, response: BeautifulSoup | None = None) -> None:
+        traffic_str = (
+            specs.get("交通", "")
+            or specs.get("路線・駅", "")
+            or specs.get("最寄駅", "")
+            or specs.get("アクセス", "")
+            or specs.get("沿線・駅", "")
+        )
+        if not traffic_str and response is not None:
+            m = re.search(r"[^\s]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
+            if m:
+                traffic_str = m.group(0).strip()
         if traffic_str:
             self._populateTraffic(item, traffic_str)
             if getattr(item, "railwayWalkMinute1", None) in (None, 0):
@@ -176,7 +186,7 @@ class KeikyuParser(ParserBase):
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
         # 交通
-        self._apply_keikyu_traffic(item, specs)
+        self._apply_keikyu_traffic(item, specs, response)
 
         item.biko = specs.get("備考", "") or specs.get("その他", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
