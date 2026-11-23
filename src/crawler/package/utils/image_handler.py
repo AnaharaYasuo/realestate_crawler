@@ -282,10 +282,15 @@ def analyze_property_images_with_gemini(cleaned_images):
 ```
 """
 
-            response = get_gemini_flash_limiter().execute(
-                client.models.generate_content,
-                model='gemini-2.5-flash',
-                contents=[prompt] + images_to_send,
+            from package.utils.gemini_rate_limiter import (
+                DEFAULT_GEMINI_PRIMARY_MODEL,
+                generate_content_with_fallback,
+            )
+            response, _used_model = generate_content_with_fallback(
+                client,
+                [prompt] + images_to_send,
+                primary_model=os.getenv('GEMINI_VISION_MODEL', DEFAULT_GEMINI_PRIMARY_MODEL),
+                limiter=get_gemini_flash_limiter(),
             )
             return _parse_gemini_analysis_response(response.text, default_result)
     except Exception:
@@ -457,16 +462,21 @@ def analyze_property_images_hybrid(cleaned_images: list[dict]) -> dict:
         '"exposed_pipes_risk": false, "renovation_budget_tier": "tier_medium"}'
     )
     try:
+        from package.utils.gemini_rate_limiter import (
+            DEFAULT_GEMINI_PRIMARY_MODEL,
+            generate_content_with_fallback,
+        )
         pil_only = [img for _, img in categorized_pil]
-        model_name = os.getenv('GEMINI_VISION_MODEL', 'gemini-2.5-flash')
+        model_name = os.getenv('GEMINI_VISION_MODEL', DEFAULT_GEMINI_PRIMARY_MODEL)
         with genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=30000)) as client:
-            resp = get_gemini_flash_limiter().execute(
-                client.models.generate_content,
-                model=model_name,
-                contents=[prompt, *pil_only],
+            resp, _used_model = generate_content_with_fallback(
+                client,
+                [prompt, *pil_only],
+                primary_model=model_name,
+                limiter=get_gemini_flash_limiter(),
             )
             gemini_res = _parse_gemini_analysis_response(resp.text or "", base_res)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Gemini 2.5 Flash skipped/failed in hybrid vision; using OpenCV result: %s", exc)
+        logger.warning("Gemini Flash skipped/failed in hybrid vision; using OpenCV result: %s", exc)
 
     return _fuse_opencv_and_gemini_results(base_res, cv_res, gemini_res)

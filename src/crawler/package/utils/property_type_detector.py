@@ -583,7 +583,12 @@ class PropertyTypeDetector:
         if not api_key or genai is None:
             return default
 
-        _model = "gemini-2.5-flash"
+        from package.utils.gemini_rate_limiter import (
+            DEFAULT_GEMINI_PRIMARY_MODEL,
+            generate_content_with_fallback,
+        )
+
+        _model = DEFAULT_GEMINI_PRIMARY_MODEL
         try:
             http_options = types.HttpOptions(timeout=10000) if types else None
             with genai.Client(api_key=api_key, http_options=http_options) as client:
@@ -597,9 +602,10 @@ class PropertyTypeDetector:
                     "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
                 )
                 _t0 = time.time()
-                resp = client.models.generate_content(
-                    model=_model,
-                    contents=prompt,
+                resp, _model = generate_content_with_fallback(
+                    client,
+                    prompt,
+                    primary_model=DEFAULT_GEMINI_PRIMARY_MODEL,
                 )
                 _duration_ms = (time.time() - _t0) * 1000
                 raw_ans = (getattr(resp, "text", "") or "").strip().lower()

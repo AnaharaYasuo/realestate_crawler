@@ -960,3 +960,16 @@ Cloud Run ジョブ（2 vCPU / 2 GiB RAM）において全種別 ML 再学習（
 - `src/crawler/package/ml/evaluation/runner.py` の `DEFAULT_CONCURRENCY` は `2`（`realestate-ml-pipeline-prod` の `2 vCPU / 2 GiB RAM` 環境での OOM 防止のため）とする。
 - `run_ml_pipeline.py` に `--concurrency` 引数を新設し、CLI から動的に並列度（例: `--concurrency 4`）を指定可能とする (Issue #1507)。
 - `Dockerfile` には最新 Playwright ドライバー向けに `libatomic1` を含める。
+
+## 23. 全Gemini API呼び出しの共通プライマリ＆段階的フォールバック仕様 (Issue #1782)
+
+`gemini-2.5-flash` / `gemini-2.5-flash-lite` の API 廃止（HTTP 404）および特定世代モデルの一時的な高負荷（HTTP 503）による AI 定性レポート欠損・推論エラーを根絶するため、`package/utils/gemini_rate_limiter.py` を SSOT（Single Source of Truth）として以下を統一規定する：
+
+1. **共通プライマリモデル (`DEFAULT_GEMINI_PRIMARY_MODEL`)**:
+   - `gemini-flash-lite-latest` を全 AI 呼び出し箇所の共通プライマリモデルとする。
+2. **段階的フォールバックチェーン (`DEFAULT_GEMINI_FALLBACK_MODELS`)**:
+   - `("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash")` の順に段階的にフォールバックする。
+3. **廃止モデルの自動スキップ (`DEPRECATED_GEMINI_MODELS`)**:
+   - `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-pro` が環境変数や引数から渡された場合でも、`resolve_gemini_model_chain()` により自動でスキップし、`gemini-flash-lite-latest` を先頭とする有効チェーンへ正規化する。
+4. **全7箇所の統一適用**:
+   - `report_generator.py`、`unified_property_extractor.py`、`image_handler.py`、`property_type_detector.py`、`auto_heal_parsers.py`、`bulk_auto_heal_diagnose.py`、`run_daily_prediction_diagnostics.py` のすべてが共通定数および `generate_content_with_fallback()` / `resolve_gemini_model_chain()` を使用する。
