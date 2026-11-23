@@ -154,7 +154,7 @@ class KeikyuParser(ParserBase):
             or specs.get("沿線・駅", "")
         )
         if not traffic_str and response is not None:
-            m = re.search(r"[^\s　]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
+            m = re.search(r"[^\s]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
             if m:
                 traffic_str = m.group(0).strip()
         if traffic_str:

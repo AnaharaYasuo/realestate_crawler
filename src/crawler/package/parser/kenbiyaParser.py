@@ -943,7 +943,7 @@ class KenbiyaParserBase(ParserBase):
         if val:
             return val
         if response is not None:
-            m = re.search(r"[^\s　]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
+            m = re.search(r"[^\s]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+\s*分", response.get_text(" ", strip=True))
             if m:
                 return m.group(0).strip()
         return ""
@@ -1251,7 +1251,7 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
             or specs.get("部屋構成", "")
         )
         if not val and response is not None:
-            m = re.search(r"(?:[1-9][0-9]?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
+            m = re.search(r"(?:[1-9]\d?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
             if m:
                 return m.group(0)
             return ""
@@ -1408,7 +1408,7 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
             or specs.get("部屋構成", "")
         )
         if not val and response is not None:
-            m = re.search(r"(?:[1-9][0-9]?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
+            m = re.search(r"(?:[1-9]\d?(?:SLDK|LDK|SDK|DK|LK|K|R)|ワンルーム)", response.get_text(" ", strip=True))
             if m:
                 return m.group(0)
         return val

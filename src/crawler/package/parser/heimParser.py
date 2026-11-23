@@ -106,7 +106,7 @@ class HeimParser(ParserBase):
         self._heim_specs_from_dl(response, specs)
         if not specs.get("交通"):
             m = re.search(
-                r"[^\s　]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+(?:[~～\-]\d+)?\s*分",
+                r"[^\s]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+(?:[~～\-]\d+)?\s*分",
                 response.get_text(" ", strip=True),
             )
             if m:
