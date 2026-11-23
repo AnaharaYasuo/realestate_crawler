@@ -165,53 +165,53 @@ class KenbiyaParserBase(ParserBase):
         return True
 
     @staticmethod
+    def _try_lock_handle(fh: Any) -> bool:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _try_unlock_handle(fh: Any) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+    @classmethod
     @contextmanager
-    def _acquire_file_lock(lock_path: str, timeout: float = 5.0) -> Iterator[None]:
+    def _acquire_file_lock(cls, lock_path: str, timeout: float = 5.0) -> Iterator[None]:
         os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
         fh = open(lock_path, "a+b")
         locked = False
         deadline = time.monotonic() + timeout
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                while True:
-                    try:
-                        fh.seek(0)
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                        locked = True
-                        break
-                    except OSError:
-                        if time.monotonic() >= deadline:
-                            break
-                        time.sleep(0.02)
-            else:
-                import fcntl
-
-                while True:
-                    try:
-                        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        locked = True
-                        break
-                    except OSError:
-                        if time.monotonic() >= deadline:
-                            break
-                        time.sleep(0.02)
+            while not locked:
+                locked = cls._try_lock_handle(fh)
+                if locked or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.02)
             yield
         finally:
             if locked:
-                try:
-                    if os.name == "nt":
-                        import msvcrt
-
-                        fh.seek(0)
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                    else:
-                        import fcntl
-
-                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
+                cls._try_unlock_handle(fh)
             fh.close()
 
     @classmethod
@@ -274,13 +274,12 @@ class KenbiyaParserBase(ParserBase):
                 f"[Kenbiya503Recovery] PPPoE rotation failed: {exc}"
             )
         finally:
-            with KenbiyaParserBase._request_lock:
-                with cls._acquire_file_lock(lock_path):
-                    state = cls._read_shared_state(state_path)
-                    state["rotating_until"] = 0.0
-                    state["last_request_time"] = time.time()
-                    state["request_timestamps"] = []
-                    cls._write_shared_state(state_path, state)
+            with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+                state = cls._read_shared_state(state_path)
+                state["rotating_until"] = 0.0
+                state["last_request_time"] = time.time()
+                state["request_timestamps"] = []
+                cls._write_shared_state(state_path, state)
 
     @classmethod
     async def _handle_503_with_pppoe_recovery(cls, url: str) -> bool:
@@ -303,19 +302,18 @@ class KenbiyaParserBase(ParserBase):
         should_rotate = False
         sleep_duration = 0.0
 
-        with KenbiyaParserBase._request_lock:
-            with cls._acquire_file_lock(lock_path):
-                now_wall = time.time()
-                state = cls._read_shared_state(state_path)
-                rotating_until = state.get("rotating_until", 0.0)
-                if rotating_until > now_wall:
-                    sleep_duration = rotating_until - now_wall
-                else:
-                    should_rotate = True
-                    state["rotating_until"] = now_wall + wait_sec + 15.0
-                    state["last_request_time"] = state["rotating_until"]
-                    state["request_timestamps"] = []
-                    cls._write_shared_state(state_path, state)
+        with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+            now_wall = time.time()
+            state = cls._read_shared_state(state_path)
+            rotating_until = state.get("rotating_until", 0.0)
+            if rotating_until > now_wall:
+                sleep_duration = rotating_until - now_wall
+            else:
+                should_rotate = True
+                state["rotating_until"] = now_wall + wait_sec + 15.0
+                state["last_request_time"] = state["rotating_until"]
+                state["request_timestamps"] = []
+                cls._write_shared_state(state_path, state)
 
         if should_rotate:
             await cls._rotate_pppoe_ip(url, wait_sec, state_path, lock_path)
@@ -362,91 +360,89 @@ class KenbiyaParserBase(ParserBase):
         now_wall = time.time()
         open_until = now_wall + cooldown_sec
         should_disconnect = False
-        with KenbiyaParserBase._request_lock:
-            with cls._acquire_file_lock(lock_path):
-                state = cls._read_shared_state(state_path)
-                prev_open_until = state.get("circuit_open_until", 0.0)
-                if prev_open_until <= now_wall:
-                    should_disconnect = True
-                state["circuit_open_until"] = max(prev_open_until, open_until)
-                cls._write_shared_state(state_path, state)
+        with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+            state = cls._read_shared_state(state_path)
+            prev_open_until = state.get("circuit_open_until", 0.0)
+            if prev_open_until <= now_wall:
+                should_disconnect = True
+            state["circuit_open_until"] = max(prev_open_until, open_until)
+            cls._write_shared_state(state_path, state)
         logging.warning(
             f"[Kenbiya503Circuit] Opened shared 503 circuit breaker for {cooldown_sec:.0f}s (trigger: {url})"
         )
         if should_disconnect:
             cls._disconnect_pppoe_on_503(url)
 
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return int(os.getenv(name, str(default)))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _env_float(name: str, default: float) -> float:
+        try:
+            return float(os.getenv(name, str(default)))
+        except ValueError:
+            return default
+
+    @classmethod
+    def _compute_shared_throttle_delay(
+        cls, state: dict[str, Any], now_wall: float, min_interval: float, jitter: float
+    ) -> float:
+        circuit_open_until = state.get("circuit_open_until", 0.0)
+        if circuit_open_until > now_wall:
+            remaining = circuit_open_until - now_wall
+            raise ServerBusyException(
+                f"Kenbiya shared 503 circuit breaker active ({remaining:.1f}s remaining)"
+            )
+        rotating_until = state.get("rotating_until", 0.0)
+        if rotating_until > now_wall:
+            return rotating_until - now_wall
+
+        last_wall = state.get("last_request_time", 0.0)
+        target_wall = max(now_wall, last_wall + min_interval + jitter)
+
+        max_rpm = cls._env_int("KENBIYA_GLOBAL_MAX_RPM", 20)
+        window_start = target_wall - 60.0
+        recent_ts = [t for t in state.get("request_timestamps", []) if t > window_start]
+        if max_rpm > 0 and len(recent_ts) >= max_rpm:
+            oldest_in_window = recent_ts[len(recent_ts) - max_rpm]
+            target_wall = max(
+                target_wall, oldest_in_window + 60.0 + random.uniform(0.5, 1.5)
+            )
+
+        total_requests = int(state.get("total_requests", 0)) + 1
+        pause_every = cls._env_int("KENBIYA_LONG_PAUSE_EVERY", 40)
+        if pause_every > 0 and total_requests % pause_every == 0:
+            pause_sec = cls._env_float("KENBIYA_LONG_PAUSE_SEC", 15.0)
+            if pause_sec > 0:
+                target_wall += pause_sec + random.uniform(0.0, 5.0)
+
+        recent_ts.append(target_wall)
+        state["request_timestamps"] = recent_ts[-200:]
+        state["total_requests"] = total_requests
+        state["last_request_time"] = target_wall
+        return target_wall - now_wall
+
     @classmethod
     async def _throttle_before_request(cls) -> None:
         """リクエスト送信間隔を全プロセス共通のファイルロックで担保し、503サーキットブレーカーを共有する"""
         if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
             return
-        raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
-        try:
-            min_interval = float(raw_interval) if raw_interval else 1.0
-        except ValueError:
-            min_interval = 1.0
+        min_interval = cls._env_float("KENBIYA_MIN_INTERVAL", 1.0)
         jitter = random.uniform(1.5, 2.5)
 
         if cls._is_cross_process_coordination_enabled():
             state_path = cls._get_rate_limit_state_path()
             lock_path = f"{state_path}.lock"
-
-            with KenbiyaParserBase._request_lock:
-                with cls._acquire_file_lock(lock_path):
-                    now_wall = time.time()
-                    state = cls._read_shared_state(state_path)
-                    circuit_open_until = state.get("circuit_open_until", 0.0)
-                    if circuit_open_until > now_wall:
-                        remaining = circuit_open_until - now_wall
-                        raise ServerBusyException(
-                            f"Kenbiya shared 503 circuit breaker active ({remaining:.1f}s remaining)"
-                        )
-
-                    # 他プロセスが503復旧のPPPoEローテーション中ならプロセスを切らず完了まで待機
-                    rotating_until = state.get("rotating_until", 0.0)
-                    if rotating_until > now_wall:
-                        sleep_duration = rotating_until - now_wall
-                    else:
-                        last_wall = state.get("last_request_time", 0.0)
-                        target_wall = max(now_wall, last_wall + min_interval + jitter)
-
-                        # 1. プロセス間グローバルRPM上限（直近60秒のスライディングウィンドウ）
-                        try:
-                            max_rpm = int(os.getenv("KENBIYA_GLOBAL_MAX_RPM", "20"))
-                        except ValueError:
-                            max_rpm = 20
-                        window_start = target_wall - 60.0
-                        recent_ts = [
-                            t for t in state.get("request_timestamps", []) if t > window_start
-                        ]
-                        if max_rpm > 0 and len(recent_ts) >= max_rpm:
-                            oldest_in_window = recent_ts[len(recent_ts) - max_rpm]
-                            rpm_ready_wall = oldest_in_window + 60.0 + random.uniform(0.5, 1.5)
-                            if rpm_ready_wall > target_wall:
-                                target_wall = rpm_ready_wall
-
-                        # 2. 一定リクエスト数ごとの自然なロングポーズ（連続アクセス負荷のリセット）
-                        total_requests = int(state.get("total_requests", 0)) + 1
-                        try:
-                            pause_every = int(os.getenv("KENBIYA_LONG_PAUSE_EVERY", "40"))
-                        except ValueError:
-                            pause_every = 40
-                        if pause_every > 0 and total_requests % pause_every == 0:
-                            try:
-                                pause_sec = float(os.getenv("KENBIYA_LONG_PAUSE_SEC", "15"))
-                            except ValueError:
-                                pause_sec = 15.0
-                            if pause_sec > 0:
-                                target_wall += pause_sec + random.uniform(0.0, 5.0)
-
-                        sleep_duration = target_wall - now_wall
-                        recent_ts.append(target_wall)
-                        state["request_timestamps"] = recent_ts[-200:]
-                        state["total_requests"] = total_requests
-                        state["last_request_time"] = target_wall
-                        cls._write_shared_state(state_path, state)
-
+            with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+                state = cls._read_shared_state(state_path)
+                sleep_duration = cls._compute_shared_throttle_delay(
+                    state, time.time(), min_interval, jitter
+                )
+                cls._write_shared_state(state_path, state)
             if sleep_duration > 0:
                 await asyncio.sleep(sleep_duration)
             return
