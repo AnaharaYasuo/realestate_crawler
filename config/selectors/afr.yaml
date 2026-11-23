@@ -43,6 +43,7 @@ kodate:
     建物面積: tatemonoMensekiStr
     建物構造: kouzou
     建ぺい率: kenpeiStr
+    建蔽率: kenpeiStr
     容積率: yousekiStr
     都市計画: kuiki
     用途地域: youtoChiiki
@@ -63,6 +64,7 @@ tochi:
     取引態様: torihiki
     土地面積: tochiMensekiStr
     建ぺい率: kenpeiStr
+    建蔽率: kenpeiStr
     容積率: yousekiStr
     都市計画: kuiki
     用途地域: youtoChiiki

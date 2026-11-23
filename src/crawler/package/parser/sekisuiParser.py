@@ -341,8 +341,15 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         return SekisuiMansion()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "") or ""
+        if any(seg in page_url for seg in ("/tochi/", "/kodate/")):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException(f"SekisuiMansion: Non-mansion URL skipped ({page_url}).")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
+        if not specs.get("専有面積") and (specs.get("土地面積") or specs.get("敷地面積")):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException(f"SekisuiMansion: Non-mansion specs skipped ({page_url}).")
 
         item.madori = self._parseMadori(response, specs)
         item.senyuMensekiStr = specs.get("専有面積", "")

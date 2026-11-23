@@ -112,6 +112,15 @@ class TohoBaseParser(ParserBase):
                 if key and key not in specs:
                     specs[key] = val
 
+        for tr in response.find_all("tr"):
+            ths = tr.find_all("th")
+            tds = tr.find_all("td")
+            for th, td in zip(ths, tds):
+                key = th.get_text(strip=True)
+                val = td.get_text(" ", strip=True)
+                if key and key not in specs:
+                    specs[key] = val
+
         response._cached_specs = specs
         return specs
 
@@ -156,11 +165,35 @@ class TohoBaseParser(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if not val:
+            combined = (
+                specs.get("建ぺい率/容積率", "")
+                or specs.get("建ぺい率／容積率", "")
+                or specs.get("建蔽率/容積率", "")
+                or specs.get("建蔽率／容積率", "")
+            )
+            if combined:
+                parts = re.split(r"[/／]", combined)
+                if parts:
+                    val = parts[0].strip()
+        return val
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("容積率", "")
+        val = specs.get("容積率", "")
+        if not val:
+            combined = (
+                specs.get("建ぺい率/容積率", "")
+                or specs.get("建ぺい率／容積率", "")
+                or specs.get("建蔽率/容積率", "")
+                or specs.get("建蔽率／容積率", "")
+            )
+            if combined:
+                parts = re.split(r"[/／]", combined)
+                if len(parts) >= 2:
+                    val = parts[1].strip()
+        return val
 
     def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
