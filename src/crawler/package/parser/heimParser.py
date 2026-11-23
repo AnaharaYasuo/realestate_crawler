@@ -104,6 +104,13 @@ class HeimParser(ParserBase):
         self._heim_specs_from_outline_cards(response, specs)
         self._heim_normalize_spec_aliases(specs)
         self._heim_specs_from_dl(response, specs)
+        if not specs.get("交通"):
+            m = re.search(
+                r"[^\s　]{1,20}線[^\n]{0,20}駅[^\n]{0,15}徒歩\s*\d+(?:[~～\-]\d+)?\s*分",
+                response.get_text(" ", strip=True),
+            )
+            if m:
+                specs["交通"] = m.group(0).strip()
         return specs
 
     @staticmethod
