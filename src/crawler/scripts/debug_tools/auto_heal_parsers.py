@@ -195,10 +195,15 @@ def summarize_errors_with_gemini(
         )
         return default_summary
 
-    # 環境変数からモデルを取得。gemini-2.5-flash等の非推奨・廃止モデルが指定されていた場合は最新3.8-flashへフォールバック
-    candidate_model = os.getenv("GEMINI_RECOMMEND_MODEL", "gemini-3.8-flash")
-    if candidate_model in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
-        candidate_model = "gemini-3.8-flash"
+    from package.utils.gemini_rate_limiter import (
+        DEFAULT_GEMINI_PRIMARY_MODEL,
+        generate_content_with_fallback,
+        resolve_gemini_model_chain,
+    )
+
+    candidate_model = resolve_gemini_model_chain(
+        os.getenv("GEMINI_RECOMMEND_MODEL", DEFAULT_GEMINI_PRIMARY_MODEL)
+    )[0]
 
     try:
         http_options = types.HttpOptions(timeout=15000) if types else None
@@ -217,9 +222,10 @@ def summarize_errors_with_gemini(
                 "3. **【推奨実行コマンド】**: テストやオートヒール実行のためのコマンド（例: `/auto-heal`, `pytest ...`）を明示する。\n"
                 "※ 冗長な挨拶は省き、実務的・具体的・Markdown形式で記述してください。"
             )
-            resp = client.models.generate_content(
-                model=candidate_model,
-                contents=prompt,
+            resp, candidate_model = generate_content_with_fallback(
+                client,
+                prompt,
+                primary_model=candidate_model,
             )
             summary_text = (getattr(resp, "text", "") or "").strip()
             if summary_text:

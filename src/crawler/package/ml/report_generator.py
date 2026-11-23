@@ -239,9 +239,15 @@ def _build_rag_prompt(
 """
 
 
-# --- Gemini リトライ方針 (Issue #1260): エラーコード別に可否・待機時間を決定する ---
-DEFAULT_RECOMMEND_MODEL = "gemini-3.5-flash-lite"  # gemini-3.5-flash は非推奨で 3.6-flash に自動転送されるため実体を明示
-FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite")
+from package.utils.gemini_rate_limiter import (
+    DEFAULT_GEMINI_FALLBACK_MODELS,
+    DEFAULT_GEMINI_PRIMARY_MODEL,
+    resolve_gemini_model_chain,
+)
+
+# --- Gemini リトライ方針 (Issue #1260, #1782): 共通プライマリ＋段階的フォールバック ---
+DEFAULT_RECOMMEND_MODEL = DEFAULT_GEMINI_PRIMARY_MODEL
+FALLBACK_MODELS = DEFAULT_GEMINI_FALLBACK_MODELS
 
 RATE_LIMIT_BASE_SEC = 15.0
 TRANSIENT_BASE_SEC = 3.0
@@ -676,15 +682,12 @@ def _resolve_property_rent_mesh(prop: Any) -> list[dict[str, Any]]:
 def _execute_gemini_report_call(
     prompt: str, api_key: str, primary_model: str
 ) -> dict[str, Any] | None:
-    """主要モデルおよびフォールバックモデルでGemini APIを順次試行する"""
+    """主要モデルおよび段階的フォールバックモデルでGemini APIを順次試行する"""
     from package.utils.gemini_rate_limiter import get_gemini_flash_limiter
 
-    seen_models = set()
-    for m in [primary_model, *FALLBACK_MODELS]:
-        if not m or m in seen_models:
-            continue
-        seen_models.add(m)
-        if "2.5-flash" in m:
+    model_chain = resolve_gemini_model_chain(primary_model=primary_model, fallback_models=FALLBACK_MODELS)
+    for m in model_chain:
+        if "flash" in m:
             get_gemini_flash_limiter().wait_for_slot()
         report_data = _call_gemini_api(m, api_key, prompt)
         if report_data:

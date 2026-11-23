@@ -216,10 +216,16 @@ PROMPT_TEMPLATE = """あなたは不動産鑑定評価および機械学習価�
 """
 
 
+from package.utils.gemini_rate_limiter import (
+    DEFAULT_GEMINI_PRIMARY_MODEL,
+    generate_content_with_fallback,
+)
+
+
 class SingleUnifiedPropertyExtractor:
     """1物件1リクエスト完結型属性抽出器（テキスト・画像マルチモーダル一括対応）"""
 
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, model_name: str = DEFAULT_GEMINI_PRIMARY_MODEL):
         self.model_name = model_name
 
     def _get_genai_client(self):
@@ -272,9 +278,10 @@ class SingleUnifiedPropertyExtractor:
                     content_payload = prompt
 
                 _t0 = time.time()
-                response = client.models.generate_content(
-                    model=self.model_name,
-                    contents=content_payload
+                response, used_model = generate_content_with_fallback(
+                    client,
+                    content_payload,
+                    primary_model=self.model_name,
                 )
                 _duration_ms = (time.time() - _t0) * 1000
                 raw_text = response.text.strip() if hasattr(response, "text") else ""
@@ -288,7 +295,7 @@ class SingleUnifiedPropertyExtractor:
                 # Record LLM telemetry after successful parse+conversion (Issue #562 #6, CodeRabbit #3)
                 _usage = getattr(response, "usage_metadata", None)
                 record_llm_event(
-                    model_name=self.model_name,
+                    model_name=used_model,
                     prompt_tokens=getattr(_usage, "prompt_token_count", 0) or 0,
                     completion_tokens=getattr(_usage, "candidates_token_count", 0) or 0,
                     duration_ms=round(_duration_ms, 1),
