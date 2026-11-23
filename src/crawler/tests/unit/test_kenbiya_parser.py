@@ -584,5 +584,43 @@ async def test_kenbiya_503_triggers_pppoe_recovery_and_resumes_in_place(
     assert rotate_mock.await_args.args[1] == 1200.0
 
 
+def test_kenbiya_rotation_remaining_and_fire_and_forget_timeout_extension(
+    tmp_path, monkeypatch
+):
+    """PPPoEローテーション中は残り秒数を返し、fire-and-forget待機タイムアウトが自動延長されること (Issue #1788)"""
+    import json
+    import time
+    from unittest.mock import patch
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.api import api as api_mod
+
+    state_file = tmp_path / "kenbiya_rot_timeout.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    state_file.write_text(
+        json.dumps({"rotating_until": time.time() + 120.0}), encoding="utf-8"
+    )
+    assert KenbiyaParserBase.get_active_rotation_remaining_seconds() > 100.0
+    assert api_mod._is_pppoe_rotation_active() is True
+
+    # ローテーション中は短い timeout (0.05s) でも即タイムアウトせず、完了判定で正常終了すること
+    calls = {"n": 0}
+
+    def fake_check(*args, **kwargs):
+        calls["n"] += 1
+        return (calls["n"] >= 3, args[2], 0, (), False)
+
+    with patch.object(api_mod, "_check_and_log_wait_progress", side_effect=fake_check), patch.object(
+        api_mod, "_check_wait_results"
+    ) as mock_check_results, patch.object(api_mod.time, "sleep"):
+        api_mod._wait_for_active_fire_and_forget_threads(timeout=0.05)
+
+    assert calls["n"] == 3
+    mock_check_results.assert_called_once()
+
+
+
 
 
