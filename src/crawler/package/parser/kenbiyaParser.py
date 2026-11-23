@@ -1,12 +1,15 @@
 import asyncio
+from contextlib import contextmanager
 from decimal import Decimal
+import json
 import logging
 import os
 import random
 import re
+import tempfile
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 from urllib.parse import urljoin
 import aiohttp
 from bs4 import BeautifulSoup
@@ -95,6 +98,8 @@ class KenbiyaParserBase(ParserBase):
                 f"Property page returned HTTP status {status}: {url}"
             )
         if status in (500, 502, 503, 504):
+            if status == 503 and await self._handle_503_with_pppoe_recovery(url):
+                return None
             raise ServerBusyException(
                 f"Property page returned HTTP status {status}: {url}"
             )
@@ -138,8 +143,242 @@ class KenbiyaParserBase(ParserBase):
         return cfg
 
     @classmethod
+    def _get_rate_limit_state_path(cls) -> str:
+        return os.getenv(
+            "KENBIYA_RATE_LIMIT_STATE_FILE",
+            os.path.join(tempfile.gettempdir(), "kenbiya_rate_limit.json"),
+        )
+
+    @classmethod
+    def _is_cross_process_coordination_enabled(cls) -> bool:
+        if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
+            return False
+        if os.getenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false").lower() in (
+            "true",
+            "1",
+        ):
+            return False
+        if os.getenv("PYTEST_CURRENT_TEST") and not os.getenv(
+            "KENBIYA_RATE_LIMIT_STATE_FILE"
+        ):
+            return False
+        return True
+
+    @staticmethod
+    @contextmanager
+    def _acquire_file_lock(lock_path: str, timeout: float = 5.0) -> Iterator[None]:
+        os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
+        fh = open(lock_path, "a+b")
+        locked = False
+        deadline = time.monotonic() + timeout
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                while True:
+                    try:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        locked = True
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.02)
+            else:
+                import fcntl
+
+                while True:
+                    try:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        locked = True
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.02)
+            yield
+        finally:
+            if locked:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            fh.close()
+
+    @classmethod
+    def _read_shared_state(cls, state_path: str) -> dict[str, Any]:
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    raw_ts = data.get("request_timestamps", [])
+                    timestamps = [
+                        float(t) for t in raw_ts if isinstance(t, (int, float))
+                    ]
+                    return {
+                        "last_request_time": float(data.get("last_request_time", 0.0)),
+                        "circuit_open_until": float(data.get("circuit_open_until", 0.0)),
+                        "rotating_until": float(data.get("rotating_until", 0.0)),
+                        "request_timestamps": timestamps,
+                        "total_requests": int(data.get("total_requests", 0)),
+                    }
+        except (OSError, ValueError, TypeError):
+            pass
+        return {
+            "last_request_time": 0.0,
+            "circuit_open_until": 0.0,
+            "rotating_until": 0.0,
+            "request_timestamps": [],
+            "total_requests": 0,
+        }
+
+    @classmethod
+    def _write_shared_state(cls, state_path: str, state: dict[str, Any]) -> None:
+        try:
+            os.makedirs(os.path.dirname(state_path) or ".", exist_ok=True)
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+        except OSError as e:
+            logging.debug(f"Failed to write Kenbiya shared rate-limit state: {e}")
+
+    @classmethod
+    async def _rotate_pppoe_ip(
+        cls, trigger_url: str, wait_sec: float, state_path: str, lock_path: str
+    ) -> None:
+        """503検知時のIPローテーション: wan_pppoeを切断し指定時間スリープ後に再接続する（プロセスは維持）"""
+        try:
+            from package.api.kenbiya import _run_router_ssh
+
+            logging.warning(
+                f"[Kenbiya503Recovery] HTTP 503 detected ({trigger_url}); disconnecting wan_pppoe and sleeping {wait_sec:.0f}s..."
+            )
+            _run_router_ssh("ifdown wan_pppoe")
+            if wait_sec > 0:
+                await asyncio.sleep(wait_sec)
+            logging.info(
+                "[Kenbiya503Recovery] Reconnecting wan_pppoe and reloading routing to resume..."
+            )
+            _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+            KenbiyaParserBase._waf_cookies = {}
+        except Exception as exc:
+            logging.warning(
+                f"[Kenbiya503Recovery] PPPoE rotation failed: {exc}"
+            )
+        finally:
+            with KenbiyaParserBase._request_lock:
+                with cls._acquire_file_lock(lock_path):
+                    state = cls._read_shared_state(state_path)
+                    state["rotating_until"] = 0.0
+                    state["last_request_time"] = time.time()
+                    state["request_timestamps"] = []
+                    cls._write_shared_state(state_path, state)
+
+    @classmethod
+    async def _handle_503_with_pppoe_recovery(cls, url: str) -> bool:
+        """HTTP 503受信時にプロセスを終了せず、PPPoE解放・指定時間スリープ・再接続で復旧する。
+        復旧を実行・待機した場合はTrue（呼び出し元で同一URLをリトライ）、無効時はFalseを返す。
+        """
+        if not cls._is_cross_process_coordination_enabled():
+            return False
+        if os.getenv("KENBIYA_503_PPPOE_RECOVERY_DISABLED", "false").lower() in (
+            "true",
+            "1",
+        ):
+            return False
+        try:
+            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "1200"))
+        except ValueError:
+            wait_sec = 1200.0
+        state_path = cls._get_rate_limit_state_path()
+        lock_path = f"{state_path}.lock"
+        should_rotate = False
+        sleep_duration = 0.0
+
+        with KenbiyaParserBase._request_lock:
+            with cls._acquire_file_lock(lock_path):
+                now_wall = time.time()
+                state = cls._read_shared_state(state_path)
+                rotating_until = state.get("rotating_until", 0.0)
+                if rotating_until > now_wall:
+                    sleep_duration = rotating_until - now_wall
+                else:
+                    should_rotate = True
+                    state["rotating_until"] = now_wall + wait_sec + 15.0
+                    state["last_request_time"] = state["rotating_until"]
+                    state["request_timestamps"] = []
+                    cls._write_shared_state(state_path, state)
+
+        if should_rotate:
+            await cls._rotate_pppoe_ip(url, wait_sec, state_path, lock_path)
+        elif sleep_duration > 0:
+            logging.info(
+                f"[Kenbiya503Recovery] Another process is rotating wan_pppoe; sleeping {sleep_duration:.1f}s before resuming ({url})"
+            )
+            await asyncio.sleep(sleep_duration)
+        return True
+
+    @classmethod
+    def _disconnect_pppoe_on_503(cls, url: str) -> None:
+        """503停止時にルーターの wan_pppoe を切断する（IPローテーション・過負荷保護）"""
+        if os.getenv("KENBIYA_503_PPPOE_DISCONNECT_DISABLED", "false").lower() in (
+            "true",
+            "1",
+        ):
+            return
+        try:
+            from package.api.kenbiya import _run_router_ssh
+
+            logging.warning(
+                f"[Kenbiya503Circuit] Disconnecting wan_pppoe due to HTTP 503 ({url})"
+            )
+            _run_router_ssh("ifdown wan_pppoe")
+        except Exception as exc:
+            logging.warning(
+                f"[Kenbiya503Circuit] Failed to disconnect wan_pppoe on 503: {exc}"
+            )
+
+    @classmethod
+    def _record_503_circuit_open(cls, url: str) -> None:
+        """HTTP 503検知時に全プロセス共通のクールダウン時刻を記録し、wan_pppoeを切断する"""
+        if not cls._is_cross_process_coordination_enabled():
+            return
+        try:
+            cooldown_sec = float(os.getenv("KENBIYA_503_CIRCUIT_COOLDOWN_SEC", "120"))
+        except ValueError:
+            cooldown_sec = 120.0
+        if cooldown_sec <= 0:
+            return
+        state_path = cls._get_rate_limit_state_path()
+        lock_path = f"{state_path}.lock"
+        now_wall = time.time()
+        open_until = now_wall + cooldown_sec
+        should_disconnect = False
+        with KenbiyaParserBase._request_lock:
+            with cls._acquire_file_lock(lock_path):
+                state = cls._read_shared_state(state_path)
+                prev_open_until = state.get("circuit_open_until", 0.0)
+                if prev_open_until <= now_wall:
+                    should_disconnect = True
+                state["circuit_open_until"] = max(prev_open_until, open_until)
+                cls._write_shared_state(state_path, state)
+        logging.warning(
+            f"[Kenbiya503Circuit] Opened shared 503 circuit breaker for {cooldown_sec:.0f}s (trigger: {url})"
+        )
+        if should_disconnect:
+            cls._disconnect_pppoe_on_503(url)
+
+    @classmethod
     async def _throttle_before_request(cls) -> None:
-        """リクエスト送信間隔を全パーサー共通の共有ロックで担保（全環境で既定有効）"""
+        """リクエスト送信間隔を全プロセス共通のファイルロックで担保し、503サーキットブレーカーを共有する"""
         if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
             return
         raw_interval = os.getenv("KENBIYA_MIN_INTERVAL")
@@ -148,6 +387,70 @@ class KenbiyaParserBase(ParserBase):
         except ValueError:
             min_interval = 1.0
         jitter = random.uniform(1.5, 2.5)
+
+        if cls._is_cross_process_coordination_enabled():
+            state_path = cls._get_rate_limit_state_path()
+            lock_path = f"{state_path}.lock"
+
+            with KenbiyaParserBase._request_lock:
+                with cls._acquire_file_lock(lock_path):
+                    now_wall = time.time()
+                    state = cls._read_shared_state(state_path)
+                    circuit_open_until = state.get("circuit_open_until", 0.0)
+                    if circuit_open_until > now_wall:
+                        remaining = circuit_open_until - now_wall
+                        raise ServerBusyException(
+                            f"Kenbiya shared 503 circuit breaker active ({remaining:.1f}s remaining)"
+                        )
+
+                    # 他プロセスが503復旧のPPPoEローテーション中ならプロセスを切らず完了まで待機
+                    rotating_until = state.get("rotating_until", 0.0)
+                    if rotating_until > now_wall:
+                        sleep_duration = rotating_until - now_wall
+                    else:
+                        last_wall = state.get("last_request_time", 0.0)
+                        target_wall = max(now_wall, last_wall + min_interval + jitter)
+
+                        # 1. プロセス間グローバルRPM上限（直近60秒のスライディングウィンドウ）
+                        try:
+                            max_rpm = int(os.getenv("KENBIYA_GLOBAL_MAX_RPM", "20"))
+                        except ValueError:
+                            max_rpm = 20
+                        window_start = target_wall - 60.0
+                        recent_ts = [
+                            t for t in state.get("request_timestamps", []) if t > window_start
+                        ]
+                        if max_rpm > 0 and len(recent_ts) >= max_rpm:
+                            oldest_in_window = recent_ts[len(recent_ts) - max_rpm]
+                            rpm_ready_wall = oldest_in_window + 60.0 + random.uniform(0.5, 1.5)
+                            if rpm_ready_wall > target_wall:
+                                target_wall = rpm_ready_wall
+
+                        # 2. 一定リクエスト数ごとの自然なロングポーズ（連続アクセス負荷のリセット）
+                        total_requests = int(state.get("total_requests", 0)) + 1
+                        try:
+                            pause_every = int(os.getenv("KENBIYA_LONG_PAUSE_EVERY", "40"))
+                        except ValueError:
+                            pause_every = 40
+                        if pause_every > 0 and total_requests % pause_every == 0:
+                            try:
+                                pause_sec = float(os.getenv("KENBIYA_LONG_PAUSE_SEC", "15"))
+                            except ValueError:
+                                pause_sec = 15.0
+                            if pause_sec > 0:
+                                target_wall += pause_sec + random.uniform(0.0, 5.0)
+
+                        sleep_duration = target_wall - now_wall
+                        recent_ts.append(target_wall)
+                        state["request_timestamps"] = recent_ts[-200:]
+                        state["total_requests"] = total_requests
+                        state["last_request_time"] = target_wall
+                        cls._write_shared_state(state_path, state)
+
+            if sleep_duration > 0:
+                await asyncio.sleep(sleep_duration)
+            return
+
         with KenbiyaParserBase._request_lock:
             now = time.monotonic()
             target_time = max(
@@ -325,20 +628,29 @@ class KenbiyaParserBase(ParserBase):
         "gzip, deflate",
     )
 
+    _session_impersonate: str | None = None
+    _session_accept_language: str | None = None
+
     async def _get_with_curl_cffi(
         self, url: str, headers: dict[str, str], proxy_url: str | None
     ) -> tuple[int, bytes]:
         from curl_cffi.requests import AsyncSession
 
         await self._warmup_waf_cookies()
-        impersonate = os.getenv("KENBIYA_IMPERSONATE") or random.choice(
-            self._IMPERSONATE_PROFILES
-        )
+        if KenbiyaParserBase._session_impersonate is None:
+            KenbiyaParserBase._session_impersonate = os.getenv(
+                "KENBIYA_IMPERSONATE"
+            ) or random.choice(self._IMPERSONATE_PROFILES)
+        if KenbiyaParserBase._session_accept_language is None:
+            KenbiyaParserBase._session_accept_language = random.choice(
+                self._ACCEPT_LANGUAGES
+            )
+        impersonate = os.getenv("KENBIYA_IMPERSONATE") or KenbiyaParserBase._session_impersonate
         req_headers = dict(headers)
-        req_headers.setdefault("Accept-Language", random.choice(self._ACCEPT_LANGUAGES))
+        req_headers.setdefault("Accept-Language", KenbiyaParserBase._session_accept_language)
         req_headers.setdefault("Accept-Encoding", random.choice(self._ACCEPT_ENCODINGS))
         req_headers.setdefault("Referer", random.choice(self._REFERERS))
-        req_headers.setdefault("DNT", random.choice(("1", "0")))
+        req_headers.setdefault("DNT", "1")
         req_headers.setdefault("Upgrade-Insecure-Requests", "1")
         if self._waf_user_agent:
             req_headers["User-Agent"] = self._waf_user_agent
@@ -372,6 +684,8 @@ class KenbiyaParserBase(ParserBase):
             await asyncio.sleep(3)
             return None
         if last_status in (500, 502, 503, 504):
+            if last_status == 503 and await self._handle_503_with_pppoe_recovery(url):
+                return None
             raise ServerBusyException(f"HTTP {last_status} for {url}")
         raise LoadPropertyPageException(f"HTTP {last_status} for {url}")
 
