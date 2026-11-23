@@ -89,6 +89,14 @@ class TohoBaseParser(ParserBase):
         async for item in self.parsePropertyListPage(response):
             yield item
 
+    @staticmethod
+    def _extract_table_specs(response: BeautifulSoup, specs: dict[str, str]) -> None:
+        for tr in response.find_all("tr"):
+            for th, td in zip(tr.find_all("th"), tr.find_all("td")):
+                key = th.get_text(strip=True)
+                if key and key not in specs:
+                    specs[key] = td.get_text(" ", strip=True)
+
     def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:
@@ -96,22 +104,18 @@ class TohoBaseParser(ParserBase):
 
         specs = {}
         for dl in response.find_all("dl"):
-            dts = dl.find_all("dt")
-            dds = dl.find_all("dd")
-            for dt, dd in zip(dts, dds):
-                key = dt.get_text(strip=True)
-                val = dd.get_text(" ", strip=True)
-                specs[key] = val
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                specs[dt.get_text(strip=True)] = dd.get_text(" ", strip=True)
 
         for row in response.select("div.tab_std"):
             t = row.select_one("div.hyo_t")
             txt = row.select_one("div.hyo_txt")
             if t and txt:
                 key = t.get_text(strip=True)
-                val = txt.get_text(" ", strip=True)
                 if key and key not in specs:
-                    specs[key] = val
+                    specs[key] = txt.get_text(" ", strip=True)
 
+        self._extract_table_specs(response, specs)
         response._cached_specs = specs
         return specs
 
@@ -156,11 +160,35 @@ class TohoBaseParser(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if not val:
+            combined = (
+                specs.get("建ぺい率/容積率", "")
+                or specs.get("建ぺい率／容積率", "")
+                or specs.get("建蔽率/容積率", "")
+                or specs.get("建蔽率／容積率", "")
+            )
+            if combined:
+                parts = re.split(r"[/／]", combined)
+                if parts:
+                    val = parts[0].strip()
+        return val
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("容積率", "")
+        val = specs.get("容積率", "")
+        if not val:
+            combined = (
+                specs.get("建ぺい率/容積率", "")
+                or specs.get("建ぺい率／容積率", "")
+                or specs.get("建蔽率/容積率", "")
+                or specs.get("建蔽率／容積率", "")
+            )
+            if combined:
+                parts = re.split(r"[/／]", combined)
+                if len(parts) >= 2:
+                    val = parts[1].strip()
+        return val
 
     def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)

@@ -299,6 +299,11 @@ class AfrMansionParser(AfrParser, MansionParserBase):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
+        bukken_type = specs.get("物件種別", "")
+        if any(kw in bukken_type for kw in ("一棟", "アパート", "戸建", "土地")):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException(f"AfrMansion: Non-mansion property (物件種別={bukken_type}).")
+
         # 間取り
         item.madori = self._parseMadori(response, specs)
 
@@ -502,7 +507,10 @@ class AfrTochiParser(AfrParser, TochiParserBase):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-
+        bukken_type = specs.get("物件種別", "")
+        if any(kw in bukken_type for kw in ("戸建", "マンション", "アパート", "一棟")):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException(f"AfrTochi: Non-tochi property skipped (物件種別={bukken_type}).")
 
         # 土地面積
         item.tochiMensekiStr = specs.get("土地面積", "")

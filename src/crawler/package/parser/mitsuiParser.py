@@ -1727,6 +1727,12 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item
+        if (
+            not getattr(item, "price", None)
+            and not getattr(item, "tochiMenseki", None)
+            and not getattr(item, "tatemonoMenseki", None)
+        ):
+            raise SkipPropertyException(f"MitsuiInvestmentKodate listing ended or empty: {page_url}")
         item.propertyType = "Kodate"
         return item
 
