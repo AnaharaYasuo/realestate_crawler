@@ -31,7 +31,7 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from decimal import Decimal
 from package.ml.inference.ensemble import compute_risk_adjusted_bargain_score
 from package.ml.report_generator import generate_professional_and_danchou_report
-from package.ml.features.reference_data import query_station_volume, _init_global_caches
+from package.ml.features.reference_data import query_station_volume, ensure_station_cache, _init_global_caches
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -1113,6 +1113,7 @@ def send_recommendations():
     logger.info("Scanning for new hot recommendation properties to send via Slack...")
     _notify_status("🔍 【お宝物件スクリーニング開始】 未通知の割安物件・高利回り優良物件の抽出を開始します...")
 
+    ensure_station_cache()
     candidates = _fetch_recommendation_candidates()
     metrics.total_count = len(candidates)
     matched_candidates = []
