@@ -309,6 +309,16 @@ def _check_and_log_wait_progress(
     return False, new_log_time, new_idle, alive_ids, has_progress
 
 
+def _is_pppoe_rotation_active() -> bool:
+    """健美家等の共有PPPoEローテーション待機中かどうかを返す"""
+    try:
+        from package.parser.kenbiyaParser import KenbiyaParserBase
+
+        return KenbiyaParserBase.get_active_rotation_remaining_seconds() > 0.0
+    except Exception:
+        return False
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
@@ -317,6 +327,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     drain_timeout = _get_fire_and_forget_drain_timeout()
     start = time.monotonic()
     last_progress_time = start
+    prev_tick = start
     curr = threading.current_thread()
     last_log_time = start
     consecutive_idle = 0
@@ -325,6 +336,10 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
     while not os.path.exists(STOP_FLAG_FILE) and not _server_busy_abort_event.is_set():
         now = time.monotonic()
+        if _is_pppoe_rotation_active():
+            start += now - prev_tick
+            last_progress_time = now
+        prev_tick = now
         if _is_wait_timeout_exceeded(now - start, now - last_progress_time, timeout, drain_timeout):
             break
 
