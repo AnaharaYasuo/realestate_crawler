@@ -340,16 +340,41 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
     def createEntity(self):
         return SekisuiMansion()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = getattr(item, "pageUrl", "") or ""
+    @staticmethod
+    def _assert_mansion_url(page_url: str) -> None:
         if any(seg in page_url for seg in ("/tochi/", "/kodate/")):
             from package.parser.baseParser import SkipPropertyException
             raise SkipPropertyException(f"SekisuiMansion: Non-mansion URL skipped ({page_url}).")
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
+
+    @staticmethod
+    def _assert_mansion_specs(specs: dict, page_url: str) -> None:
         if not specs.get("専有面積") and (specs.get("土地面積") or specs.get("敷地面積")):
             from package.parser.baseParser import SkipPropertyException
             raise SkipPropertyException(f"SekisuiMansion: Non-mansion specs skipped ({page_url}).")
+
+    @staticmethod
+    def _parse_chikunengetsu_from_specs(specs: dict) -> tuple[str, object]:
+        candidates = [
+            specs.get("築年月", ""),
+            specs.get("完成年月", ""),
+            specs.get("竣工年月", ""),
+            specs.get("築年", ""),
+            specs.get(KEY_COMPLETION_DATE, ""),
+            specs.get("完成時期", ""),
+        ]
+        for val in candidates:
+            if val:
+                dt = converter.parse_chikunengetsu(val)
+                if dt is not None:
+                    return val, dt
+        return next((v for v in candidates if v), ""), None
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "") or ""
+        self._assert_mansion_url(page_url)
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+        self._assert_mansion_specs(specs, page_url)
 
         item.madori = self._parseMadori(response, specs)
         item.senyuMensekiStr = specs.get("専有面積", "")
@@ -360,25 +385,7 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         if item.kaisuStr:
             item.floorType_kai = converter.parse_numeric(item.kaisuStr)
 
-        chikunen_candidates = [
-            specs.get("築年月", ""),
-            specs.get("完成年月", ""),
-            specs.get("竣工年月", ""),
-            specs.get("築年", ""),
-            specs.get(KEY_COMPLETION_DATE, ""),
-            specs.get("完成時期", ""),
-        ]
-        item.chikunengetsuStr = ""
-        item.chikunengetsu = None
-        for val in chikunen_candidates:
-            if val:
-                dt = converter.parse_chikunengetsu(val)
-                if dt is not None:
-                    item.chikunengetsuStr = val
-                    item.chikunengetsu = dt
-                    break
-        if not item.chikunengetsuStr:
-            item.chikunengetsuStr = next((v for v in chikunen_candidates if v), "")
+        item.chikunengetsuStr, item.chikunengetsu = self._parse_chikunengetsu_from_specs(specs)
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "")
         if item.balconyMensekiStr:

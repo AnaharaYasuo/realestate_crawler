@@ -89,6 +89,14 @@ class TohoBaseParser(ParserBase):
         async for item in self.parsePropertyListPage(response):
             yield item
 
+    @staticmethod
+    def _extract_table_specs(response: BeautifulSoup, specs: dict[str, str]) -> None:
+        for tr in response.find_all("tr"):
+            for th, td in zip(tr.find_all("th"), tr.find_all("td")):
+                key = th.get_text(strip=True)
+                if key and key not in specs:
+                    specs[key] = td.get_text(" ", strip=True)
+
     def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:
@@ -96,31 +104,18 @@ class TohoBaseParser(ParserBase):
 
         specs = {}
         for dl in response.find_all("dl"):
-            dts = dl.find_all("dt")
-            dds = dl.find_all("dd")
-            for dt, dd in zip(dts, dds):
-                key = dt.get_text(strip=True)
-                val = dd.get_text(" ", strip=True)
-                specs[key] = val
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                specs[dt.get_text(strip=True)] = dd.get_text(" ", strip=True)
 
         for row in response.select("div.tab_std"):
             t = row.select_one("div.hyo_t")
             txt = row.select_one("div.hyo_txt")
             if t and txt:
                 key = t.get_text(strip=True)
-                val = txt.get_text(" ", strip=True)
                 if key and key not in specs:
-                    specs[key] = val
+                    specs[key] = txt.get_text(" ", strip=True)
 
-        for tr in response.find_all("tr"):
-            ths = tr.find_all("th")
-            tds = tr.find_all("td")
-            for th, td in zip(ths, tds):
-                key = th.get_text(strip=True)
-                val = td.get_text(" ", strip=True)
-                if key and key not in specs:
-                    specs[key] = val
-
+        self._extract_table_specs(response, specs)
         response._cached_specs = specs
         return specs
 
