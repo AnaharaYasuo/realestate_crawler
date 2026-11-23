@@ -49,3 +49,8 @@ Rearie は静的HTML一覧/詳細ページから、Repros (`phfudousan.repros.jp
 - 一覧取得時: `/wp-json/wp/v2/get_search_result_sale` を呼び出し、レスポンスJSONの `html` から物件詳細リンク `/sale/<ID>/` を抽出。
 - ページネーション: `div.block_pager a.pager` の `data-page` または現在の `page_num` に基づき次ページURL（`page_num=N+1`）を生成。
 - 詳細取得時: 既存の `KeioParser._parsePropertyDetailPage` (HTMLパース) にて抽出。
+
+## Auto-Heal バッチ修復仕様追記 (#1444, #1447, #1450, #1453, #1455, #1458, #1468, #1470, #1480, #1774)
+- **掲載終了・非販売ページのスキップ防衛**: Rearie (`RearieMansionParser`), Misawa (`MisawaMansionParser`), Sumai1 (`Sumai1MansionParser`), Mitsui (`MitsuiInvestmentKodateParser`) において、物件名・価格・面積・間取り等の必須詳細情報が空の掲載終了／ライブラリページは `SkipPropertyException` でスキップする。
+- **4層種別判定防衛の強化**: Afr (`AfrMansionParser`, `AfrTochiParser`), Daikyo (`DaikyoMansionParser`), Sekisui (`SekisuiMansionParser`) において、一棟物件・戸建て・土地URL混入を `SkipPropertyException` で除外する。
+- **複合表記・テーブル抽出の強化**: Toho (`TohoBaseParser._get_specs`) で `<table><tr><th>/<td>` 抽出および `建ぺい率/容積率` 複合表記パースをサポートし、`afr.yaml` で漢字表記 `建蔽率` をマッピングする。

@@ -314,6 +314,9 @@ class Sumai1MansionParser(Sumai1Parser, MansionParserBase):
         item.senyuMensekiStr = specs.get("専有面積", "")
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        if not getattr(item, "price", None) and not item.senyuMenseki and not item.madori:
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException("Sumai1Mansion: Listing has no active sale price, area, or layout.")
             
         item.kaisuStr = _first_spec(specs, "所在階", "階数", "建物階数", "階建")
         if item.kaisuStr:

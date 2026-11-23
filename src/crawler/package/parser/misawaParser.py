@@ -601,6 +601,9 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
         item.balconyMensekiStr = self._parseBalconyMensekiStr(response)
         item.balconyMenseki = self._parseBalconyMenseki(response)
         item.madori = self._parseMadori(response)
+        if not getattr(item, "price", None) and not item.senyuMenseki and not item.madori:
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException("MisawaMansion: Listing ended or empty detail page.")
         item.kaisu = self._parseKaisu(response)
         item.kouzou = self._parseKouzou(response)
         item.chikunengetsuStr = self._parseChikunengetsuStr(response)

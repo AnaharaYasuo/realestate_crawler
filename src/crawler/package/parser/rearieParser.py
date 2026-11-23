@@ -484,6 +484,9 @@ class RearieMansionParser(RearieParser, MansionParserBase):
         item.senyuMensekiStr = specs.get("専有面積", "")
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        if not getattr(item, "propertyName", "") and not getattr(item, "price", None):
+            from package.parser.baseParser import SkipPropertyException
+            raise SkipPropertyException("RearieMansion: Listing ended or empty detail page.")
 
         self._parse_floors(item, specs)
 
