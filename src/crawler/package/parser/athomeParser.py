@@ -39,6 +39,8 @@ _ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
 _ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
 _ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
 PATH_BUY_OTHER = "/buy_other/"
+PATH_TOCHI = "/tochi/"
+PATH_BLDG = "/bldg/"
 _ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Click to verify", "パズル認証", "Just a moment...")
 _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
@@ -957,7 +959,6 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
-        self._check_buy_other_land_area(page_url, response)
 
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
@@ -1060,8 +1061,10 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         name = self._parsePropertyName(response)
         specs_pre = self._get_specs_table(response)
         shumoku = str(specs_pre.get("物件種目", "") or specs_pre.get("種別", ""))
+        switched = bool(getattr(item, "_switched_from_property_type", None))
+        non_kodate_paths = (PATH_BLDG, "/mansion/", PATH_TOCHI) if switched else (PATH_BUY_OTHER, PATH_TOUSHI, PATH_BLDG, "/mansion/", PATH_TOCHI)
         if (
-            any(kw in page_url for kw in (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/", "/mansion/", "/tochi/"))
+            any(kw in page_url for kw in non_kodate_paths)
             or any(kw in name for kw in ("一棟売アパート", "一棟売マンション"))
             or "マンション" in shumoku
             or "売地" in shumoku
