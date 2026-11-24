@@ -18,3 +18,8 @@
   - `specs` のキー（`階建/階`, `所在階/階建`, `所在階`, `階建` 等）から抽出。
   - スペックテーブルに所在階が存在しない場合、物件名またはタイトルから階数を正規表現マッチングする。
   - タイトル・スペックテーブルいずれにも所在階表記が存在せず、「タウンハウス」「テラスハウス」等の低層連棟住宅（`物件種目` がタウンハウス）である場合は、居住用戸建類似物件として `SkipPropertyException` でスキップし、パースエラー・必須項目欠損アラートの誤検知を防止する (Issue #1402)。
+
+
+## PropertyTypeSwitch 後の `/buy_other/` ガード仕様 (#1808)
+- `AthomeMansionParser._parsePropertyDetailPage`: 区分マンションには土地面積が不要なため、`_check_buy_other_land_area` 呼び出しを行わない。
+- `AthomeKodateParser._parsePropertyDetailPage`: `PropertyTypeSwitch` により `invest_kodate` 等へスイッチされた場合（`_switched_from_property_type` が設定されている場合）は、`PATH_BUY_OTHER` / `PATH_TOUSHI` による一律スキップを適用しない。
