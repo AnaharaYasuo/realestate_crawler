@@ -621,6 +621,51 @@ def test_kenbiya_rotation_remaining_and_fire_and_forget_timeout_extension(
     mock_check_results.assert_called_once()
 
 
+def test_shared_cooldown_pause_and_resume_coordinates_all_processes(tmp_path, monkeypatch):
+    """5プロセス並列時の定期クールダウンが共有状態ファイル経由で一体連動すること"""
+    from unittest.mock import patch
+    from package.api import kenbiya as kenbiya_api
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    state_file = tmp_path / "kenbiya_cooldown_sync.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+    kenbiya_api._cooldown_leader_hosts.clear()
+
+    # 全5種別の詳細クラスが _KenbiyaDetailBase を継承してクールダウンフックを共有していること
+    for cls in (
+        kenbiya_api.ParseKenbiyaMansionDetailFuncAsync,
+        kenbiya_api.ParseKenbiyaKodateDetailFuncAsync,
+        kenbiya_api.ParseKenbiyaTochiDetailFuncAsync,
+        kenbiya_api.ParseKenbiyaInvestApartmentDetailFuncAsync,
+        kenbiya_api.ParseKenbiyaInvestBuildingDetailFuncAsync,
+    ):
+        assert issubclass(cls, kenbiya_api._KenbiyaDetailBase)
+
+    ssh_cmds = []
+    with patch.object(kenbiya_api, "_run_router_ssh", side_effect=lambda cmd: ssh_cmds.append(cmd)), patch.object(
+        kenbiya_api.time, "sleep"
+    ), patch.object(kenbiya_api.requests, "get", side_effect=RuntimeError("skip network")):
+        # 1つ目のプロセス（リーダー）が ifdown を実行し rotating_until を設定
+        kenbiya_api._kenbiya_on_pause("www.kenbiya.com")
+        assert ssh_cmds == ["ifdown wan_pppoe"]
+        assert KenbiyaParserBase.get_active_rotation_remaining_seconds() > 0.0
+
+        # 2つ目のプロセス（フォロワー）は重複 ifdown を行わない
+        assert KenbiyaParserBase.begin_shared_cooldown_pause(60.0) is False
+        assert ssh_cmds == ["ifdown wan_pppoe"]
+
+        # リーダーが復帰時に ifup を実行し rotating_until を解除
+        kenbiya_api._kenbiya_on_resume("www.kenbiya.com")
+        assert ssh_cmds == [
+            "ifdown wan_pppoe",
+            "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
+        ]
+        assert KenbiyaParserBase.get_active_rotation_remaining_seconds() == 0.0
+
+
+
 
 
 

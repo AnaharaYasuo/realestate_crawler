@@ -261,6 +261,43 @@ class KenbiyaParserBase(ParserBase):
         return remaining if remaining > 0.0 else 0.0
 
     @classmethod
+    def begin_shared_cooldown_pause(cls, rest_seconds: float) -> bool:
+        """定期クールダウン開始時に全プロセス共有の rotating_until を設定する。
+        自身がリーダー（最初に休止状態を設定したプロセス）なら True、
+        既に他プロセスが休止/ローテーション中なら False を返す。
+        """
+        if not cls._is_cross_process_coordination_enabled():
+            return True
+        state_path = cls._get_rate_limit_state_path()
+        lock_path = f"{state_path}.lock"
+        with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+            now_wall = time.time()
+            state = cls._read_shared_state(state_path)
+            if state.get("rotating_until", 0.0) > now_wall:
+                return False
+            resume_at = now_wall + max(0.0, rest_seconds) + 15.0
+            state["rotating_until"] = resume_at
+            state["last_request_time"] = resume_at
+            state["request_timestamps"] = []
+            cls._write_shared_state(state_path, state)
+            return True
+
+    @classmethod
+    def end_shared_cooldown_pause(cls) -> None:
+        """定期クールダウン終了時に全プロセス共有の rotating_until を解除し、WAF Cookie をリセットする"""
+        KenbiyaParserBase._waf_cookies = {}
+        if not cls._is_cross_process_coordination_enabled():
+            return
+        state_path = cls._get_rate_limit_state_path()
+        lock_path = f"{state_path}.lock"
+        with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+            state = cls._read_shared_state(state_path)
+            state["rotating_until"] = 0.0
+            state["last_request_time"] = time.time()
+            state["request_timestamps"] = []
+            cls._write_shared_state(state_path, state)
+
+    @classmethod
     async def _rotate_pppoe_ip(
         cls, trigger_url: str, wait_sec: float, state_path: str, lock_path: str
     ) -> None:
