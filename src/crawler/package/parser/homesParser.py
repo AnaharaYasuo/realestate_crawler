@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
+    ListingEndedException,
     MansionParserBase,
     ParserBase,
     SkipPropertyException,
@@ -448,6 +449,11 @@ class HomesParser(ParserBase):
         raise SkipPropertyException(f"Homes investment listing missing valid area: {getattr(item, 'pageUrl', '')}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        title_str = response.title.get_text(strip=True) if response.title else ""
+        if "マイページログイン" in title_str:
+            raise ListingEndedException(
+                f"Homes listing requires member login (delisted from public): {getattr(item, 'pageUrl', '')}"
+            )
         item = super()._parsePropertyDetailPage(item, response)
         
         # タイトル・物件名
