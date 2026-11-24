@@ -37,6 +37,92 @@ class HeimParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
+    @staticmethod
+    def _build_outline_url(url: str):
+        if not url:
+            return None
+        parsed = urllib.parse.urlparse(url)
+        if "tokyo816.jp" not in (parsed.netloc or "").lower():
+            return None
+        path = parsed.path or ""
+        if "/outline" in path:
+            return None
+        m = re.match(r"^(/bunjou/property/[^/]+)(?:/index\.html|/)?$", path)
+        if not m:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}{m.group(1)}/outline/"
+
+    @staticmethod
+    def _needs_outline_supplement(item) -> bool:
+        if item is None:
+            return False
+        missing_kenpei = hasattr(item, "kenpei") and not getattr(item, "kenpei", None)
+        missing_youseki = hasattr(item, "youseki") and not getattr(item, "youseki", None)
+        missing_traffic = hasattr(item, "traffic") and not str(getattr(item, "traffic", "") or "").strip()
+        missing_walk = hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) is None
+        return missing_kenpei or missing_youseki or missing_traffic or missing_walk
+
+    @staticmethod
+    def _supplement_ratio_field(item, specs: dict, attr: str, str_attr: str, keys: tuple) -> None:
+        if not hasattr(item, attr) or getattr(item, attr, None):
+            return
+        val_str = next((specs.get(k, "") for k in keys if specs.get(k)), "")
+        if not val_str:
+            return
+        if hasattr(item, str_attr) and not getattr(item, str_attr, ""):
+            setattr(item, str_attr, val_str)
+        setattr(item, attr, converter.parse_ratio(val_str))
+
+    @staticmethod
+    def _supplement_traffic_field(item, specs: dict) -> None:
+        if hasattr(item, "traffic") and not str(getattr(item, "traffic", "") or "").strip():
+            traffic_val = specs.get("交通", "")
+            if traffic_val:
+                item.traffic = traffic_val
+        if not hasattr(item, "railwayWalkMinute1") or getattr(item, "railwayWalkMinute1", None) is not None:
+            return
+        traffic_src = str(getattr(item, "traffic", "") or "") or specs.get("交通", "")
+        m_walk = re.search(r"徒歩\s*(?:約\s*)?(\d+)\s*分", traffic_src)
+        if not m_walk:
+            return
+        mins = int(m_walk.group(1))
+        item.railwayWalkMinute1 = mins
+        if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", ""):
+            item.railwayWalkMinute1Str = str(mins)
+
+    @staticmethod
+    def _supplement_text_fields(item, specs: dict) -> None:
+        for attr, key in (
+            ("kenchikuJoken", "建築条件"),
+            ("chimoku", "地目"),
+            ("youtoChiiki", "用途地域"),
+            ("setsudou", "接道状況"),
+        ):
+            if hasattr(item, attr) and not str(getattr(item, attr, "") or "").strip() and specs.get(key):
+                setattr(item, attr, specs[key])
+
+    def _apply_outline_specs(self, item, outline_soup: BeautifulSoup) -> None:
+        specs = self._get_specs(outline_soup)
+        if not specs:
+            return
+        self._supplement_ratio_field(item, specs, "kenpei", "kenpeiStr", ("建ぺい率", "建蔽率"))
+        self._supplement_ratio_field(item, specs, "youseki", "yousekiStr", ("容積率",))
+        self._supplement_traffic_field(item, specs)
+        self._supplement_text_fields(item, specs)
+
+    async def parsePropertyDetailPage(self, session, url):
+        item = await super().parsePropertyDetailPage(session, url)
+        outline_url = self._build_outline_url(url)
+        if outline_url and self._needs_outline_supplement(item):
+            try:
+                content = await self._getContent(session, outline_url)
+                if content:
+                    outline_soup = self._soup_from_content(content, self.getCharset())
+                    self._apply_outline_specs(item, outline_soup)
+            except Exception as exc:
+                logging.warning(f"[Heim] Failed to supplement from outline URL {outline_url}: {exc}")
+        return item
+
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         return super()._parsePrice(response, specs)
 
