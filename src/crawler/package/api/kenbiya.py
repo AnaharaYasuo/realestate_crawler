@@ -27,6 +27,7 @@ from package.parser.kenbiyaParser import (
     KenbiyaInvestmentBuildingParser,
     KenbiyaKodateParser,
     KenbiyaMansionParser,
+    KenbiyaParserBase,
     KenbiyaTochiParser,
 )
 
@@ -70,27 +71,46 @@ def _run_router_ssh(remote_cmd: str) -> None:
             pass
 
 
+_cooldown_leader_hosts: set[str] = set()
+
+
 def _kenbiya_on_pause(host: str) -> None:
-    logging.info(f"[KENBIYA_COOLDOWN_PAUSE] {host}: disconnecting wan_pppoe...")
+    is_leader = KenbiyaParserBase.begin_shared_cooldown_pause(COOLDOWN_REST_SECONDS)
+    if not is_leader:
+        logging.info(
+            f"[KENBIYA_COOLDOWN_PAUSE] {host}: another process already paused wan_pppoe; syncing rest."
+        )
+        return
+    _cooldown_leader_hosts.add(host)
+    logging.info(f"[KENBIYA_COOLDOWN_PAUSE] {host}: disconnecting wan_pppoe (shared across all processes)...")
     _run_router_ssh("ifdown wan_pppoe")
 
 
 def _kenbiya_on_resume(host: str) -> None:
-    logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe, reloading routing table, and refreshing cookies...")
-    _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
-    time.sleep(2)
+    is_leader = host in _cooldown_leader_hosts
+    _cooldown_leader_hosts.discard(host)
+    if not is_leader:
+        KenbiyaParserBase._waf_cookies = {}
+        logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: follower resuming after shared cooldown.")
+        return
     try:
-        resp = requests.get(
-            f"https://{host}/pp0/",
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
-            timeout=15,
-        )
-        cookie_hdr = "; ".join(f"{k}={v}" for k, v in resp.cookies.items())
-        if cookie_hdr:
-            _crawl_cooldown_controller.set_cookie_header(host, cookie_hdr)
-            logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: refreshed {len(resp.cookies)} cookie(s).")
-    except Exception as exc:
-        logging.warning(f"[KENBIYA_COOLDOWN_RESUME] {host}: failed to refresh cookies: {exc}")
+        logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe, reloading routing table, and refreshing cookies...")
+        _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+        time.sleep(2)
+        try:
+            resp = requests.get(
+                f"https://{host}/pp0/",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+                timeout=15,
+            )
+            cookie_hdr = "; ".join(f"{k}={v}" for k, v in resp.cookies.items())
+            if cookie_hdr:
+                _crawl_cooldown_controller.set_cookie_header(host, cookie_hdr)
+                logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: refreshed {len(resp.cookies)} cookie(s).")
+        except Exception as exc:
+            logging.warning(f"[KENBIYA_COOLDOWN_RESUME] {host}: failed to refresh cookies: {exc}")
+    finally:
+        KenbiyaParserBase.end_shared_cooldown_pause()
 
 
 class _KenbiyaDetailBase(ParseDetailPageAsyncBase):
@@ -118,12 +138,8 @@ class ParseKenbiyaMansionStartAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self): return API_KEY_KENBIYA_MANSION_START
 
 # Kodate (/pp8/)
-class ParseKenbiyaKodateDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseKenbiyaKodateDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaKodateParser()
-    def _getLocalPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getTimeOutSecond(self): return 60
-    def _getApiKey(self): return ""
 
 class ParseKenbiyaKodateStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return KenbiyaKodateParser()
@@ -137,12 +153,8 @@ class ParseKenbiyaKodateStartAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self): return API_KEY_KENBIYA_KODATE_START
 
 # Tochi (/pp5/)
-class ParseKenbiyaTochiDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseKenbiyaTochiDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaTochiParser()
-    def _getLocalPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getTimeOutSecond(self): return 60
-    def _getApiKey(self): return ""
 
 class ParseKenbiyaTochiStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return KenbiyaTochiParser()
@@ -156,12 +168,8 @@ class ParseKenbiyaTochiStartAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self): return API_KEY_KENBIYA_TOCHI_START
 
 # Investment Apartment (/pp2/)
-class ParseKenbiyaInvestApartmentDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseKenbiyaInvestApartmentDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaInvestmentApartmentParser()
-    def _getLocalPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getTimeOutSecond(self): return 60
-    def _getApiKey(self): return ""
 
 class ParseKenbiyaInvestApartmentStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return KenbiyaInvestmentApartmentParser()
@@ -175,12 +183,8 @@ class ParseKenbiyaInvestApartmentStartAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self): return API_KEY_KENBIYA_INVEST_APARTMENT_START
 
 # Investment Building (/pp3/, /pp4/)
-class ParseKenbiyaInvestBuildingDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseKenbiyaInvestBuildingDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaInvestmentBuildingParser()
-    def _getLocalPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
-    def _getTimeOutSecond(self): return 60
-    def _getApiKey(self): return ""
 
 class ParseKenbiyaInvestBuildingStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return KenbiyaInvestmentBuildingParser()

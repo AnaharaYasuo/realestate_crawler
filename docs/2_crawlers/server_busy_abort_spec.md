@@ -32,6 +32,11 @@
   - `work_seconds`（健美家デフォルト: `3600` 秒）経過、または `trigger_cooldown()`（HTTP 429/503 検知時）が呼ばれると、`rest_seconds`（健美家デフォルト: `1800` 秒）の休止ウィンドウに入る。
   - 休止開始時に `ifdown wan_pppoe` を実行し、休止終了時に `ifup wan_pppoe` とトップページアクセスによる Cookie 再取得を実行する（各 1 回のみ排他実行）。
   - 詳細ページワーカーは `_execute_single_detail_fetch()` で休止終了時刻まで `await asyncio.sleep(...)` で待機し、休止明けに再取得した Cookie を付与して処理を再開する。
+- **複数プロセス（5種別並列）一体連動仕様 (#1811)**:
+  - 全5種別の詳細APIクラス（`mansion`, `kodate`, `tochi`, `invest_apartment`, `invest_building`）を `_KenbiyaDetailBase` 継承に統一し、全プロセスが同一のクールダウン制御に参加する。
+  - `_kenbiya_on_pause` は `KenbiyaParserBase.begin_shared_cooldown_pause(rest_seconds)` を呼び出し、プロセス間ファイルロック下で共有状態ファイルの `rotating_until` を設定できた **リーダー1プロセスのみ** が `ifdown wan_pppoe` を実行する（フォロワーは重複切断を行わない）。
+  - 共有状態ファイルに `rotating_until` が設定されている間、全5プロセスの一覧ページ・詳細ページ双方のリクエストが `_throttle_before_request()` で自動的に待機し、回線断による `curl (28)` タイムアウトを防止する。
+  - `_kenbiya_on_resume` はリーダープロセスのみが `ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload` と Cookie 再取得を実行し、`finally` ブロックで `KenbiyaParserBase.end_shared_cooldown_pause()` を呼び出して `rotating_until` を解除・全プロセスを一斉再開させる。
 
 
 ## 東宝ハウス タイトル末尾ブランド文言除去 (#1726)
