@@ -2723,6 +2723,13 @@ class ParserBase(metaclass=ABCMeta):
             specs=specs,
             property_type=detected_type,
         )
+        if (
+            target_parser
+            and target_parser.__class__ == self.__class__
+            and self.property_type == "kodate"
+            and detected_type == "invest_kodate"
+        ):
+            return (self, item)
         if not target_parser or target_parser.__class__ == self.__class__:
             raise IncompatiblePropertyTypeException(
                 f"{log_prefix} but detected '{detected_type}', and no suitable parser exists."
