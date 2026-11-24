@@ -123,7 +123,7 @@ class AthomeParser(ParserBase):
     @classmethod
     def _apply_bus_minutes_to_item(cls, item, line: str, idx: int) -> None:
         m_bus = re.search(
-            r"(?:【?バス(?:乗車)?】?|バス\s*利用可\s*バス)\s*(\d{1,3})\s*(?:[～~〜\-ー－]\s*\d{1,3}\s*)?分",
+            r"バス(?:乗車)?】?\s*(\d{1,3})(?:\s*[～~〜\-ー－]\s*\d{1,3})?\s*分",
             line,
         )
         if m_bus:
