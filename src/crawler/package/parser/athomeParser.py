@@ -105,10 +105,10 @@ class AthomeParser(ParserBase):
 
     @staticmethod
     def _extract_walk_minutes(text: str):
-        m_m = re.search(r"(?:徒歩|停歩|歩)\s*(\d{1,6})\s*[ｍm]", text)
+        m_m = re.search(r"(?:徒歩|停歩|歩)\s*(\d{1,6})\s*(?:[～~〜\-ー－]\s*\d{1,6}\s*)?[ｍm]", text)
         if m_m:
             return (int(m_m.group(1)) + 79) // 80
-        m_w = re.search(r"(?:徒歩|停歩|歩)\s*(\d{1,3})\s*分", text)
+        m_w = re.search(r"(?:徒歩|停歩|歩)\s*(\d{1,3})\s*(?:[～~〜\-ー－]\s*\d{1,3}\s*)?分", text)
         return int(m_w.group(1)) if m_w else None
 
     @classmethod
@@ -122,7 +122,10 @@ class AthomeParser(ParserBase):
 
     @classmethod
     def _apply_bus_minutes_to_item(cls, item, line: str, idx: int) -> None:
-        m_bus = re.search(r"(?:【?バス(?:乗車)?】?|バス\s*利用可\s*バス)\s*(\d{1,3})\s*分", line)
+        m_bus = re.search(
+            r"(?:【?バス(?:乗車)?】?|バス\s*利用可\s*バス)\s*(\d{1,3})\s*(?:[～~〜\-ー－]\s*\d{1,3}\s*)?分",
+            line,
+        )
         if m_bus:
             b_val = int(m_bus.group(1))
             if getattr(item, f"busWalkMinute{idx}", None) in (None, 0):

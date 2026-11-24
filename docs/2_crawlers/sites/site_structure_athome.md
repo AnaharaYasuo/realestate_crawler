@@ -23,3 +23,4 @@
 ## PropertyTypeSwitch 後の `/buy_other/` ガード仕様 (#1808)
 - `AthomeMansionParser._parsePropertyDetailPage`: 区分マンションには土地面積が不要なため、`_check_buy_other_land_area` 呼び出しを行わない。
 - `AthomeKodateParser._parsePropertyDetailPage`: `PropertyTypeSwitch` により `invest_kodate` 等へスイッチされた場合（`_switched_from_property_type` が設定されている場合）は、`PATH_BUY_OTHER` / `PATH_TOUSHI` による一律スキップを適用しない。
+- `AthomeParser._extract_walk_minutes` / `_apply_bus_minutes_to_item`: 分譲地・複数区画物件等で表記されるレンジ形式の所要時間（例: `徒歩19～20分`, `徒歩1500～1600m`, `バス10～12分`）の下限値を確実に抽出し、`railwayWalkMinute*` / `busWalkMinute*` の欠損を防ぐ。
