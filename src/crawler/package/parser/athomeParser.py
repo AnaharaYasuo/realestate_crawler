@@ -957,7 +957,6 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
-        self._check_buy_other_land_area(page_url, response)
 
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
@@ -1060,8 +1059,10 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         name = self._parsePropertyName(response)
         specs_pre = self._get_specs_table(response)
         shumoku = str(specs_pre.get("物件種目", "") or specs_pre.get("種別", ""))
+        switched = bool(getattr(item, "_switched_from_property_type", None))
+        non_kodate_paths = ("/bldg/", "/mansion/", "/tochi/") if switched else (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/", "/mansion/", "/tochi/")
         if (
-            any(kw in page_url for kw in (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/", "/mansion/", "/tochi/"))
+            any(kw in page_url for kw in non_kodate_paths)
             or any(kw in name for kw in ("一棟売アパート", "一棟売マンション"))
             or "マンション" in shumoku
             or "売地" in shumoku
