@@ -28,6 +28,7 @@ from django.db import close_old_connections
 from django.db.models import Q
 from package.models.evaluation import PropertyEvaluation
 from package.ml.investment_evaluator import calculate_sekisan_price, _extract_pref_and_city
+from package.utils.url_matcher import UrlMatcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,6 +120,22 @@ def process_eval_chunk(eval_ids: List[int]) -> int:
             for rec in model_evals:
                 prop = props.get(rec.property_id)
                 if not prop:
+                    continue
+                prop_url = getattr(prop, "pageUrl", None)
+                if (
+                    isinstance(rec.property_url, str)
+                    and isinstance(prop_url, str)
+                    and rec.property_url.strip()
+                    and prop_url.strip()
+                    and not UrlMatcher.is_same_url(rec.property_url, prop_url)
+                ):
+                    logger.warning(
+                        "[URLMismatchGuard] Skipped sekisan recovery mismatch in %s (id=%s): eval_url=%s != prop_url=%s",
+                        model_cls.__name__,
+                        prop.id,
+                        rec.property_url,
+                        prop_url,
+                    )
                     continue
 
                 address = getattr(prop, "address", "") or ""

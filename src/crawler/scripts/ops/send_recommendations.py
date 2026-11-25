@@ -28,6 +28,7 @@ from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.url_matcher import UrlMatcher
 from decimal import Decimal
 from package.ml.inference.ensemble import compute_risk_adjusted_bargain_score
 from package.ml.report_generator import generate_professional_and_danchou_report
@@ -59,8 +60,8 @@ LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
 
 
-def _match_model_for_company_and_ptype(all_models, company: str, ptype: str):
-    """company と ptype の組み合わせに対応する Django モデルクラスを柔軟に解決する (Issue #1343)"""
+def _match_models_for_company_and_ptype(all_models, company: str, ptype: str) -> list:
+    """company と ptype の組み合わせに対応する Django モデルクラス候補一覧を優先順で解決する (Issue #1343, #1835)"""
     ptype_variants = {
         ptype,
         ptype.replace("invest", "investment"),
@@ -72,35 +73,66 @@ def _match_model_for_company_and_ptype(all_models, company: str, ptype: str):
     elif ptype in ("investment", "investmentbuilding"):
         ptype_variants.update({"investment", "investmentapartment", "investmentbuilding"})
 
-    fallback_model = None
+    exact_models = []
+    variant_models = []
     for model in all_models:
         m_name = model.__name__.lower()
         if m_name.startswith(company):
             rest = m_name[len(company):]
             if rest == ptype or rest == ptype.replace("invest", "investment"):
-                return model
-            if rest in ptype_variants and fallback_model is None:
-                fallback_model = model
-    return fallback_model
+                exact_models.append(model)
+            elif rest in ptype_variants:
+                variant_models.append(model)
+    return exact_models + variant_models
 
 
-def _resolve_group_records(matched_model, group_recs: list, resolved: dict) -> None:
-    """単一モデルグループに対して URL 一括照会および property_id フォールバック照会を行う"""
-    urls = [r.property_url for r in group_recs if r.property_url]
+def _match_model_for_company_and_ptype(all_models, company: str, ptype: str):
+    """後方互換: 最優先の単一モデルクラスを返す"""
+    models_list = _match_models_for_company_and_ptype(all_models, company, ptype)
+    return models_list[0] if models_list else None
+
+
+def _is_matching_property_url(eval_url: str | None, prop_obj: Any) -> bool:
+    """
+    評価レコードの property_url と実物件の pageUrl が同一物件かを正規化URLで厳格に検証する (Issue #1835)。
+    別テーブルの同一連番 property_id への誤結合（例: KenbiyaInvestmentBuilding vs KenbiyaInvestmentApartment）を遮断する。
+    """
+    prop_url = getattr(prop_obj, "pageUrl", None) or getattr(prop_obj, "url", None)
+    if not isinstance(eval_url, str) or not isinstance(prop_url, str):
+        return False
+    eval_clean = eval_url.strip()
+    prop_clean = prop_url.strip()
+    if not eval_clean or not prop_clean:
+        return False
+    return eval_clean == prop_clean or UrlMatcher.is_same_url(eval_clean, prop_clean)
+
+
+def _resolve_group_records(matched_models, group_recs: list, resolved: dict) -> None:
+    """候補モデル群に対して URL 一括照会および URL 一致検証付き property_id フォールバック照会を行う"""
+    models_list = matched_models if isinstance(matched_models, (list, tuple)) else [matched_models]
     chunk_size = 500
-    for i in range(0, len(urls), chunk_size):
-        sub_urls = urls[i:i + chunk_size]
-        try:
-            for obj in matched_model.objects.filter(pageUrl__in=sub_urls):
-                resolved[obj.pageUrl] = obj
-        except Exception as e:
-            logger.warning("Error batch resolving properties for %s: %s", matched_model.__name__, e)
 
-    unresolved = [
-        r for r in group_recs
-        if r.property_url not in resolved and getattr(r, "property_id", None)
-    ]
-    if unresolved:
+    # 1. 全候補モデルに対して pageUrl 完全一致で一括照会
+    for model_cls in models_list:
+        urls = [r.property_url for r in group_recs if r.property_url and r.property_url not in resolved]
+        if not urls:
+            break
+        for i in range(0, len(urls), chunk_size):
+            sub_urls = urls[i:i + chunk_size]
+            try:
+                for obj in model_cls.objects.filter(pageUrl__in=sub_urls):
+                    resolved[obj.pageUrl] = obj
+            except Exception as e:
+                logger.warning("Error batch resolving properties for %s: %s", model_cls.__name__, e)
+
+    # 2. 追跡クエリ差異等の未解決レコードのみ、URL一致検証付きで property_id フォールバック照会
+    for model_cls in models_list:
+        unresolved = [
+            r for r in group_recs
+            if r.property_url and r.property_url not in resolved and getattr(r, "property_id", None)
+        ]
+        if not unresolved:
+            break
         id_to_urls: dict[int, list[str]] = {}
         for r in unresolved:
             id_to_urls.setdefault(int(r.property_id), []).append(r.property_url)
@@ -108,11 +140,20 @@ def _resolve_group_records(matched_model, group_recs: list, resolved: dict) -> N
         for i in range(0, len(ids), chunk_size):
             sub_ids = ids[i:i + chunk_size]
             try:
-                for obj in matched_model.objects.filter(id__in=sub_ids):
+                for obj in model_cls.objects.filter(id__in=sub_ids):
                     for u in id_to_urls.get(obj.id, []):
-                        resolved[u] = obj
+                        if _is_matching_property_url(u, obj):
+                            resolved[u] = obj
+                        else:
+                            logger.warning(
+                                "[URLMismatchGuard] Skipped property_id fallback mismatch in %s (id=%s): eval_url=%s != prop_url=%s",
+                                model_cls.__name__,
+                                obj.id,
+                                u,
+                                getattr(obj, "pageUrl", None),
+                            )
             except Exception as e:
-                logger.warning("Error batch resolving properties by id for %s: %s", matched_model.__name__, e)
+                logger.warning("Error batch resolving properties by id for %s: %s", model_cls.__name__, e)
 
 
 def batch_resolve_properties(eval_records: list) -> dict:
@@ -134,23 +175,37 @@ def batch_resolve_properties(eval_records: list) -> dict:
 
     all_models = apps.get_models()
     for (company, ptype), group_recs in model_groups.items():
-        matched_model = _match_model_for_company_and_ptype(all_models, company, ptype)
-        if matched_model:
-            _resolve_group_records(matched_model, group_recs, resolved)
+        matched_models = _match_models_for_company_and_ptype(all_models, company, ptype)
+        if matched_models:
+            _resolve_group_records(matched_models, group_recs, resolved)
     return resolved
 
 
 def get_property_record(eval_record):
-    """URLまたはproperty_idに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
+    """URLまたはURL一致検証付きproperty_idに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
     company = (eval_record.company or "").lower()
     ptype = (eval_record.property_type or "").lower().replace("_", "")
-    matched_model = _match_model_for_company_and_ptype(apps.get_models(), company, ptype)
-    if not matched_model:
+    matched_models = _match_models_for_company_and_ptype(apps.get_models(), company, ptype)
+    if not matched_models:
         return None
-    obj = matched_model.objects.filter(pageUrl=eval_record.property_url).first()
-    if obj is None and getattr(eval_record, "property_id", None):
-        obj = matched_model.objects.filter(id=eval_record.property_id).first()
-    return obj
+    for model_cls in matched_models:
+        obj = model_cls.objects.filter(pageUrl=eval_record.property_url).first()
+        if obj is not None:
+            return obj
+    if getattr(eval_record, "property_id", None):
+        for model_cls in matched_models:
+            obj = model_cls.objects.filter(id=eval_record.property_id).first()
+            if obj is not None and _is_matching_property_url(eval_record.property_url, obj):
+                return obj
+            if obj is not None:
+                logger.warning(
+                    "[URLMismatchGuard] Rejected single property_id fallback mismatch in %s (id=%s): eval_url=%s != prop_url=%s",
+                    model_cls.__name__,
+                    obj.id,
+                    eval_record.property_url,
+                    getattr(obj, "pageUrl", None),
+                )
+    return None
 
 def clean_val(val):
     if val is None:
@@ -973,6 +1028,22 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str, report_d
     return msg
 
 def _dispatch_single_recommendation(eval_rec, prop, reason: str, report_data: dict | None = None) -> bool:
+    eval_url = getattr(eval_rec, "property_url", None)
+    prop_url = getattr(prop, "pageUrl", None) or getattr(prop, "url", None)
+    if (
+        isinstance(eval_url, str)
+        and isinstance(prop_url, str)
+        and eval_url.strip()
+        and prop_url.strip()
+        and not _is_matching_property_url(eval_url, prop)
+    ):
+        logger.error(
+            "[URLMismatchGuard] Blocked mismatched Slack recommendation: eval_url=%s != prop_url=%s",
+            eval_url,
+            prop_url,
+        )
+        return False
+
     p_name = clean_val(getattr(prop, "propertyName", "不明な物件名"))
     msg = _build_recommendation_msg(eval_rec, prop, reason, p_name, report_data=report_data)
     channel_id = _get_target_slack_channel(eval_rec, prop, p_name)
