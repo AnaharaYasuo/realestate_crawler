@@ -560,7 +560,7 @@ def record_heal_attempt(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Increment `auto-heal-attempts` counter on an Issue and escalate if exceeding `max_attempts`."""
+    """Increment `auto-heal-attempts` counter on an Issue without auto-escalating to human."""
     iss = gh.get_issue(number)
     body = str(iss.get("body") or "")
     match = _ATTEMPTS_MARKER_RE.search(body)
@@ -577,21 +577,8 @@ def record_heal_attempt(
     if reason:
         gh.comment_issue(
             number,
-            f"⚠️ **自動修復の試行失敗記録 (試行 {next_attempts}/{max_attempts} 回目)**\n\n- 理由: {reason}",
+            f"⚠️ **自動修復の試行失敗記録 (試行 {next_attempts} 回目)**\n\n- 理由: {reason}",
         )
-
-    if next_attempts > max_attempts:
-        escalation_reason = (
-            f"自動修復の最大試行回数（{max_attempts}回）を超過したため自動停止しました（試行 {next_attempts} 回目）。"
-        )
-        if reason:
-            escalation_reason = f"{escalation_reason}\n直前の失敗理由: {reason}"
-        escalate_issue_to_human(
-            number,
-            escalation_reason,
-            gh,
-        )
-        return {"issue_number": number, "attempts": next_attempts, "escalated": True}
 
     return {"issue_number": number, "attempts": next_attempts, "escalated": False}
 
