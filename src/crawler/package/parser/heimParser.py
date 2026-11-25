@@ -82,13 +82,27 @@ class HeimParser(ParserBase):
         if not hasattr(item, "railwayWalkMinute1") or getattr(item, "railwayWalkMinute1", None) is not None:
             return
         traffic_src = str(getattr(item, "traffic", "") or "") or specs.get("交通", "")
-        m_walk = re.search(r"徒歩\s*(?:約\s*)?(\d+)\s*分", traffic_src)
+        m_walk = re.search(r"徒歩\s*(?:約\s*)?(\d+)\s*(?:[~～\-－]\s*\d+\s*)?分", traffic_src)
         if not m_walk:
             return
         mins = int(m_walk.group(1))
         item.railwayWalkMinute1 = mins
         if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", ""):
             item.railwayWalkMinute1Str = str(mins)
+
+    @staticmethod
+    def _supplement_address_field(item, specs: dict) -> None:
+        outline_addr = str(specs.get("所在地", "") or "").strip()
+        if not outline_addr:
+            return
+        cur_addr1 = str(getattr(item, "address1", "") or "").strip()
+        if cur_addr1:
+            return
+        if hasattr(item, "address"):
+            item.address = outline_addr
+        m_pref = re.match(r"^(北海道|東京都|(?:京都|大阪)府|.{2,3}県)(.*)$", outline_addr)
+        if m_pref and hasattr(item, "address1"):
+            item.address1 = m_pref.group(1)
 
     @staticmethod
     def _supplement_text_fields(item, specs: dict) -> None:
@@ -108,6 +122,7 @@ class HeimParser(ParserBase):
         self._supplement_ratio_field(item, specs, "kenpei", "kenpeiStr", ("建ぺい率", "建蔽率"))
         self._supplement_ratio_field(item, specs, "youseki", "yousekiStr", ("容積率",))
         self._supplement_traffic_field(item, specs)
+        self._supplement_address_field(item, specs)
         self._supplement_text_fields(item, specs)
 
     async def parsePropertyDetailPage(self, session, url):
