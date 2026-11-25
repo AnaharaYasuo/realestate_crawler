@@ -665,6 +665,38 @@ def test_shared_cooldown_pause_and_resume_coordinates_all_processes(tmp_path, mo
         assert KenbiyaParserBase.get_active_rotation_remaining_seconds() == 0.0
 
 
+def test_shared_cooldown_window_start_reset_prevents_back_to_back_cooldown(tmp_path, monkeypatch):
+    """リーダー復帰時に共有 cooldown_window_start が更新され、フォロワーの連続クールダウン発火を防ぐこと (#1820)"""
+    import time
+    from package.api.api import CrawlCooldownController
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    state_file = tmp_path / "kenbiya_window_reset.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+
+    # リーダーが復帰完了した時点で共有 cooldown_window_start が現在時刻に更新される
+    before = time.time()
+    KenbiyaParserBase.end_shared_cooldown_pause()
+    shared_start = KenbiyaParserBase.get_shared_cooldown_window_start()
+    assert shared_start >= before
+
+    # フォロワーのローカルタイマーは既に 3600s 超過している状態
+    ctrl = CrawlCooldownController()
+    assert ctrl.get_wait_seconds("www.kenbiya.com", work_seconds=3600.0, rest_seconds=1800.0, now=100.0) == 0.0
+    # 共有 window_start を渡すと、直近復帰済みのため再クールダウンが発火しない（wait == 0.0）
+    wait = ctrl.get_wait_seconds(
+        "www.kenbiya.com",
+        work_seconds=3600.0,
+        rest_seconds=1800.0,
+        now=3800.0,
+        shared_window_start=shared_start,
+    )
+    assert wait == 0.0
+
+
+
 
 
 
