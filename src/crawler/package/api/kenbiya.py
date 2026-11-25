@@ -118,22 +118,75 @@ def _check_proxysql_select1(host: str = "127.0.0.1", port: int = 6033, timeout: 
         return False
 
 
-def _ensure_proxysql_tunnel_ready() -> bool:
-    """wan_pppoe 再接続後に ProxySQL VM および IAP トンネル (127.0.0.1:6033) の疎通を確認し、
-    未起動・切断状態であれば VM 起動および IAP トンネル再確立を自動実行する。
-    """
+def _get_local_proxysql_target() -> tuple[str, int] | None:
+    """ローカル ProxySQL 自動復旧の対象なら (host, port) を返し、対象外なら None を返す"""
     if os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB"):
-        return True
+        return None
     if os.getenv("KENBIYA_PROXYSQL_AUTO_RECOVERY_DISABLED", "false").lower() in ("true", "1"):
-        return True
+        return None
     db_host = os.getenv("DB_HOST", "127.0.0.1").strip()
     try:
         db_port = int(os.getenv("DB_PORT", "6033"))
     except ValueError:
         db_port = 6033
     if db_host not in ("127.0.0.1", "localhost") or db_port != 6033:
-        return True
+        return None
+    return db_host, db_port
 
+
+def _start_proxysql_vm_if_needed(gcloud_bin: str, vm_name: str, vm_zone: str) -> None:
+    desc = subprocess.run(
+        [gcloud_bin, "compute", "instances", "describe", vm_name, f"--zone={vm_zone}", "--format=value(status)"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    status = (desc.stdout or "").strip()
+    if status == "RUNNING":
+        return
+    logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting {vm_name} (status={status or 'UNKNOWN'})...")
+    subprocess.run(
+        [gcloud_bin, "compute", "instances", "start", vm_name, f"--zone={vm_zone}"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    time.sleep(15)
+
+
+def _launch_proxysql_iap_tunnel(gcloud_bin: str, vm_name: str, vm_zone: str, db_host: str, db_port: int) -> None:
+    logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting IAP tunnel to {vm_name}:6033...")
+    popen_kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+            subprocess, "DETACHED_PROCESS", 0
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(
+        [
+            gcloud_bin,
+            "compute",
+            "start-iap-tunnel",
+            vm_name,
+            "6033",
+            f"--local-host-port={db_host}:{db_port}",
+            f"--zone={vm_zone}",
+        ],
+        **popen_kwargs,
+    )
+
+
+def _ensure_proxysql_tunnel_ready() -> bool:
+    """wan_pppoe 再接続後に ProxySQL VM および IAP トンネル (127.0.0.1:6033) の疎通を確認し、
+    未起動・切断状態であれば VM 起動および IAP トンネル再確立を自動実行する。
+    """
+    target = _get_local_proxysql_target()
+    if target is None:
+        return True
+    db_host, db_port = target
     if _check_proxysql_select1(db_host, db_port):
         return True
 
@@ -144,49 +197,8 @@ def _ensure_proxysql_tunnel_ready() -> bool:
     vm_name = os.getenv("PROXYSQL_VM_NAME", "proxysql-instance-prod")
     vm_zone = os.getenv("PROXYSQL_VM_ZONE", "asia-northeast1-a")
     try:
-        desc = subprocess.run(
-            [gcloud_bin, "compute", "instances", "describe", vm_name, f"--zone={vm_zone}", "--format=value(status)"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        status = (desc.stdout or "").strip()
-        if status != "RUNNING":
-            logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting {vm_name} (status={status or 'UNKNOWN'})...")
-            subprocess.run(
-                [gcloud_bin, "compute", "instances", "start", vm_name, f"--zone={vm_zone}"],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-            time.sleep(15)
-
-        logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting IAP tunnel to {vm_name}:6033...")
-        popen_kwargs: dict = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-                subprocess, "DETACHED_PROCESS", 0
-            )
-        else:
-            popen_kwargs["start_new_session"] = True
-        subprocess.Popen(
-            [
-                gcloud_bin,
-                "compute",
-                "start-iap-tunnel",
-                vm_name,
-                "6033",
-                f"--local-host-port={db_host}:{db_port}",
-                f"--zone={vm_zone}",
-            ],
-            **popen_kwargs,
-        )
-
+        _start_proxysql_vm_if_needed(gcloud_bin, vm_name, vm_zone)
+        _launch_proxysql_iap_tunnel(gcloud_bin, vm_name, vm_zone, db_host, db_port)
         for _ in range(10):
             time.sleep(3)
             if _check_proxysql_select1(db_host, db_port):
