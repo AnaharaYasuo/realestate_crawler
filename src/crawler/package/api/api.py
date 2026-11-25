@@ -2596,11 +2596,14 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
         dcf_defaults = await sync_to_async(self._compute_inline_dcf_defaults)(item, property_type)
 
+        from package.utils.data_validator import resolve_canonical_eval_property_type
+
+        eval_ptype = resolve_canonical_eval_property_type(item, property_type)
         eval_record, _ = await sync_to_async(property_eval_cls.objects.update_or_create)(
             property_url=item.pageUrl,
             defaults={
                 "company": company,
-                "property_type": property_type,
+                "property_type": eval_ptype,
                 "property_id": item.id,
                 "first_stage_predicted_price": price_stage1,
                 "is_first_stage_passed": is_passed,

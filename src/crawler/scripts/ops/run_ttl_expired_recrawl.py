@@ -1263,6 +1263,9 @@ def _apply_eval_entry_mutation(
     item = entry.item
     detected_comp = ParseDetailPageAsyncBase._detect_company_name(item) or comp
     detected_ptype = PropertyTypeDetector.detect_from_object(item) or ptype
+    from package.utils.data_validator import resolve_canonical_eval_property_type
+
+    eval_ptype = resolve_canonical_eval_property_type(item, detected_ptype)
     is_valid, reasons = PropertyDataValidator.validate_property(item, detected_ptype)
     prop_id = int(getattr(item, "id", 0) or entry.target.property_id or 0)
 
@@ -1270,7 +1273,7 @@ def _apply_eval_entry_mutation(
         eval_rec = PropertyEvaluation(
             property_url=item.pageUrl,
             company=detected_comp,
-            property_type=detected_ptype,
+            property_type=eval_ptype,
             property_id=prop_id,
             is_published=True,
             needs_parser_fix=not is_valid,
@@ -1287,8 +1290,8 @@ def _apply_eval_entry_mutation(
             eval_rec.property_id = prop_id
         if detected_comp != "unknown" and eval_rec.company != detected_comp:
             eval_rec.company = detected_comp
-        if detected_ptype != "unknown" and eval_rec.property_type != detected_ptype:
-            eval_rec.property_type = detected_ptype
+        if eval_ptype != "unknown" and eval_rec.property_type != eval_ptype:
+            eval_rec.property_type = eval_ptype
         apply_integrity_transition(eval_rec, is_valid=is_valid, reasons=reasons, git_sha=cur_sha, now=now_ts)
         eval_updates[int(eval_rec.pk)] = eval_rec
 

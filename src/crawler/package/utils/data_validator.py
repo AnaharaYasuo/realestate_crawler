@@ -494,6 +494,25 @@ def apply_integrity_transition(
     eval_rec.heal_status = "recrawled_pending_ml" if was_anomalous else "healthy"
 
 
+def resolve_canonical_eval_property_type(item: Any, fallback_ptype: str) -> str:
+    """
+    PropertyEvaluation.property_type に保存する正規のモデル固有種別を解決する (Issue #1835)。
+    KenbiyaInvestmentBuilding 等を PropertyTypeDetector の粗いカテゴリ名 ('apartment') で
+    上書きすると別テーブル同一 property_id 誤結合の原因になるため、実モデル名から一意に決定する。
+    """
+    cls_name = getattr(getattr(item, "__class__", None), "__name__", "") or ""
+    if cls_name and cls_name not in ("MagicMock", "AsyncMock", "Mock", "SimpleNamespace", "dict"):
+        try:
+            from package.ml.evaluation.record_builder import resolve_company_and_type
+
+            resolved_company, resolved_ptype = resolve_company_and_type(cls_name)
+            if resolved_company != "unknown" and resolved_ptype:
+                return resolved_ptype
+        except Exception:  # noqa: BLE001
+            pass
+    return fallback_ptype
+
+
 def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:
     """
     保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True および needs_recrawl=True (オートヒール/再クローリング対象)、
@@ -504,11 +523,12 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
     is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
     issue = "; ".join(reasons)
     prop_id = getattr(item, "id", 0) or 0
+    eval_ptype = resolve_canonical_eval_property_type(item, property_type)
     eval_rec, created = PropertyEvaluation.objects.get_or_create(
         property_url=item.pageUrl,
         defaults={
             "company": company,
-            "property_type": property_type,
+            "property_type": eval_ptype,
             "property_id": prop_id,
             "is_published": True,
             "needs_parser_fix": not is_valid,
@@ -521,8 +541,8 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
         eval_rec.property_id = prop_id
     if company and company != "unknown" and eval_rec.company != company:
         eval_rec.company = company
-    if property_type and property_type != "unknown" and eval_rec.property_type != property_type:
-        eval_rec.property_type = property_type
+    if eval_ptype and eval_ptype != "unknown" and eval_rec.property_type != eval_ptype:
+        eval_rec.property_type = eval_ptype
     apply_integrity_transition(eval_rec, is_valid=is_valid, reasons=reasons)
     if created and is_valid:
         eval_rec.heal_status = "healthy"
