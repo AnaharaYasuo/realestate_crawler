@@ -804,7 +804,7 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
         logger.warning(f"Could not scan logs for tracebacks: {tbe}")
 
     three_days_ago = timezone.now() - timedelta(days=3)
-    # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665)
+    # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665, #1468)
     eval_anomalies = PropertyEvaluation.objects.filter(
         needs_parser_fix=True,
         is_published=True,
@@ -813,6 +813,9 @@ def scan_anomalies_and_generate_instructions(failed_steps: list[str] | None = No
         eval_anomalies = PropertyEvaluation.objects.filter(analyzed_at__gte=three_days_ago, is_published=True)
 
     for ev in eval_anomalies:
+        # recrawl_anomalies.py で隔離済みの source_data_invalid レコードは除外し、ゾンビ再オープンを防ぐ (#1468)
+        if getattr(ev, "heal_status", None) == "source_data_invalid":
+            continue
         target = _build_target_from_eval_anomaly(ev)
         if target and target not in heal_targets:
             heal_targets.append(target)

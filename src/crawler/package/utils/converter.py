@@ -23,7 +23,10 @@ def parse_price(price_str):
     try:
         if "億" in price_work:
             parts = price_work.split("億")
-            oku = float(parts[0]) * 10000.0
+            oku_match = re.search(DECIMAL_NUMBER_PATTERN, parts[0])
+            if not oku_match:
+                return None
+            oku = float(oku_match.group(1)) * 10000.0
             if len(parts) > 1 and parts[1]:
                 man_match = re.search(DECIMAL_NUMBER_PATTERN, parts[1])
                 if man_match:

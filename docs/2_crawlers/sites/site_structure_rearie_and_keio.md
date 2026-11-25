@@ -54,3 +54,5 @@ Rearie は静的HTML一覧/詳細ページから、Repros (`phfudousan.repros.jp
 - **掲載終了・非販売ページのスキップ防衛**: Rearie (`RearieMansionParser`), Misawa (`MisawaMansionParser`), Sumai1 (`Sumai1MansionParser`), Mitsui (`MitsuiInvestmentKodateParser`) において、物件名・価格・面積・間取り等の必須詳細情報が空の掲載終了／ライブラリページは `SkipPropertyException` でスキップする。
 - **4層種別判定防衛の強化**: Afr (`AfrMansionParser`, `AfrTochiParser`), Daikyo (`DaikyoMansionParser`), Sekisui (`SekisuiMansionParser`) において、一棟物件・戸建て・土地URL混入を `SkipPropertyException` で除外する。
 - **複合表記・テーブル抽出の強化**: Toho (`TohoBaseParser._get_specs`) で `<table><tr><th>/<td>` 抽出および `建ぺい率/容積率` 複合表記パースをサポートし、`afr.yaml` で漢字表記 `建蔽率` をマッピングする。
+- **隔離済みレコードの自己修復ループ根治 (#1468)**:
+  - `auto_heal_parsers.py` は `PropertyEvaluation` の異常スキャン時に `heal_status="source_data_invalid"`（`recrawl_anomalies.py` で再クロール対象外として隔離済み）を除外し、ゾンビレコードによる Issue 無限再オープンを防止する。

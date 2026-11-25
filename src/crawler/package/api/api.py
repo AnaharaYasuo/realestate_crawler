@@ -580,7 +580,14 @@ class CrawlCooldownController:
             )
             return True
 
-    def get_wait_seconds(self, host: str, work_seconds: float, rest_seconds: float, now: float | None = None) -> float:
+    def get_wait_seconds(
+        self,
+        host: str,
+        work_seconds: float,
+        rest_seconds: float,
+        now: float | None = None,
+        shared_window_start: float | None = None,
+    ) -> float:
         if work_seconds <= 0 or rest_seconds <= 0:
             return 0.0
         current = time.monotonic() if now is None else now
@@ -594,6 +601,12 @@ class CrawlCooldownController:
                 self._pause_executed.discard(host)
                 self._window_start[host] = current
                 return 0.0
+            if shared_window_start and shared_window_start > 0.0:
+                elapsed_since_shared = time.time() - shared_window_start
+                if 0.0 <= elapsed_since_shared < work_seconds:
+                    synced_start = current - elapsed_since_shared
+                    if synced_start > self._window_start.get(host, 0.0):
+                        self._window_start[host] = synced_start
             start = self._window_start.get(host)
             if start is None:
                 self._window_start[host] = current
@@ -633,7 +646,17 @@ class CrawlCooldownController:
     ) -> None:
         was_paused = False
         while True:
-            wait_sec = self.get_wait_seconds(host, work_seconds, rest_seconds)
+            shared_start: float | None = None
+            if "kenbiya" in host:
+                try:
+                    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+                    shared_start = KenbiyaParserBase.get_shared_cooldown_window_start()
+                except Exception:
+                    shared_start = None
+            wait_sec = self.get_wait_seconds(
+                host, work_seconds, rest_seconds, shared_window_start=shared_start
+            )
             if wait_sec <= 0.0:
                 if was_paused and on_resume is not None and self.claim_resume_hook(host):
                     await asyncio.to_thread(on_resume, host)

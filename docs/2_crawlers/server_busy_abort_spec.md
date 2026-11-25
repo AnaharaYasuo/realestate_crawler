@@ -37,6 +37,9 @@
   - `_kenbiya_on_pause` は `KenbiyaParserBase.begin_shared_cooldown_pause(rest_seconds)` を呼び出し、プロセス間ファイルロック下で共有状態ファイルの `rotating_until` を設定できた **リーダー1プロセスのみ** が `ifdown wan_pppoe` を実行する（フォロワーは重複切断を行わない）。
   - 共有状態ファイルに `rotating_until` が設定されている間、全5プロセスの一覧ページ・詳細ページ双方のリクエストが `_throttle_before_request()` で自動的に待機し、回線断による `curl (28)` タイムアウトを防止する。
   - `_kenbiya_on_resume` はリーダープロセスのみが `ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload` と Cookie 再取得を実行し、`finally` ブロックで `KenbiyaParserBase.end_shared_cooldown_pause()` を呼び出して `rotating_until` を解除・全プロセスを一斉再開させる。
+- **復帰時の稼働起算時刻 (`cooldown_window_start`) 共有リセット仕様 (#1820)**:
+  - `KenbiyaParserBase` の共有状態ファイルに `cooldown_window_start`（Unix タイムスタンプ）を保持し、`end_shared_cooldown_pause()` および 503 リカバリ復帰（`_rotate_pppoe_ip`）の完了時に現在時刻で更新する。
+  - `KenbiyaParserBase.get_shared_cooldown_window_start()` を提供し、各プロセスの `CrawlCooldownController` はクールダウン判定時に共有 `cooldown_window_start` を参照してローカル `_window_start` を同期することで、リーダー復帰直後にフォロワーの個別タイマーが連続発火する二重クールダウンを防止する。
 
 
 ## 東宝ハウス タイトル末尾ブランド文言除去 (#1726)
