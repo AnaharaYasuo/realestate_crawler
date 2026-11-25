@@ -320,7 +320,11 @@ class KenbiyaParserBase(ParserBase):
         IPが変わるまで切断→待機→再接続→IP確認を繰り返す（プロセスは維持）。
         """
         try:
-            from package.api.kenbiya import _get_wan_pppoe_ip, _run_router_ssh
+            from package.api.kenbiya import (
+                _ensure_proxysql_tunnel_ready,
+                _get_wan_pppoe_ip,
+                _run_router_ssh,
+            )
 
             try:
                 max_attempts = max(
@@ -371,6 +375,7 @@ class KenbiyaParserBase(ParserBase):
                     f"[Kenbiya503Recovery] IP address unchanged ({new_ip}) "
                     f"on attempt {attempt}/{max_attempts}; disconnecting again for {wait_sec:.0f}s..."
                 )
+            _ensure_proxysql_tunnel_ready()
             KenbiyaParserBase._waf_cookies = {}
         except Exception as exc:
             logging.warning(
@@ -399,9 +404,9 @@ class KenbiyaParserBase(ParserBase):
         ):
             return False
         try:
-            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "300"))
+            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "600"))
         except ValueError:
-            wait_sec = 300.0
+            wait_sec = 600.0
         state_path = cls._get_rate_limit_state_path()
         lock_path = f"{state_path}.lock"
         should_rotate = False

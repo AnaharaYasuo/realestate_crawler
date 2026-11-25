@@ -717,20 +717,52 @@ def test_503_pppoe_rotation_repeats_until_ip_changes(tmp_path, monkeypatch):
 
     with patch.object(kenbiya_api, "_run_router_ssh", side_effect=lambda cmd: ssh_cmds.append(cmd) or ""), patch.object(
         kenbiya_api, "_get_wan_pppoe_ip", side_effect=lambda: next(ips)
-    ), patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock):
+    ), patch.object(kenbiya_api, "_ensure_proxysql_tunnel_ready", return_value=True) as mock_proxysql, patch(
+        "package.parser.kenbiyaParser.asyncio.sleep", sleep_mock
+    ):
         handled = asyncio.run(
             KenbiyaParserBase._handle_503_with_pppoe_recovery("https://www.kenbiya.com/pp1/s/tokyo/")
         )
 
     assert handled is True
+    mock_proxysql.assert_called_once()
     assert ssh_cmds == [
         "ifdown wan_pppoe",
         "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
         "ifdown wan_pppoe",
         "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
     ]
-    assert [call.args[0] for call in sleep_mock.call_args_list] == [300.0, 300.0]
+    assert [call.args[0] for call in sleep_mock.call_args_list] == [600.0, 600.0]
     assert KenbiyaParserBase.get_active_rotation_remaining_seconds() == 0.0
+
+
+def test_ensure_proxysql_tunnel_ready_starts_vm_and_tunnel(monkeypatch):
+    """ProxySQL疎通不可時にVM起動およびIAPトンネル再確立を自動実行すること"""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    from package.api import kenbiya as kenbiya_api
+
+    monkeypatch.delenv("IS_CLOUD", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv("CLOUD_RUN_JOB", raising=False)
+    monkeypatch.setenv("KENBIYA_PROXYSQL_AUTO_RECOVERY_DISABLED", "false")
+    monkeypatch.setenv("DB_HOST", "127.0.0.1")
+    monkeypatch.setenv("DB_PORT", "6033")
+
+    # 1回目: 疎通不可 -> VM起動＆トンネル起動 -> 2回目: 疎通OK
+    checks = iter([False, True])
+    run_mock = MagicMock(return_value=SimpleNamespace(stdout="TERMINATED\n"))
+    popen_mock = MagicMock()
+
+    with patch.object(kenbiya_api, "_check_proxysql_select1", side_effect=lambda *a, **kw: next(checks)), patch.object(
+        kenbiya_api.subprocess, "run", run_mock
+    ), patch.object(kenbiya_api.subprocess, "Popen", popen_mock), patch.object(kenbiya_api.time, "sleep"):
+        ok = kenbiya_api._ensure_proxysql_tunnel_ready()
+
+    assert ok is True
+    assert run_mock.call_count == 2  # describe + start
+    popen_mock.assert_called_once()
+
 
 
 
