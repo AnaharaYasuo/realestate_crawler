@@ -430,13 +430,29 @@ def extract_legal_and_furuya_features(
     estimated_fixed_asset_price: float | None = None,
 ) -> dict[str, float]:
     combined_text_lower = combined_text.lower()
+    sanitized_unbuildable_text = re.sub(
+        r"(?:再?建築不可)(?:では|じゃ)(?:ない|ありません|ございません)|(?:再?建築不可)に該当しない",
+        "",
+        combined_text,
+    )
     unbuildable_keywords = (
         _TERM_SAIKENCHIKU_FUKA,
+        "建築不可",
+        "43条但書",
+        "43条2項",
+        "接道義務違反",
         "建築基準法に定める道路に接していない",
         "再建築時には建築審査会の同意",
         "建築審査会の同意を得て",
     )
-    is_saikenchiku_fuka = 1.0 if any(k in combined_text for k in unbuildable_keywords) else 0.0
+    is_saikenchiku_fuka = 1.0 if any(k in sanitized_unbuildable_text for k in unbuildable_keywords) else 0.0
+    sanitized_rentou_text = re.sub(
+        r"(?:連棟式?|テラスハウス|長屋)(?:では|じゃ)(?:ない|ありません|ございません)",
+        "",
+        combined_text,
+    )
+    is_rentou = 1.0 if any(k in sanitized_rentou_text for k in ("連棟", "テラスハウス", "長屋")) else 0.0
+    is_itto_building = 1.0 if any(k in combined_text for k in ("一棟", "1棟", "１棟")) else 0.0
     chimoku_str = (
         str(_get_attr(property_obj, "chimoku", _get_attr(property_obj, "chimokuChisei", "")) or "")
         if property_obj is not None
@@ -488,6 +504,8 @@ def extract_legal_and_furuya_features(
     res["shigaika_shinshaku_rate"] = shinshaku_rate
     res["effective_land_price_multiplier"] = eff_land_mult
     res["is_saikenchiku_fuka"] = is_saikenchiku_fuka
+    res["is_rentou"] = is_rentou
+    res["is_itto_building"] = is_itto_building
     res["rights_ratio"] = rights_ratio
     return res
 

@@ -11,6 +11,49 @@ from package.utils.storage import get_storage_manager
 
 logger = logging.getLogger(__name__)
 
+SHARED_METADATA_FILES: tuple[str, ...] = (
+    "ensemble_weights.joblib",
+    "smearing_factors.joblib",
+    "location_encoders.joblib",
+    "p10_conformal.joblib",
+)
+
+
+def sync_existing_metadata_from_storage(
+    model_dir: str,
+    storage_manager_getter: Any = None,
+    overwrite_existing: bool = False,
+) -> int:
+    """エフェメラルコンテナ等での単一種別ローテーション学習時に他種別メタデータを消失させないため、
+    保存前にリモートストレージ (ml_models/) から既存の共有メタデータ4点を事前ダウンロードする (Issue #1841)。
+    """
+    os.makedirs(model_dir, exist_ok=True)
+    synced = 0
+    try:
+        getter = storage_manager_getter or get_storage_manager
+        storage = getter()
+        remote_keys = set(storage.list_files("ml_models/"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ML: Could not list remote metadata from storage: %s", e)
+        return 0
+
+    for fname in SHARED_METADATA_FILES:
+        local_path = os.path.join(model_dir, fname)
+        if os.path.exists(local_path) and not overwrite_existing:
+            continue
+        remote_key = f"ml_models/{fname}"
+        if remote_key not in remote_keys:
+            continue
+        try:
+            storage.download_file(remote_key, local_path)
+            synced += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ML: Could not download existing metadata %s: %s", remote_key, e)
+
+    if synced > 0:
+        logger.info("ML: Pre-synced %d existing shared metadata files from storage to %s", synced, model_dir)
+    return synced
+
 
 def save_stage_models(
     models_dict: dict[str, Any], model_dir: str, ptype: str, stage_key: str
