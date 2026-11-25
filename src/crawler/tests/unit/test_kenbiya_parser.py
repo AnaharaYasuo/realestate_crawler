@@ -696,6 +696,44 @@ def test_shared_cooldown_window_start_reset_prevents_back_to_back_cooldown(tmp_p
     assert wait == 0.0
 
 
+def test_503_pppoe_rotation_repeats_until_ip_changes(tmp_path, monkeypatch):
+    """503時のwan_pppoeローテーションが5分単位でIPが変わるまで切断→待機→再接続を繰り返すこと"""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from package.api import kenbiya as kenbiya_api
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    state_file = tmp_path / "kenbiya_503_ip_loop.json"
+    monkeypatch.setenv("KENBIYA_THROTTLE_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_CROSS_PROCESS_LOCK_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_503_PPPOE_RECOVERY_DISABLED", "false")
+    monkeypatch.setenv("KENBIYA_RATE_LIMIT_STATE_FILE", str(state_file))
+    monkeypatch.delenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", raising=False)
+
+    ssh_cmds = []
+    # 初回IP取得: 1.2.3.4 -> 1回目再接続後: 1.2.3.4(不変) -> 2回目再接続後: 5.6.7.8(変更)
+    ips = iter(["1.2.3.4", "1.2.3.4", "5.6.7.8"])
+    sleep_mock = AsyncMock()
+
+    with patch.object(kenbiya_api, "_run_router_ssh", side_effect=lambda cmd: ssh_cmds.append(cmd) or ""), patch.object(
+        kenbiya_api, "_get_wan_pppoe_ip", side_effect=lambda: next(ips)
+    ), patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock):
+        handled = asyncio.run(
+            KenbiyaParserBase._handle_503_with_pppoe_recovery("https://www.kenbiya.com/pp1/s/tokyo/")
+        )
+
+    assert handled is True
+    assert ssh_cmds == [
+        "ifdown wan_pppoe",
+        "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
+        "ifdown wan_pppoe",
+        "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
+    ]
+    assert [call.args[0] for call in sleep_mock.call_args_list] == [300.0, 300.0]
+    assert KenbiyaParserBase.get_active_rotation_remaining_seconds() == 0.0
+
+
+
 
 
 
