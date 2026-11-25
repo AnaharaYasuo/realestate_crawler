@@ -398,11 +398,11 @@ def test_list_actionable_record_attempt_circuit_breaker_and_mark_criteria_done()
     r2 = record_heal_attempt(1410, gh, max_attempts=2)
     assert r2 == {"issue_number": 1410, "attempts": 2, "escalated": False}
 
-    # 3rd attempt exceeds max_attempts=2 -> circuit breaker trips!
+    # 3rd attempt does NOT auto-escalate (auto-escalation is prohibited)
     r3 = record_heal_attempt(1410, gh, max_attempts=2)
-    assert r3 == {"issue_number": 1410, "attempts": 3, "escalated": True}
-    assert "auto-heal:needs-human" in gh.issues[1410]["labels"]
-    assert "auto-heal" not in gh.issues[1410]["labels"]
+    assert r3 == {"issue_number": 1410, "attempts": 3, "escalated": False}
+    assert "auto-heal:needs-human" not in gh.issues[1410]["labels"]
+    assert "auto-heal" in gh.issues[1410]["labels"]
 
     # Check off criteria on #1411
     mark_issue_criteria_done(1410, gh)
