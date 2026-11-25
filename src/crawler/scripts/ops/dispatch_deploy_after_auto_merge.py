@@ -137,13 +137,15 @@ def find_release_pr(gh):
 def _poll(pr_number, gh):
     """Return (action, merge_sha), or None when the poll itself failed."""
     try:
-        rc, out = gh(["pr", "view", pr_number, "--json", "state,mergeCommit"])
+        rc, out = gh(["pr", "view", pr_number, "--json", "state,mergeCommit,autoMergeRequest"])
         if rc != 0:
             return None
         data = json.loads(out)
     except (subprocess.TimeoutExpired, ValueError) as exc:
         print(f"::notice::Transient error while polling PR #{pr_number}: {exc}")
         return None
+    if data.get("state") == "OPEN" and "autoMergeRequest" in data and data.get("autoMergeRequest") is None:
+        return "abort", None
     merge_sha = (data.get("mergeCommit") or {}).get("oid")
     return decide_action(data.get("state")), merge_sha
 
