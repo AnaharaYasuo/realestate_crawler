@@ -70,6 +70,7 @@ AIサブエージェントが修正コードをコミット・PR作成する前�
 
 ### 5.2 人手対応へのエスカレーション全面禁止と失敗記録 (`--reason`)
 - **人手対応へのエスカレーション禁止**: `--escalate` や `auto-heal:needs-human` ラベルを付与して人手対応へ丸投げすることを全面禁止とする。404・接続タイムアウト・サイト側元データ未記載であっても、別サンプルURL取得・GCS生HTML解析・パーサー/バリデーション/クローラー側の根本修正を自律的に完遂すること。
+- **自動エスカレーション機能の無効化 (Issue #1840)**: `sync_auto_heal_issues.py --record-attempt` は試行回数および失敗理由の記録のみを行い、試行回数が上限を超えても `auto-heal:needs-human` への自動エスカレーションを行わない（常に `escalated: false` を返し `auto-heal` ラベルを維持する）。
 - `sync_auto_heal_issues.py --record-attempt <number> [--reason "<理由>"]`
   - 修正・再現テストを試みた結果、修復に失敗した場合の証跡記録としてのみ実行する。
 
