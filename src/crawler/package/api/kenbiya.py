@@ -37,11 +37,11 @@ COOLDOWN_WORK_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_WORK_SECONDS", "3600")
 COOLDOWN_REST_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_REST_SECONDS", "1800"))
 
 
-def _run_router_ssh(remote_cmd: str) -> None:
+def _run_router_ssh(remote_cmd: str) -> str:
     host = os.getenv("GL_ROUTER_HOST", "").strip()
     pwd = os.getenv("GL_ROUTER_PASSWORD", "").strip()
     if not host or not pwd:
-        return
+        return ""
     suffix = ".bat" if os.name == "nt" else ".sh"
     with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="ascii") as f:
         if os.name == "nt":
@@ -56,19 +56,41 @@ def _run_router_ssh(remote_cmd: str) -> None:
         env["SSH_ASKPASS"] = ask_path
         env["SSH_ASKPASS_REQUIRE"] = "force"
         env["DISPLAY"] = "dummy:0"
-        subprocess.run(
+        proc = subprocess.run(
             ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", f"root@{host}", remote_cmd],
             env=env,
             timeout=30,
             check=False,
+            capture_output=True,
+            text=True,
         )
+        return (proc.stdout or "").strip()
     except Exception as exc:
         logging.warning(f"[KENBIYA_PPPOE_SSH] Failed to run '{remote_cmd}' on {host}: {exc}")
+        return ""
     finally:
         try:
             os.remove(ask_path)
         except OSError:
             pass
+
+
+def _get_wan_pppoe_ip() -> str | None:
+    """ルーター上の wan_pppoe インターフェースの現在のIPv4アドレスを取得する"""
+    cmd = (
+        "ubus call network.interface.wan_pppoe status 2>/dev/null "
+        "| jsonfilter -e '@[\"ipv4-address\"][0].address' 2>/dev/null "
+        "|| ip -4 -o addr show dev pppoe-wan_pppoe 2>/dev/null | awk '{print $4}' | cut -d/ -f1"
+    )
+    out = _run_router_ssh(cmd)
+    if not out:
+        return None
+    for line in out.splitlines():
+        candidate = line.strip()
+        parts = candidate.split(".")
+        if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+            return candidate
+    return None
 
 
 _cooldown_leader_hosts: set[str] = set()

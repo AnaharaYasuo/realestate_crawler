@@ -316,20 +316,61 @@ class KenbiyaParserBase(ParserBase):
     async def _rotate_pppoe_ip(
         cls, trigger_url: str, wait_sec: float, state_path: str, lock_path: str
     ) -> None:
-        """503検知時のIPローテーション: wan_pppoeを切断し指定時間スリープ後に再接続する（プロセスは維持）"""
+        """503検知時のIPローテーション: wan_pppoeを切断し wait_sec（デフォルト300秒=5分）待機後に再接続してIP確認。
+        IPが変わるまで切断→待機→再接続→IP確認を繰り返す（プロセスは維持）。
+        """
         try:
-            from package.api.kenbiya import _run_router_ssh
+            from package.api.kenbiya import _get_wan_pppoe_ip, _run_router_ssh
 
-            logging.warning(
-                f"[Kenbiya503Recovery] HTTP 503 detected ({trigger_url}); disconnecting wan_pppoe and sleeping {wait_sec:.0f}s..."
-            )
-            _run_router_ssh("ifdown wan_pppoe")
-            if wait_sec > 0:
-                await asyncio.sleep(wait_sec)
-            logging.info(
-                "[Kenbiya503Recovery] Reconnecting wan_pppoe and reloading routing to resume..."
-            )
-            _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+            try:
+                max_attempts = max(
+                    1, int(os.getenv("KENBIYA_PPPOE_ROTATE_MAX_ATTEMPTS", "24"))
+                )
+            except ValueError:
+                max_attempts = 24
+
+            old_ip = _get_wan_pppoe_ip()
+            for attempt in range(1, max_attempts + 1):
+                if attempt > 1:
+                    with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+                        now_wall = time.time()
+                        state = cls._read_shared_state(state_path)
+                        state["rotating_until"] = now_wall + wait_sec + 15.0
+                        state["last_request_time"] = state["rotating_until"]
+                        state["request_timestamps"] = []
+                        cls._write_shared_state(state_path, state)
+
+                logging.warning(
+                    f"[Kenbiya503Recovery] HTTP 503 detected ({trigger_url}); "
+                    f"attempt {attempt}/{max_attempts} (old_ip={old_ip}): "
+                    f"disconnecting wan_pppoe and sleeping {wait_sec:.0f}s..."
+                )
+                _run_router_ssh("ifdown wan_pppoe")
+                if wait_sec > 0:
+                    await asyncio.sleep(wait_sec)
+                logging.info(
+                    f"[Kenbiya503Recovery] Reconnecting wan_pppoe and reloading routing "
+                    f"(attempt {attempt}/{max_attempts})..."
+                )
+                _run_router_ssh(
+                    "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload"
+                )
+                new_ip = _get_wan_pppoe_ip()
+                if not old_ip or not new_ip:
+                    logging.info(
+                        f"[Kenbiya503Recovery] IP check unavailable (old_ip={old_ip}, new_ip={new_ip}); resuming."
+                    )
+                    break
+                if new_ip != old_ip:
+                    logging.info(
+                        f"[Kenbiya503Recovery] IP address changed ({old_ip} -> {new_ip}) "
+                        f"on attempt {attempt}/{max_attempts}; resuming."
+                    )
+                    break
+                logging.warning(
+                    f"[Kenbiya503Recovery] IP address unchanged ({new_ip}) "
+                    f"on attempt {attempt}/{max_attempts}; disconnecting again for {wait_sec:.0f}s..."
+                )
             KenbiyaParserBase._waf_cookies = {}
         except Exception as exc:
             logging.warning(
@@ -347,7 +388,7 @@ class KenbiyaParserBase(ParserBase):
 
     @classmethod
     async def _handle_503_with_pppoe_recovery(cls, url: str) -> bool:
-        """HTTP 503受信時にプロセスを終了せず、PPPoE解放・指定時間スリープ・再接続で復旧する。
+        """HTTP 503受信時にプロセスを終了せず、PPPoE解放・5分待機・再接続・IP変更確認で復旧する。
         復旧を実行・待機した場合はTrue（呼び出し元で同一URLをリトライ）、無効時はFalseを返す。
         """
         if not cls._is_cross_process_coordination_enabled():
@@ -358,9 +399,9 @@ class KenbiyaParserBase(ParserBase):
         ):
             return False
         try:
-            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "1200"))
+            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "300"))
         except ValueError:
-            wait_sec = 1200.0
+            wait_sec = 300.0
         state_path = cls._get_rate_limit_state_path()
         lock_path = f"{state_path}.lock"
         should_rotate = False
@@ -382,10 +423,12 @@ class KenbiyaParserBase(ParserBase):
         if should_rotate:
             await cls._rotate_pppoe_ip(url, wait_sec, state_path, lock_path)
         elif sleep_duration > 0:
-            logging.info(
-                f"[Kenbiya503Recovery] Another process is rotating wan_pppoe; sleeping {sleep_duration:.1f}s before resuming ({url})"
-            )
-            await asyncio.sleep(sleep_duration)
+            while sleep_duration > 0:
+                logging.info(
+                    f"[Kenbiya503Recovery] Another process is rotating wan_pppoe; sleeping {sleep_duration:.1f}s before resuming ({url})"
+                )
+                await asyncio.sleep(sleep_duration)
+                sleep_duration = cls.get_active_rotation_remaining_seconds()
         return True
 
     @classmethod
