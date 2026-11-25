@@ -26,3 +26,7 @@
   - CatBoost MAPE: 47.1% ➔ **41.4%** (約 5.7 pt 改善)
   - Median APE: 28.3% ➔ **25.2%** (約 3.1 pt 改善)
   - 決定係数 $R^2$: 0.675 ➔ **0.710**
+
+## 4. `converter.parse_price` 億表記の前置文字列対応 (Issue #1816)
+- `値下げ↓ 3億2,700万円` のように `"億"` の前にバッジやラベル等の非数値文字列が付与された価格表記でも正しく円単位へ変換できるよう、`package.utils.converter.parse_price` の `"億"` 分岐では `float(parts[0])` の直接変換を廃止し、`DECIMAL_NUMBER_PATTERN` による正規表現抽出を行う。
+- `"億"` の前に数値が存在しない場合は `None` を返却する。
