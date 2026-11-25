@@ -43,3 +43,9 @@
 ## curl_cffi TLSプロファイル・ヘッダー分散仕様
 - `KENBIYA_IMPERSONATE` 環境変数が未設定の場合、`_IMPERSONATE_PROFILES`（`safari15_5`, `edge101`, `chrome124`, `chrome110`, `safari17_0`）からランダムに選択する。
 - `Accept-Language` ヘッダーも `_ACCEPT_LANGUAGES` からランダムに選択し、単一プロファイルによる 429 レートリミット遮断を回避する。
+
+## 4. HTTP 503 検知時の `wan_pppoe` 5分間隔 IP 変更確認ループ仕様 (Issue #1826)
+- HTTP 503 検知時、リーダープロセスは切断前にルーター上の `wan_pppoe` の現在 IPv4 アドレス（`_get_wan_pppoe_ip()`）を取得したうえで `ifdown wan_pppoe` を実行し、デフォルト **300秒（5分）**（`KENBIYA_PPPOE_ROTATE_WAIT_SEC`）待機後に再接続・ルーティングリロードを行う。
+- 再接続後に再度 `_get_wan_pppoe_ip()` で IP を確認し、**旧 IP から変更されていれば即座に再開**する。
+- **IP が変わっていない場合**は、全プロセス共有の `rotating_until` を延長したうえで再度 `ifdown wan_pppoe` → 5分待機 → 再接続 → IP 確認のサイクルを IP が変わるまで繰り返す（安全上限: `KENBIYA_PPPOE_ROTATE_MAX_ATTEMPTS`、デフォルト 24 回）。
+- フォロワープロセスは共有状態の `rotating_until` が解除（`0.0`）されるまでループ待機し、リーダーの複数サイクル延長にも一体連動して追従する。
