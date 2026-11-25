@@ -717,19 +717,22 @@ def test_503_pppoe_rotation_repeats_until_ip_changes(tmp_path, monkeypatch):
 
     with patch.object(kenbiya_api, "_run_router_ssh", side_effect=lambda cmd: ssh_cmds.append(cmd) or ""), patch.object(
         kenbiya_api, "_get_wan_pppoe_ip", side_effect=lambda: next(ips)
-    ), patch("package.parser.kenbiyaParser.asyncio.sleep", sleep_mock):
+    ), patch.object(kenbiya_api, "_ensure_proxysql_tunnel_ready", return_value=True) as mock_proxysql, patch(
+        "package.parser.kenbiyaParser.asyncio.sleep", sleep_mock
+    ):
         handled = asyncio.run(
             KenbiyaParserBase._handle_503_with_pppoe_recovery("https://www.kenbiya.com/pp1/s/tokyo/")
         )
 
     assert handled is True
+    mock_proxysql.assert_called_once()
     assert ssh_cmds == [
         "ifdown wan_pppoe",
         "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
         "ifdown wan_pppoe",
         "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload",
     ]
-    assert [call.args[0] for call in sleep_mock.call_args_list] == [300.0, 300.0]
+    assert [call.args[0] for call in sleep_mock.call_args_list] == [600.0, 600.0]
     assert KenbiyaParserBase.get_active_rotation_remaining_seconds() == 0.0
 
 

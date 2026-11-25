@@ -93,6 +93,112 @@ def _get_wan_pppoe_ip() -> str | None:
     return None
 
 
+def _check_proxysql_select1(host: str = "127.0.0.1", port: int = 6033, timeout: int = 5) -> bool:
+    """ProxySQL (127.0.0.1:6033) に対して SELECT 1 で疎通確認を行う"""
+    try:
+        import pymysql
+
+        conn = pymysql.connect(
+            host=host,
+            port=port,
+            user=os.getenv("DB_USER", ""),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", ""),
+            connect_timeout=timeout,
+            read_timeout=timeout,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
+def _ensure_proxysql_tunnel_ready() -> bool:
+    """wan_pppoe 再接続後に ProxySQL VM および IAP トンネル (127.0.0.1:6033) の疎通を確認し、
+    未起動・切断状態であれば VM 起動および IAP トンネル再確立を自動実行する。
+    """
+    if os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB"):
+        return True
+    if os.getenv("KENBIYA_PROXYSQL_AUTO_RECOVERY_DISABLED", "false").lower() in ("true", "1"):
+        return True
+    db_host = os.getenv("DB_HOST", "127.0.0.1").strip()
+    try:
+        db_port = int(os.getenv("DB_PORT", "6033"))
+    except ValueError:
+        db_port = 6033
+    if db_host not in ("127.0.0.1", "localhost") or db_port != 6033:
+        return True
+
+    if _check_proxysql_select1(db_host, db_port):
+        return True
+
+    logging.warning(
+        "[KENBIYA_PROXYSQL_RECOVERY] ProxySQL tunnel (127.0.0.1:6033) is unreachable; checking VM and restarting IAP tunnel..."
+    )
+    gcloud_bin = "gcloud.cmd" if os.name == "nt" else "gcloud"
+    vm_name = os.getenv("PROXYSQL_VM_NAME", "proxysql-instance-prod")
+    vm_zone = os.getenv("PROXYSQL_VM_ZONE", "asia-northeast1-a")
+    try:
+        desc = subprocess.run(
+            [gcloud_bin, "compute", "instances", "describe", vm_name, f"--zone={vm_zone}", "--format=value(status)"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        status = (desc.stdout or "").strip()
+        if status != "RUNNING":
+            logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting {vm_name} (status={status or 'UNKNOWN'})...")
+            subprocess.run(
+                [gcloud_bin, "compute", "instances", "start", vm_name, f"--zone={vm_zone}"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            time.sleep(15)
+
+        logging.info(f"[KENBIYA_PROXYSQL_RECOVERY] Starting IAP tunnel to {vm_name}:6033...")
+        popen_kwargs: dict = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+                subprocess, "DETACHED_PROCESS", 0
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        subprocess.Popen(
+            [
+                gcloud_bin,
+                "compute",
+                "start-iap-tunnel",
+                vm_name,
+                "6033",
+                f"--local-host-port={db_host}:{db_port}",
+                f"--zone={vm_zone}",
+            ],
+            **popen_kwargs,
+        )
+
+        for _ in range(10):
+            time.sleep(3)
+            if _check_proxysql_select1(db_host, db_port):
+                logging.info("[KENBIYA_PROXYSQL_RECOVERY] ProxySQL IAP tunnel recovered (SELECT 1 OK).")
+                return True
+        logging.warning("[KENBIYA_PROXYSQL_RECOVERY] ProxySQL IAP tunnel did not become ready within 30s.")
+        return False
+    except Exception as exc:
+        logging.warning(f"[KENBIYA_PROXYSQL_RECOVERY] Failed to recover ProxySQL tunnel: {exc}")
+        return False
+
+
 _cooldown_leader_hosts: set[str] = set()
 
 
@@ -118,6 +224,7 @@ def _kenbiya_on_resume(host: str) -> None:
     try:
         logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe, reloading routing table, and refreshing cookies...")
         _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+        _ensure_proxysql_tunnel_ready()
         time.sleep(2)
         try:
             resp = requests.get(
