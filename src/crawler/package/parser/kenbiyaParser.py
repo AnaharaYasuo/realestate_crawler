@@ -228,6 +228,9 @@ class KenbiyaParserBase(ParserBase):
                         "last_request_time": float(data.get("last_request_time", 0.0)),
                         "circuit_open_until": float(data.get("circuit_open_until", 0.0)),
                         "rotating_until": float(data.get("rotating_until", 0.0)),
+                        "cooldown_window_start": float(
+                            data.get("cooldown_window_start", 0.0)
+                        ),
                         "request_timestamps": timestamps,
                         "total_requests": int(data.get("total_requests", 0)),
                     }
@@ -237,6 +240,7 @@ class KenbiyaParserBase(ParserBase):
             "last_request_time": 0.0,
             "circuit_open_until": 0.0,
             "rotating_until": 0.0,
+            "cooldown_window_start": 0.0,
             "request_timestamps": [],
             "total_requests": 0,
         }
@@ -283,17 +287,28 @@ class KenbiyaParserBase(ParserBase):
             return True
 
     @classmethod
+    def get_shared_cooldown_window_start(cls) -> float:
+        """共有状態ファイル上の最新クールダウン復帰時刻（Unix時刻）を返す"""
+        if not cls._is_cross_process_coordination_enabled():
+            return 0.0
+        state_path = cls._get_rate_limit_state_path()
+        state = cls._read_shared_state(state_path)
+        return float(state.get("cooldown_window_start", 0.0))
+
+    @classmethod
     def end_shared_cooldown_pause(cls) -> None:
-        """定期クールダウン終了時に全プロセス共有の rotating_until を解除し、WAF Cookie をリセットする"""
+        """定期クールダウン終了時に全プロセス共有の rotating_until を解除し、WAF Cookie と稼働起算時刻をリセットする"""
         KenbiyaParserBase._waf_cookies = {}
         if not cls._is_cross_process_coordination_enabled():
             return
         state_path = cls._get_rate_limit_state_path()
         lock_path = f"{state_path}.lock"
         with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+            now_wall = time.time()
             state = cls._read_shared_state(state_path)
             state["rotating_until"] = 0.0
-            state["last_request_time"] = time.time()
+            state["last_request_time"] = now_wall
+            state["cooldown_window_start"] = now_wall
             state["request_timestamps"] = []
             cls._write_shared_state(state_path, state)
 
@@ -322,9 +337,11 @@ class KenbiyaParserBase(ParserBase):
             )
         finally:
             with KenbiyaParserBase._request_lock, cls._acquire_file_lock(lock_path):
+                now_wall = time.time()
                 state = cls._read_shared_state(state_path)
                 state["rotating_until"] = 0.0
-                state["last_request_time"] = time.time()
+                state["last_request_time"] = now_wall
+                state["cooldown_window_start"] = now_wall
                 state["request_timestamps"] = []
                 cls._write_shared_state(state_path, state)
 
