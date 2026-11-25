@@ -32,16 +32,17 @@ def test_batch_and_single_resolve_picks_matching_building_over_same_id_apartment
     PropertyEvaluation.property_type='apartment' であっても、
     property_url が pp3 (KenbiyaInvestmentBuilding) なら正しく Building 側を解決すること。
     """
+    shared_id = 918351
     apt = KenbiyaInvestmentApartment.objects.create(
-        id=1473,
-        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_48430606cb/",
+        id=shared_id,
+        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_1835_apt_1/",
         propertyName="東京都足立区 1棟アパート",
         address="東京都足立区北加平町",
         price=99900000,
     )
     bldg = KenbiyaInvestmentBuilding.objects.create(
-        id=1473,
-        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_4814675p1h/",
+        id=shared_id,
+        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_1835_bldg_1/",
         propertyName="アーバンハイツ",
         address="東京都新宿区舟町15番地54",
         price=258000000,
@@ -76,9 +77,10 @@ def test_property_id_fallback_rejects_mismatched_url_object():
     対象URLのレコードが存在せず、別テーブルに同一 id の別物件のみが存在する場合、
     property_id フォールバックで別物件を絶対に誤結合しないこと。
     """
+    shared_id = 918352
     KenbiyaInvestmentApartment.objects.create(
-        id=1473,
-        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_48430606cb/",
+        id=shared_id,
+        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_1835_apt_2/",
         propertyName="東京都足立区 1棟アパート",
         address="東京都足立区北加平町",
         price=99900000,
@@ -86,8 +88,8 @@ def test_property_id_fallback_rejects_mismatched_url_object():
     ev = PropertyEvaluation.objects.create(
         company="kenbiya",
         property_type="apartment",
-        property_id=1473,
-        property_url="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_4814675p1h/",
+        property_id=shared_id,
+        property_url="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_1835_bldg_2/",
         is_published=True,
         is_slack_notified=False,
         is_first_stage_passed=True,
@@ -107,7 +109,7 @@ def test_property_id_fallback_still_resolves_same_url_with_tracking_query():
     追跡クエリパラメータの差異のみであれば、property_id フォールバックで同一物件を正常解決できること。
     """
     apt = AthomeInvestmentApartment.objects.create(
-        pageUrl="https://www.athome.co.jp/buy_other/1066689698/",
+        pageUrl="https://www.athome.co.jp/buy_other/1835689698/",
         propertyName="アットホーム一棟アパート",
         price=45000000,
     )
@@ -115,7 +117,7 @@ def test_property_id_fallback_still_resolves_same_url_with_tracking_query():
         company="athome",
         property_type="investmentapartment",
         property_id=apt.id,
-        property_url="https://www.athome.co.jp/buy_other/1066689698/?BKLISTID=001LPC",
+        property_url="https://www.athome.co.jp/buy_other/1835689698/?BKLISTID=001LPC",
         is_published=True,
         is_slack_notified=False,
         is_first_stage_passed=True,
@@ -137,11 +139,11 @@ def test_dispatch_single_recommendation_blocks_url_mismatch():
     Slack送信をブロックして False を返すこと。
     """
     ev = MagicMock(
-        property_url="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_4814675p1h/",
+        property_url="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_1835_bldg_3/",
         property_type="investmentbuilding",
     )
     prop = MagicMock(
-        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_48430606cb/",
+        pageUrl="https://www.kenbiya.com/pp2/s/tokyo/adachi-ku/re_1835_apt_3/",
         propertyName="東京都足立区 1棟アパート",
     )
 
@@ -159,7 +161,7 @@ def test_tag_property_integrity_preserves_exact_model_property_type():
     実モデルクラス KenbiyaInvestmentBuilding に対応する 'investmentbuilding' を保存すること。
     """
     bldg = KenbiyaInvestmentBuilding.objects.create(
-        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_4814675p1h/",
+        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_1835_bldg_4/",
         propertyName="アーバンハイツ",
         address="東京都新宿区舟町15番地54",
         traffic="都営新宿線 曙橋駅 徒歩2分",
@@ -183,7 +185,7 @@ def test_ttl_recrawl_apply_eval_mutation_preserves_exact_model_property_type():
     PropertyEvaluation.property_type を 'apartment' に劣化上書きせず 'investmentbuilding' を維持すること。
     """
     bldg = KenbiyaInvestmentBuilding.objects.create(
-        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_4814675p1h/",
+        pageUrl="https://www.kenbiya.com/pp3/s/tokyo/shinjuku-ku/re_1835_bldg_5/",
         propertyName="アーバンハイツ",
         address="東京都新宿区舟町15番地54",
         traffic="都営新宿線 曙橋駅 徒歩2分",
