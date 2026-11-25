@@ -95,8 +95,29 @@ def _check_issue_pr_and_push_guard(cmd: str) -> dict | None:
                         "decision": "deny",
                         "reason": "Principle 4 (SDD) violation: PR to master must include a 7-domain SSOT specification update (docs/1_... through docs/7_.../*.md).",
                     }
+                has_src_code = any(f.startswith("src/") and not _is_test_file_path(f) for f in changed)
+                has_unit_test = any(re.match(r"^src/crawler/tests/.*\.py$", f) for f in changed)
+                if has_src_code and not has_unit_test:
+                    return {
+                        "decision": "deny",
+                        "reason": "Principle 4 (TDD) violation: PR modifying src/ must include unit test addition/update under src/crawler/tests/**/*.py.",
+                    }
             except (subprocess.SubprocessError, OSError):
                 open_prs = ""
+        if not is_release_pr and title_match and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                issue_body = subprocess.check_output(
+                    ["gh", "issue", "view", title_match.group(1), "--json", "body", "--jq", ".body"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                if not re.search(r"- \[[ xX]\]", issue_body or ""):
+                    return {
+                        "decision": "deny",
+                        "reason": f"Principle 4 violation: Issue #{title_match.group(1)} does not define any Acceptance Criteria checkboxes ('- [ ]' or '- [x]').",
+                    }
+            except (subprocess.SubprocessError, OSError):
+                pass
 
     push_match = re.search(
         r"\bgit\s+(?:-C\s+\S+\s+)?push\s+(?:-[a-zA-Z-]+\s+)*origin\s+(?!--delete\b|-d\b|:)([A-Za-z0-9._/-]+)",
