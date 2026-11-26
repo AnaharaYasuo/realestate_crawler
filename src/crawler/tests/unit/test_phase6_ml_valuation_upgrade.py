@@ -125,6 +125,7 @@ class TestPhase6MlValuationUpgrade:
         from package.ml.training.pipeline import train_property_type
         src = inspect.getsource(train_property_type)
         assert "del records" not in src
-        assert "del df, second_ensemble" in src
+        assert "del df, sample_weights" in src
+        assert "del second_ensemble" in src
 
 

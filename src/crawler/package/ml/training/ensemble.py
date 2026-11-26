@@ -531,12 +531,13 @@ def train_and_compare(
     smearing_factor = compute_smearing_factor(
         df_work, oof_unit_preds, opt_w, sample_weight=sample_weight
     )
-    del oof_preds, oof_counts, oof_unit_preds
+    del df_work, oof_preds, oof_counts, oof_unit_preds
     gc.collect()
 
     p10_model, p10_conformal_offset = train_quantile_p10_with_conformal(
         X, y, rkf, sample_weight=sample_weight, groups=groups
     )
+    del X, y
     gc.collect()
 
     return TrainedEnsemble(
