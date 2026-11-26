@@ -830,6 +830,15 @@ async def test_cffi_session_reuse_and_invalidation(monkeypatch):
     await s3.close()
 
 
+def test_fire_and_forget_wait_timeout_default_is_12_hours(monkeypatch):
+    """CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT のデフォルトが 43200.0 秒（12時間）であることを検証"""
+    from package.api import api as api_mod
+
+    monkeypatch.delenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", raising=False)
+    assert api_mod._get_fire_and_forget_wait_timeout() == 43200.0
+
+
+
 
 
 
