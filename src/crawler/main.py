@@ -55,6 +55,11 @@ from package.utils.crawler_watchdog import (
     get_progress_file_mtime,
     HANG_THRESHOLD_SEC,
 )
+from package.utils.stop_time import (
+    compute_stop_deadline,
+    parse_stop_time,
+    start_stop_time_watchdog,
+)
 from package.utils.crawler_diagnostics import (
     set_diagnostic_job_context,
     save_hang_diagnostic_snapshot,
@@ -530,6 +535,7 @@ if __name__ == "__main__":
     if args:
         company = ""
         prop_type = ""
+        stop_time_raw = os.getenv("CRAWLER_STOP_TIME", "")
         for arg in args:
             if arg.startswith("--company="):
                 company = arg.split("=")[1].lower()
@@ -539,6 +545,10 @@ if __name__ == "__main__":
                 company = arg.split("=")[1].lower()
             elif arg.startswith("TYPE="):
                 prop_type = arg.split("=")[1].lower()
+            elif arg.startswith("--stop-time="):
+                stop_time_raw = arg.split("=", 1)[1]
+            elif arg.startswith("STOP_TIME="):
+                stop_time_raw = arg.split("=", 1)[1]
 
         dispatch = get_dispatch_map()
 
@@ -615,6 +625,42 @@ if __name__ == "__main__":
                 t.start()
 
             _start_self_hang_dump_watchdog(company, prop_type)
+            stop_time_obj = parse_stop_time(stop_time_raw)
+            if stop_time_obj is not None:
+                stop_deadline = compute_stop_deadline(stop_time_obj)
+                logger.info(
+                    "[StopTimeCutoff] Configured stop time %s (deadline: %s)",
+                    stop_time_obj.strftime("%H:%M"),
+                    stop_deadline.isoformat(),
+                )
+
+                def _handle_stop_time_reached() -> None:
+                    logger.warning(
+                        "[StopTimeCutoff] Reached configured stop time %s; terminating %s %s gracefully...",
+                        stop_time_obj.strftime("%H:%M"),
+                        company,
+                        prop_type,
+                    )
+                    try:
+                        with open(stop_flag_file, "w") as f:
+                            f.write("STOP_TIME_CUTOFF")
+                    except Exception:
+                        pass
+                    try:
+                        _shutdown_local_worker_executor_nonblocking()
+                    except Exception:
+                        pass
+                    try:
+                        export_job_metrics(company, prop_type)
+                    except Exception:
+                        pass
+                    try:
+                        cleanup_crawler_progress(company, prop_type)
+                    except Exception:
+                        pass
+                    os._exit(0)
+
+                start_stop_time_watchdog(stop_deadline, _handle_stop_time_reached)
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
