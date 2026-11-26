@@ -60,8 +60,8 @@ variable "ml_pipeline_cpu" {
 
 variable "ml_pipeline_memory" {
   type        = string
-  description = "Memory limit for ML Pipeline Cloud Run Job (Issue #809: reduced from 8Gi to 2Gi based on actual utilization <21%)"
-  default     = "2Gi"
+  description = "Memory limit for ML Pipeline Cloud Run Job (Issue #1849: upgraded from 2Gi to 4Gi to prevent OOM during weekday-rotation mansion training)"
+  default     = "4Gi"
 }
 
 variable "recrawl_memory" {

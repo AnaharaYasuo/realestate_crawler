@@ -154,7 +154,7 @@ def test_ensure_resources_stopped_job_hung_threshold():
     from scripts import ensure_resources_stopped
 
     assert ensure_resources_stopped.get_job_hung_threshold("realestate-crawler-pipeline-prod") == 15000.0
-    assert ensure_resources_stopped.get_job_hung_threshold("realestate-ml-pipeline-prod") == 7800.0
+    assert ensure_resources_stopped.get_job_hung_threshold("realestate-ml-pipeline-prod") == 11400.0
     assert ensure_resources_stopped.get_job_hung_threshold("realestate-migrate-prod") == 900.0
     assert ensure_resources_stopped.get_job_hung_threshold("unknown-job", fallback_threshold=5000.0) == 5000.0
     # Explicit override takes priority even for known jobs
