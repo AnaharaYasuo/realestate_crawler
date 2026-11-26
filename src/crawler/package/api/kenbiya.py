@@ -23,6 +23,7 @@ from package.api.api import (
 )
 from package.api.registry import ApiRegistry
 from package.parser.kenbiyaParser import (
+    DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS,
     KenbiyaInvestmentApartmentParser,
     KenbiyaInvestmentBuildingParser,
     KenbiyaKodateParser,
@@ -34,7 +35,12 @@ from package.parser.kenbiyaParser import (
 DETAIL_PARALLEL_LIMIT = int(os.getenv("KENBIYA_DETAIL_PARALLEL_LIMIT", "5"))
 MIDDLE_PARALLEL_LIMIT = 1
 COOLDOWN_WORK_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_WORK_SECONDS", "3600"))
-COOLDOWN_REST_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_REST_SECONDS", "1800"))
+COOLDOWN_REST_SECONDS = float(
+    os.getenv(
+        "KENBIYA_COOLDOWN_REST_SECONDS",
+        str(int(DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS)),
+    )
+)
 
 
 def _run_router_ssh(remote_cmd: str) -> str:
@@ -73,6 +79,16 @@ def _run_router_ssh(remote_cmd: str) -> str:
             os.remove(ask_path)
         except OSError:
             pass
+
+
+def disconnect_wan_pppoe() -> str:
+    """ルーター上の wan_pppoe を切断する共通ヘルパー"""
+    return _run_router_ssh("ifdown wan_pppoe")
+
+
+def reconnect_wan_pppoe() -> str:
+    """ルーター上の wan_pppoe を再接続し、vpn-policy-routing をリロードする共通ヘルパー"""
+    return _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
 
 
 def _get_wan_pppoe_ip() -> str | None:
@@ -223,7 +239,7 @@ def _kenbiya_on_pause(host: str) -> None:
         return
     _cooldown_leader_hosts.add(host)
     logging.info(f"[KENBIYA_COOLDOWN_PAUSE] {host}: disconnecting wan_pppoe (shared across all processes)...")
-    _run_router_ssh("ifdown wan_pppoe")
+    disconnect_wan_pppoe()
 
 
 def _kenbiya_on_resume(host: str) -> None:
@@ -235,7 +251,7 @@ def _kenbiya_on_resume(host: str) -> None:
         return
     try:
         logging.info(f"[KENBIYA_COOLDOWN_RESUME] {host}: reconnecting wan_pppoe, reloading routing table, and refreshing cookies...")
-        _run_router_ssh("ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload")
+        reconnect_wan_pppoe()
         _ensure_proxysql_tunnel_ready()
         time.sleep(2)
         try:
