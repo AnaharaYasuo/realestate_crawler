@@ -71,6 +71,12 @@ from package.utils.crawl_jobs import (  # noqa: E402  — SSOT for production + 
 )
 from package.utils.resource_limiter import get_resource_aware_concurrency
 from package.utils.job_metrics import read_job_metrics
+from package.utils.stop_time import (
+    DEFAULT_DAILY_STOP_TIME,
+    compute_stop_deadline,
+    is_stop_time_reached,
+    parse_stop_time,
+)
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -94,6 +100,12 @@ def parse_args():
     parser.add_argument("--company", type=str, default=None, help="Target company name(s), comma-separated (e.g. sumifu,mitsui).")
     parser.add_argument("--property-type", "--type", dest="property_type", type=str, default=None, help="Target property type(s), comma-separated (e.g. mansion,kodate).")
     parser.add_argument("--sites", type=str, default=None, help="Target site tokens, comma-separated (e.g. sumifu:mansion,tokyu).")
+    parser.add_argument(
+        "--stop-time",
+        type=str,
+        default=os.getenv("CRAWLER_STOP_TIME", DEFAULT_DAILY_STOP_TIME),
+        help="Daily cutoff time in HH:MM (JST). Use 'none' to disable. Default: 11:30.",
+    )
     return parser.parse_args()
 
 # ポータルサイトおよび Playwright を使用する高メモリ負荷サイトのリスト
@@ -694,8 +706,55 @@ def main():
     batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
     db_endpoint = resolve_db_endpoint()
     db_monitor = DbLivenessMonitor(*db_endpoint) if db_endpoint else None
+    stop_time_obj = parse_stop_time(getattr(args, "stop_time", None))
+    stop_deadline = compute_stop_deadline(stop_time_obj) if stop_time_obj is not None else None
+    if stop_deadline is not None:
+        logger.info(
+            "[StopTimeCutoff] Daily cutoff enabled: %s (deadline: %s)",
+            stop_time_obj.strftime("%H:%M"),
+            stop_deadline.isoformat(),
+        )
+
+    def _terminate_active_processes_for_cutoff() -> None:
+        for idx, entry in list(active_processes.items()):
+            proc, company, ptype, start_t, start_dt, *_ = entry
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception as term_err:
+                logger.warning("Failed to terminate %s - %s on cutoff: %s", company, ptype, term_err)
+            elapsed = max(0.0, time.time() - start_t)
+            end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
+            results.append({
+                "company": company,
+                "property_type": ptype,
+                "status": "stopped_by_cutoff",
+                "exit_code": 0,
+                "scraped_count": 0,
+                "start_time": start_dt.strftime(DATETIME_FORMAT),
+                "end_time": end_dt.strftime(DATETIME_FORMAT),
+                "elapsed_seconds": int(elapsed),
+                "duration": format_duration(int(elapsed)),
+                "error_message": f"Stopped by daily cutoff ({stop_time_obj.strftime('%H:%M')} JST)",
+            })
+            active_processes.pop(idx, None)
 
     while job_queue or active_processes:
+        if is_stop_time_reached(stop_deadline):
+            logger.warning(
+                "[StopTimeCutoff] Reached configured stop time %s; terminating %d active job(s) and skipping %d queued job(s).",
+                stop_time_obj.strftime("%H:%M"),
+                len(active_processes),
+                len(job_queue),
+            )
+            _terminate_active_processes_for_cutoff()
+            job_queue.clear()
+            break
+
         if db_monitor is not None and db_monitor.is_lost():
             abort_on_db_liveness_loss(db_monitor, task_exec_record)
 
