@@ -431,7 +431,7 @@ def extract_legal_and_furuya_features(
 ) -> dict[str, float]:
     combined_text_lower = combined_text.lower()
     sanitized_unbuildable_text = re.sub(
-        r"(?:再?建築不可)(?:では|じゃ)(?:ない|ありません|ございません)|(?:再?建築不可)に該当しない",
+        r"再?建築不可(?:(?:では|じゃ)(?:ない|ありません|ございません)|に該当しない)",
         "",
         combined_text,
     )
