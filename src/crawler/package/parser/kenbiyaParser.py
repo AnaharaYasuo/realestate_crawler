@@ -741,11 +741,15 @@ class KenbiyaParserBase(ParserBase):
         if not is_paginated and not is_non_tokyo_area:
             return False
         soup = BeautifulSoup(raw_bytes, "html.parser")
+        next_href = ""
         next_tag = soup.select_one('li.next a, a[rel="next"], a.next')
-        next_href = str(next_tag.get("href") or "") if next_tag is not None else ""
+        if next_tag is not None:
+            next_href = str(next_tag.get("href") or "")
         has_tokyo_page2_next = bool(re.search(r"/pp\d+/s/tokyo/n-2/?$", next_href))
+        h1_text = ""
         h1_tag = soup.find("h1")
-        h1_text = h1_tag.get_text(strip=True) if h1_tag is not None else ""
+        if h1_tag is not None:
+            h1_text = h1_tag.get_text(strip=True)
         if is_non_tokyo_area and (has_tokyo_page2_next or "東京都の" in h1_text):
             return True
         if is_paginated and has_tokyo_page2_next:
@@ -844,21 +848,24 @@ class KenbiyaParserBase(ParserBase):
         resp = await cffi_session.get(url, **req_kwargs)
         return resp.status_code, resp.content
 
+    async def _handle_stale_tokyo_fallback(self, url: str, attempt: int) -> None:
+        KenbiyaParserBase._invalidate_waf_cookies()
+        if attempt >= 1:
+            logging.warning(
+                f"[KENBIYA_WAF_FALLBACK] Stale Tokyo Page 1 fallback persisted after cookie refresh for {url}; triggering PPPoE IP rotation."
+            )
+            await self._handle_503_with_pppoe_recovery(url)
+            return
+        logging.warning(
+            f"[KENBIYA_WAF_FALLBACK] Detected stale Tokyo Page 1 fallback for {url}; refreshing WAF cookies."
+        )
+
     async def _handle_curl_cffi_response(
         self, last_status: int, raw_bytes: bytes, url: str, attempt: int = 0
     ) -> bytes | None:
         if last_status == 200:
             if self._is_stale_tokyo_fallback(url, raw_bytes):
-                KenbiyaParserBase._invalidate_waf_cookies()
-                if attempt >= 1:
-                    logging.warning(
-                        f"[KENBIYA_WAF_FALLBACK] Stale Tokyo Page 1 fallback persisted after cookie refresh for {url}; triggering PPPoE IP rotation."
-                    )
-                    await self._handle_503_with_pppoe_recovery(url)
-                else:
-                    logging.warning(
-                        f"[KENBIYA_WAF_FALLBACK] Detected stale Tokyo Page 1 fallback for {url}; refreshing WAF cookies."
-                    )
+                await self._handle_stale_tokyo_fallback(url, attempt)
                 return None
             self.consecutive_timeouts = 0
             return raw_bytes
