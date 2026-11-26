@@ -676,7 +676,15 @@ class KenbiyaParserBase(ParserBase):
     _waf_cookies: dict[str, str] = {}
     _waf_user_agent: str | None = None
     _waf_cookies_fetched_at: float = 0.0
+    _waf_cookie_version: int = 0
     WAF_COOKIE_TTL_SEC: float = float(os.getenv("KENBIYA_WAF_COOKIE_TTL_SEC", "1200"))
+
+    @classmethod
+    def _invalidate_waf_cookies(cls) -> None:
+        """キャッシュ済み WAF Cookie を破棄し、再利用中の curl_cffi セッションを次回リセットさせる。"""
+        cls._waf_cookies = {}
+        cls._waf_cookies_fetched_at = 0.0
+        cls._waf_cookie_version += 1
 
     @classmethod
     async def _warmup_waf_cookies(cls, force: bool = False) -> None:
@@ -689,6 +697,8 @@ class KenbiyaParserBase(ParserBase):
         )
         if cls._waf_cookies and not force and not is_expired:
             return
+        if is_expired:
+            cls._invalidate_waf_cookies()
         try:
             from playwright.async_api import async_playwright
 
@@ -710,6 +720,7 @@ class KenbiyaParserBase(ParserBase):
                     if cookies:
                         cls._waf_cookies = cookies
                         cls._waf_cookies_fetched_at = time.monotonic()
+                        cls._waf_cookie_version += 1
                     if ua:
                         cls._waf_user_agent = ua
                 finally:
@@ -729,9 +740,17 @@ class KenbiyaParserBase(ParserBase):
         )
         if not is_paginated and not is_non_tokyo_area:
             return False
-        html = raw_bytes.decode("utf-8", errors="ignore")
-        has_tokyo_page2_next = bool(re.search(r'href="/pp\d+/s/tokyo/n-2/"', html))
-        if is_non_tokyo_area and (has_tokyo_page2_next or "東京都の" in html[:8000]):
+        soup = BeautifulSoup(raw_bytes, "html.parser")
+        next_href = ""
+        next_tag = soup.select_one('li.next a, a[rel="next"], a.next')
+        if next_tag is not None:
+            next_href = str(next_tag.get("href") or "")
+        has_tokyo_page2_next = bool(re.search(r"/pp\d+/s/tokyo/n-2/?$", next_href))
+        h1_text = ""
+        h1_tag = soup.find("h1")
+        if h1_tag is not None:
+            h1_text = h1_tag.get_text(strip=True)
+        if is_non_tokyo_area and (has_tokyo_page2_next or "東京都の" in h1_text):
             return True
         if is_paginated and has_tokyo_page2_next:
             return True
@@ -771,11 +790,36 @@ class KenbiyaParserBase(ParserBase):
     _session_impersonate: str | None = None
     _session_accept_language: str | None = None
 
+    async def _get_or_create_cffi_session(self, impersonate: str) -> Any:
+        """curl_cffi.requests.AsyncSession をインスタンス単位で再利用し、Set-Cookie と TLS セッションを維持する。"""
+        from curl_cffi.requests import AsyncSession
+
+        current_loop = asyncio.get_running_loop()
+        existing = getattr(self, "_cffi_session", None)
+        existing_loop = getattr(self, "_cffi_session_loop", None)
+        existing_ver = getattr(self, "_cffi_session_version", -1)
+        if (
+            existing is not None
+            and existing_loop is current_loop
+            and existing_ver == self._waf_cookie_version
+        ):
+            return existing
+        if existing is not None:
+            try:
+                await existing.close()
+            except Exception as close_exc:
+                logging.debug(f"Failed to close previous curl_cffi session: {close_exc}")
+        session = AsyncSession(impersonate=impersonate)
+        if self._waf_cookies:
+            session.cookies.update(dict(self._waf_cookies))
+        self._cffi_session = session
+        self._cffi_session_loop = current_loop
+        self._cffi_session_version = self._waf_cookie_version
+        return session
+
     async def _get_with_curl_cffi(
         self, url: str, headers: dict[str, str], proxy_url: str | None
     ) -> tuple[int, bytes]:
-        from curl_cffi.requests import AsyncSession
-
         await self._warmup_waf_cookies()
         if KenbiyaParserBase._session_impersonate is None:
             KenbiyaParserBase._session_impersonate = os.getenv(
@@ -794,40 +838,46 @@ class KenbiyaParserBase(ParserBase):
         req_headers.setdefault("Upgrade-Insecure-Requests", "1")
         if self._waf_user_agent:
             req_headers["User-Agent"] = self._waf_user_agent
-        async with AsyncSession(impersonate=impersonate) as cffi_session:
-            req_kwargs: dict[str, Any] = {
-                "headers": req_headers,
-                "timeout": 15,
-            }
-            if self._waf_cookies:
-                req_kwargs["cookies"] = dict(self._waf_cookies)
-            if proxy_url:
-                req_kwargs["proxy"] = proxy_url
-            resp = await cffi_session.get(url, **req_kwargs)
-            return resp.status_code, resp.content
+        cffi_session = await self._get_or_create_cffi_session(impersonate)
+        req_kwargs: dict[str, Any] = {
+            "headers": req_headers,
+            "timeout": 15,
+        }
+        if proxy_url:
+            req_kwargs["proxy"] = proxy_url
+        resp = await cffi_session.get(url, **req_kwargs)
+        return resp.status_code, resp.content
+
+    async def _handle_stale_tokyo_fallback(self, url: str, attempt: int) -> None:
+        KenbiyaParserBase._invalidate_waf_cookies()
+        if attempt >= 1:
+            logging.warning(
+                f"[KENBIYA_WAF_FALLBACK] Stale Tokyo Page 1 fallback persisted after cookie refresh for {url}; triggering PPPoE IP rotation."
+            )
+            await self._handle_503_with_pppoe_recovery(url)
+            return
+        logging.warning(
+            f"[KENBIYA_WAF_FALLBACK] Detected stale Tokyo Page 1 fallback for {url}; refreshing WAF cookies."
+        )
 
     async def _handle_curl_cffi_response(
-        self, last_status: int, raw_bytes: bytes, url: str
+        self, last_status: int, raw_bytes: bytes, url: str, attempt: int = 0
     ) -> bytes | None:
         if last_status == 200:
             if self._is_stale_tokyo_fallback(url, raw_bytes):
-                logging.warning(
-                    f"[KENBIYA_WAF_FALLBACK] Detected stale Tokyo Page 1 fallback for {url}; refreshing WAF cookies."
-                )
-                KenbiyaParserBase._waf_cookies = {}
-                KenbiyaParserBase._waf_cookies_fetched_at = 0.0
+                await self._handle_stale_tokyo_fallback(url, attempt)
                 return None
             self.consecutive_timeouts = 0
             return raw_bytes
         if last_status == 403:
-            KenbiyaParserBase._waf_cookies = {}
+            KenbiyaParserBase._invalidate_waf_cookies()
             pw_content = await self._fetch_with_playwright(url)
             if pw_content is not None:
                 return pw_content
         if last_status == 404:
             raise ListingEndedException(f"Listing ended (404): {url}")
         if last_status == 429:
-            KenbiyaParserBase._waf_cookies = {}
+            KenbiyaParserBase._invalidate_waf_cookies()
             await asyncio.sleep(3)
             return None
         if last_status in (500, 502, 503, 504):
@@ -889,7 +939,7 @@ class KenbiyaParserBase(ParserBase):
                         url, headers, proxy_url
                     )
                     content = await self._handle_curl_cffi_response(
-                        last_status, raw_bytes, url
+                        last_status, raw_bytes, url, attempt=attempt
                     )
                 else:
                     last_status, content = await self._get_with_aiohttp(
