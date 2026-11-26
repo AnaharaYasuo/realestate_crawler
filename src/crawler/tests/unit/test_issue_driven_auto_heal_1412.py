@@ -422,7 +422,9 @@ def test_sync_auto_heal_issues_workflow_yaml_structure():
     triggers = parsed.get("on") or parsed.get(True)
     assert "schedule" in triggers
     assert "workflow_dispatch" in triggers
-    assert any(item.get("cron") == "15 21 * * *" for item in triggers["schedule"])
+    crons = [item.get("cron") for item in triggers["schedule"]]
+    assert "15 22 * * *" in crons
+    assert "20 23 * * *" in crons
 
     perms = parsed.get("permissions", {})
     assert perms.get("issues") == "write"

@@ -121,3 +121,26 @@
 * **`homesParser.py` / `InvestmentParserBase`**: `grossYield >= 1000`（`DecimalField(max_digits=5, decimal_places=2)` 上限超過）の異常値は `None` にクレンジングする。
 * **`sumai1Parser.py`**: `Sumai1InvestmentParser` で `/buyers/tochi/`・`/buyers/kodate/`・`/buyers/mansion/` の実需URLを `SkipPropertyException` で拒否する。
 * **`tohoParser.py`**: `h1` 内の `お気に入りに追加` プレフィックスを除去して `propertyName` を抽出する。
+
+---
+
+## 4. Issue #1849: 割安物件通知の到達性保証・未配信Slackアラート・日次Auto-Heal統合設計
+
+### 4.1 Cloud Run ML パイプラインのリソース適正化と非ブロッキング実行
+* **Cloud Run リソース・タイムアウト (`terraform/variables.tf`, `terraform/cloud_run_job.tf`)**:
+  - `ml_pipeline_memory` を `2Gi` ➔ `4Gi` へ引き上げ、曜日ローテーション再学習（特に最大データ量の `mansion`）における P10 分位点回帰＋アンサンブル保存時の OOM (`Exit Code: -9`) を根絶する。
+  - `realestate-ml-pipeline-*` の `timeout` を `7200s` ➔ `10800s`（3時間、DB バックアップ時刻 `23:30 UTC` より前に完了する上限）へ延長し、対応する `ensure_resources_stopped.py` の `JOB_HUNG_THRESHOLD_MAP["realestate-ml-pipeline"]` を `11400.0`（`10800 + 600`）へ同期する。
+* **非ブロッキング実行と成否ステータス永続化 (`src/crawler/scripts/ops/run_ml_pipeline.py`)**:
+  - Step 2/5（MLモデル再学習）および Step 3/5（バルク価格推定）の失敗時にパイプライン全体を即中断させず、失敗ステップを `failed_steps` に記録＋即時 Slack アラート発報した上で、既存の学習済みモデル・既存評価データを用いて Step 4/5（`send_recommendations.py`）を確実に実行する。
+  - バリア検証失敗・各ステップ失敗・未処理例外のいずれでも、`_notify_pipeline_failure_to_slack()` により `#property_alert`（`send_crawling_summary_alert`）および `#dev-agent`（`send_dev_report`）の双方へ割安物件通知の配信有無を含む障害アラートを即時送信する。
+  - 実行開始時・完了時・異常終了時に GCS `monitoring/ml_pipeline_last_status.json` へ最新ステータス（`date_jst`, `status`, `recommendation_succeeded`, `failed_steps`, `updated_at_utc`）を永続化する。
+  - 失敗ステップが 1 件以上ある場合、`auto_heal_parsers.py --failed-steps` を実行して GCS `auto_heal/latest_instruction.json` へ失敗内容を反映した上で、最終的に終了コード `1` を返す。
+
+### 4.2 割安物件通知の配信ハートビートとプロセス外 Watchdog
+* **配信ハートビート (`src/crawler/scripts/ops/send_recommendations.py`)**:
+  - 配信完了時に GCS `monitoring/recommendation_last_success.json` へ当日 JST の配信実績（`completed_date_jst`, `completed_at_utc`, `status`, `scanned_count`, `matched_count`, `selected_count`, `sent_count`, `failed_count`, `channel_counts`）を永続化する。
+  - `len(top_candidates) > 0` かつ `sent_count == 0`（全件 Slack 送信失敗）の場合は `status="dispatch_failed"` を記録し、`#property_alert` へアラート送信の上で `RuntimeError` を送出する。
+* **プロセス外未配信 Watchdog (`src/crawler/scripts/ensure_resources_stopped.py`)**:
+  - コンテナレベルの OOM (`SIGKILL`)・タイムアウト・スケジュール未起動により `run_ml_pipeline.py` の例外ハンドラ自体が動作できなかった場合でも検知できるよう、毎時稼働する Safety-Net ジョブに `check_daily_recommendation_delivery()` を追加する。
+  - 当日 JST の確認締切時刻（デフォルト `08:30 JST`、または ML パイプラインが稼働中でなく当日未配信かつ `ml_pipeline_last_status.json` が `failed` の場合）を過ぎて `monitoring/recommendation_last_success.json` の `completed_date_jst` が当日 JST と一致しない場合、`#property_alert` および `#dev-agent` へ日次 1 回（GCS `monitoring/recommendation_missing_alerted_date.json` で重複抑止）の未配信アラートを発報する。
+

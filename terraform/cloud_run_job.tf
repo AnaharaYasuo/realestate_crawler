@@ -529,7 +529,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   template {
     template {
       service_account = google_service_account.crawler_runner.email
-      timeout         = "7200s" # 2時間 (Issue #698: 通常推論のみ実行。DBバックアップ時刻 23:30 UTC 前に終了)
+      timeout         = "10800s" # 3時間 (Issue #1849: 曜日ローテーション再学習＋検証＋推論＋通知をDBバックアップ時刻 23:30 UTC 前に完了)
       max_retries     = 0
 
       vpc_access {

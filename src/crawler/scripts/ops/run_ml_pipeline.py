@@ -60,6 +60,89 @@ logger = logging.getLogger(__name__)
 
 SEPARATOR = "============================================================="
 SLACK_REPORT_TIMEOUT_SEC = 10  # NFR-021: 外部 API 呼び出しの有限タイムアウト上限
+ML_PIPELINE_STATUS_GCS_KEY = "monitoring/ml_pipeline_last_status.json"
+
+
+def _write_ml_pipeline_status(payload: dict) -> bool:
+    """日次 ML パイプライン実行ステータスを GCS へ永続化する (Issue #1849)"""
+    try:
+        from package.utils.storage import get_storage_manager
+
+        storage = get_storage_manager()
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        return bool(
+            storage.upload_bytes(
+                data, ML_PIPELINE_STATUS_GCS_KEY, content_type="application/json"
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to persist ML pipeline status to GCS: %s", e)
+        return False
+
+
+def _notify_pipeline_failure_to_slack(
+    stage: str, error_msg: str, recommendation_delivered: bool
+) -> None:
+    """MLパイプライン障害および割安物件通知の配信状況を #property_alert と #dev-agent へ即時通知する (Issue #1849)"""
+    delivery_note = (
+        "後続の割安物件通知（Step 4/5）は継続実行/完了対象です。"
+        if recommendation_delivered
+        else "🚨 **本日の割安物件通知（Step 4/5）が未配信または失敗しています。**"
+    )
+    msg = (
+        f"🚨 *【MLパイプライン異常 / 割安物件通知アラート】*\n"
+        f"• *障害ステージ*: {stage}\n"
+        f"• *割安物件通知ステータス*: {delivery_note}\n"
+        f"• *詳細*: `{error_msg[:500]}`"
+    )
+    for label, sender in (
+        ("property_alert", send_crawling_summary_alert),
+        ("dev-agent", send_dev_report),
+    ):
+        try:
+            asyncio.run(asyncio.wait_for(sender(msg), timeout=SLACK_REPORT_TIMEOUT_SEC))
+        except Exception as se:  # noqa: BLE001
+            logger.warning("Failed to send ML failure alert to %s: %s", label, se)
+
+
+def _sync_failed_steps_to_auto_heal(debug_tools_dir: str, failed_steps: list[str]) -> None:
+    """失敗した ML/割安通知ステップを auto_heal_parsers.py へ引き渡し GCS 指示書を更新する (Issue #1849)"""
+    if not failed_steps:
+        return
+    try:
+        auto_heal_cmd = [
+            sys.executable,
+            os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+            "--failed-steps",
+            json.dumps(failed_steps, ensure_ascii=False),
+        ]
+        run_command(
+            auto_heal_cmd,
+            "Auto-Heal Instruction Update (ML Pipeline / Recommendation Failures)",
+        )
+    except Exception as err:  # noqa: BLE001
+        logger.warning("Failed to update auto-heal instruction with ML failures: %s", err)
+
+
+def _run_resilient_step(
+    cmd: list[str],
+    desc: str,
+    failed_steps: list[str],
+    *,
+    recommendation_delivered: bool,
+) -> bool:
+    """ステップ失敗時に記録・Slack通知を行い、後続ステップをブロックしないヘルパー (Issue #1849)"""
+    try:
+        run_command(cmd, desc)
+        return True
+    except RuntimeError as step_err:
+        err_str = str(step_err)
+        failed_steps.append(err_str)
+        logger.error("⚠️ Resilient step failed (continuing pipeline): %s", err_str)
+        _notify_pipeline_failure_to_slack(
+            desc, err_str, recommendation_delivered=recommendation_delivered
+        )
+        return False
 
 
 def scale_proxysql_mig(
@@ -557,6 +640,21 @@ def main(argv=None):
     )
     logger.info(SEPARATOR)
 
+    pipeline_failed_steps: list[str] = []
+    recommendation_succeeded = False
+    started_at_utc = datetime.datetime.now(datetime.UTC).isoformat()
+    today_jst = datetime.datetime.now(JST).date().isoformat()
+    _write_ml_pipeline_status(
+        {
+            "date_jst": today_jst,
+            "status": "running",
+            "started_at_utc": started_at_utc,
+            "updated_at_utc": started_at_utc,
+            "recommendation_succeeded": False,
+            "failed_steps": [],
+        }
+    )
+
     try:
         # Step 0: Cloud SQL 確認・ProxySQL 起動・疎通確認・DB 待機
         start_on_demand_resources(dry_run=args.dry_run)
@@ -577,9 +675,27 @@ def main(argv=None):
             # テスト等で引数無しのモックが注入された場合の互換フォールバック
             send_aggregated_crawl_report()
         if not ok and not args.force:
+            barrier_err = f"Barrier verification failed (failed tasks: {failed}); ML pipeline aborted before recommendations"
             logger.warning(
                 f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。"
             )
+            pipeline_failed_steps.append(barrier_err)
+            _notify_pipeline_failure_to_slack(
+                "Step 1/5: Barrier Verification",
+                barrier_err,
+                recommendation_delivered=False,
+            )
+            _write_ml_pipeline_status(
+                {
+                    "date_jst": today_jst,
+                    "status": "failed",
+                    "started_at_utc": started_at_utc,
+                    "updated_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "recommendation_succeeded": False,
+                    "failed_steps": list(pipeline_failed_steps),
+                }
+            )
+            _sync_failed_steps_to_auto_heal(debug_tools_dir, pipeline_failed_steps)
             return 1
         if not ok:
             logger.warning(
@@ -596,16 +712,18 @@ def main(argv=None):
 
         # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計・マクロ指標・GSI/実成約等）
         if not args.skip_potentials_sync:
-            run_command(
+            _run_resilient_step(
                 _build_potentials_sync_cmd(scripts_dir),
                 "Step 1.8/5: Nationwide Statistics & Potentials Daily Synchronization",
+                pipeline_failed_steps,
+                recommendation_delivered=True,
             )
         else:
             logger.info(
                 "⏩ [SKIP] Step 1.8/5: Nationwide Potentials sync skipped (--skip-potentials-sync)."
             )
 
-        # Step 3: 最新データによるMLモデル再学習
+        # Step 3: 最新データによるMLモデル再学習 (失敗時も既存モデルで推論・割安通知を継続, Issue #1849)
         if not skip_train:
             train_cmd = [
                 sys.executable,
@@ -625,9 +743,11 @@ def main(argv=None):
                     logger.info(
                         f"ML Model Re-Training: Applying {mode_desc} for property type: '{rot_type}'"
                     )
-            run_command(
+            _run_resilient_step(
                 train_cmd,
                 f"Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest){f' [{rot_type}]' if rot_type else ''}",
+                pipeline_failed_steps,
+                recommendation_delivered=True,
             )
         else:
             logger.info(
@@ -635,7 +755,7 @@ def main(argv=None):
             )
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
-        # 2GiB RAM コンテナ環境での OOM 防止のため、評価並行数はデフォルト 2、CLI/環境変数で動的指定可能 (Issue #1484, #1507)
+        # 4GiB RAM コンテナ環境での OOM 防止のため、評価並行数はデフォルト 2、CLI/環境変数で動的指定可能 (Issue #1484, #1507, #1849)
         eval_concurrency = args.concurrency
         eval_cmd = [
             sys.executable,
@@ -649,22 +769,31 @@ def main(argv=None):
             eval_cmd.append("--no-skip-portals")
         if args.skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
-        run_command(
+        _run_resilient_step(
             eval_cmd,
             f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}",
+            pipeline_failed_steps,
+            recommendation_delivered=True,
         )
 
         # Step 5: お宝物件のスクリーニング & Slack通知
-        run_command(
+        recommendation_succeeded = _run_resilient_step(
             [sys.executable, os.path.join(ops_dir, "send_recommendations.py")],
             "Step 4/5: Slack Notification (Hot Property Recommendation)",
+            pipeline_failed_steps,
+            recommendation_delivered=False,
         )
 
-        # 割安物件通知直後の材料探索・指示書更新・重複抑止付きIssue同期 (Issue #1498)
+        # 割安物件通知直後の材料探索・指示書更新・重複抑止付きIssue同期 (Issue #1498, #1849)
         try:
             logger.info("🔍 Post-Recommendation Instant Auto-Heal Inspection & Issue Sync")
+            post_heal_cmd = [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")]
+            if pipeline_failed_steps:
+                post_heal_cmd.extend(
+                    ["--failed-steps", json.dumps(pipeline_failed_steps, ensure_ascii=False)]
+                )
             run_command(
-                [sys.executable, os.path.join(debug_tools_dir, "auto_heal_parsers.py")],
+                post_heal_cmd,
                 "Post-Recommendation Anomaly Inspection & Instruction Generation",
             )
             run_command(
@@ -677,19 +806,64 @@ def main(argv=None):
             )
 
         # Step 6: 日次予測精度診断 & AIインサイト分析
-        run_command(
+        _run_resilient_step(
             [
                 sys.executable,
                 os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
                 "--notify",
             ],
             "Step 5/5: Daily ML Prediction Diagnostics & AI Insights",
+            pipeline_failed_steps,
+            recommendation_delivered=recommendation_succeeded,
         )
+
+        final_status = "failed" if pipeline_failed_steps else "succeeded"
+        _write_ml_pipeline_status(
+            {
+                "date_jst": today_jst,
+                "status": final_status,
+                "started_at_utc": started_at_utc,
+                "updated_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+                "recommendation_succeeded": recommendation_succeeded,
+                "failed_steps": list(pipeline_failed_steps),
+            }
+        )
+        if pipeline_failed_steps:
+            logger.error(SEPARATOR)
+            logger.error(
+                "ML PIPELINE FINISHED WITH %d FAILED STEP(S): %s",
+                len(pipeline_failed_steps),
+                pipeline_failed_steps,
+            )
+            logger.error(SEPARATOR)
+            return 1
 
         logger.info(SEPARATOR)
         logger.info("ML PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
         logger.info(SEPARATOR)
         return 0
+
+    except Exception as fatal_err:
+        err_str = str(fatal_err)
+        if err_str not in pipeline_failed_steps:
+            pipeline_failed_steps.append(err_str)
+        _notify_pipeline_failure_to_slack(
+            "ML Pipeline Fatal Error",
+            err_str,
+            recommendation_delivered=recommendation_succeeded,
+        )
+        _write_ml_pipeline_status(
+            {
+                "date_jst": today_jst,
+                "status": "failed",
+                "started_at_utc": started_at_utc,
+                "updated_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+                "recommendation_succeeded": recommendation_succeeded,
+                "failed_steps": list(pipeline_failed_steps),
+            }
+        )
+        _sync_failed_steps_to_auto_heal(debug_tools_dir, pipeline_failed_steps)
+        raise
 
     finally:
         # Step 7: 終了フック (他ジョブやローカル本番実行稼働時は停止をスキップし Safety-Net に委譲)

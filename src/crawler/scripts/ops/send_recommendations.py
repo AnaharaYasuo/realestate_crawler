@@ -24,7 +24,11 @@ from django.db import models, transaction, close_old_connections, connections
 from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message, send_dev_report
+from package.utils.slack import (
+    send_crawling_summary_alert,
+    send_dev_report,
+    send_slack_message,
+)
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.property_type_detector import PropertyTypeDetector
@@ -50,11 +54,42 @@ MAX_RECOMMEND_WALK_MINUTES = 14
 MIN_RECOMMEND_PASSENGER_VOLUME = 10000
 
 
+JST = datetime.timezone(datetime.timedelta(hours=9))
+RECOMMENDATION_HEARTBEAT_GCS_KEY = "monitoring/recommendation_last_success.json"
+
+
 def _notify_status(msg: str) -> None:
     try:
         async_to_sync(send_dev_report)(msg)
     except Exception as e:
         logger.warning("Failed to send recommendation status report: %s", e)
+
+
+def _notify_recommendation_alert(msg: str) -> None:
+    """割安物件通知の異常・全件配信失敗を #property_alert および #dev-agent へ通知する (Issue #1849)"""
+    try:
+        async_to_sync(send_crawling_summary_alert)(msg)
+    except Exception as e:
+        logger.warning("Failed to send recommendation alert to property_alert: %s", e)
+    _notify_status(msg)
+
+
+def _record_recommendation_heartbeat(payload: dict[str, Any]) -> bool:
+    """日次割安物件通知の配信実績ハートビートを GCS へ永続化する (Issue #1849)"""
+    try:
+        import json
+        from package.utils.storage import get_storage_manager
+
+        storage = get_storage_manager()
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        return bool(
+            storage.upload_bytes(
+                data, RECOMMENDATION_HEARTBEAT_GCS_KEY, content_type="application/json"
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to persist recommendation heartbeat to GCS: %s", e)
+        return False
 
 LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
@@ -1209,6 +1244,20 @@ def send_recommendations():
             f"• *実行時間*: {st_str} 〜 {et_str} (所要: {metrics.duration_str})\n"
             f"• *スクリーニング*: 対象候補 {len(candidates):,} 件を走査 | 基準合致 0 件"
         )
+        now_utc = datetime.datetime.now(datetime.UTC)
+        _record_recommendation_heartbeat(
+            {
+                "completed_at_utc": now_utc.isoformat(),
+                "completed_date_jst": now_utc.astimezone(JST).date().isoformat(),
+                "status": "ok",
+                "scanned_count": len(candidates),
+                "matched_count": 0,
+                "selected_count": 0,
+                "sent_count": 0,
+                "failed_count": 0,
+                "channel_counts": {},
+            }
+        )
         banner = metrics.build_log_banner(
             title="Slack Recommendation Batch",
             custom_sections=[
@@ -1338,6 +1387,33 @@ def send_recommendations():
 
     metrics.finish()
     logger.info("Recommendation sending completed. Sent: %d properties.", sent_count)
+    now_utc = datetime.datetime.now(datetime.UTC)
+    dispatch_all_failed = bool(top_candidates) and sent_count == 0
+    _record_recommendation_heartbeat(
+        {
+            "completed_at_utc": now_utc.isoformat(),
+            "completed_date_jst": now_utc.astimezone(JST).date().isoformat(),
+            "status": "dispatch_failed" if dispatch_all_failed else "ok",
+            "scanned_count": len(candidates),
+            "matched_count": len(matched_candidates),
+            "selected_count": len(top_candidates),
+            "sent_count": sent_count,
+            "failed_count": len(top_candidates) - sent_count,
+            "channel_counts": channel_counts,
+        }
+    )
+    if dispatch_all_failed:
+        alert_msg = (
+            f"🚨 *【割安物件通知 全件配信失敗アラート】*\n"
+            f"• *選抜候補*: {len(top_candidates)} 件\n"
+            f"• *配信成功*: 0 件（全件 Slack 送信失敗）\n"
+            f"※ Slack API 障害・権限エラー・URL不整合ガード等を確認してください。"
+        )
+        _notify_recommendation_alert(alert_msg)
+        raise RuntimeError(
+            f"All Slack recommendation dispatches failed (0/{len(top_candidates)} sent)."
+        )
+
     finish_msg = metrics.build_recommendation_slack_summary(
         channel_counts=channel_counts,
         matched_count=len(matched_candidates),

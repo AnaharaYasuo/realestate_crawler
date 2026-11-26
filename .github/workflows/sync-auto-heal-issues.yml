@@ -2,7 +2,8 @@ name: Sync Auto-Heal Issues
 
 on:
   schedule:
-    - cron: '15 21 * * *'  # 06:15 JST daily (after 05:10 JST Cloud Run ML & auto_heal_parsers.py job)
+    - cron: '15 22 * * *'  # 07:15 JST daily (after normal 05:10 JST Cloud Run ML pipeline & recommendation window)
+    - cron: '20 23 * * *'  # 08:20 JST daily (safety pass after 3h worst-case ML pipeline timeout)
   workflow_dispatch:
     inputs:
       dry_run:
