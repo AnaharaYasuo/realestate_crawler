@@ -642,6 +642,7 @@ def main(argv=None):
 
     pipeline_failed_steps: list[str] = []
     recommendation_succeeded = False
+    db_ready = False
     started_at_utc = datetime.datetime.now(datetime.UTC).isoformat()
     today_jst = datetime.datetime.now(JST).date().isoformat()
     _write_ml_pipeline_status(
@@ -662,6 +663,7 @@ def main(argv=None):
             [sys.executable, os.path.join(debug_tools_dir, "wait_for_db.py")],
             "Step 0/5: Database Readiness Pre-flight Check",
         )
+        db_ready = True
 
         # Step 1: バリア完了検証
         ok, failed = verify_barrier_completion()
@@ -862,7 +864,8 @@ def main(argv=None):
                 "failed_steps": list(pipeline_failed_steps),
             }
         )
-        _sync_failed_steps_to_auto_heal(debug_tools_dir, pipeline_failed_steps)
+        if db_ready:
+            _sync_failed_steps_to_auto_heal(debug_tools_dir, pipeline_failed_steps)
         raise
 
     finally:

@@ -162,8 +162,8 @@ jobs:
             --args=--force \
             --max-retries=0 \
             --cpu=2 \
-            --memory=2Gi \
-            --task-timeout=7200s \
+            --memory=4Gi \
+            --task-timeout=10800s \
             --update-env-vars=APP_GIT_SHA=${{ github.sha }} \
             --region=asia-northeast1
 
