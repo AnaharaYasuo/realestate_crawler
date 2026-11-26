@@ -46,6 +46,7 @@ KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
 KENBIYA_HOME_URL = "https://www.kenbiya.com/"
+DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS: float = 600.0
 _KENBIYA_RATIO_SPLIT_RE = re.compile(r"[／/・]")
 _KENBIYA_MAGUCHI_RE = re.compile(
     r"(?:間口|接面)[\s：:約]{0,8}(\d{1,5}(?:\.\d{1,3})?)\s{0,3}[mｍ米]?"
@@ -316,14 +317,15 @@ class KenbiyaParserBase(ParserBase):
     async def _rotate_pppoe_ip(
         cls, trigger_url: str, wait_sec: float, state_path: str, lock_path: str
     ) -> None:
-        """503検知時のIPローテーション: wan_pppoeを切断し wait_sec（デフォルト300秒=5分）待機後に再接続してIP確認。
+        """503検知時のIPローテーション: wan_pppoeを切断し wait_sec（デフォルト600秒=10分）待機後に再接続してIP確認。
         IPが変わるまで切断→待機→再接続→IP確認を繰り返す（プロセスは維持）。
         """
         try:
             from package.api.kenbiya import (
                 _ensure_proxysql_tunnel_ready,
                 _get_wan_pppoe_ip,
-                _run_router_ssh,
+                disconnect_wan_pppoe,
+                reconnect_wan_pppoe,
             )
 
             try:
@@ -349,16 +351,14 @@ class KenbiyaParserBase(ParserBase):
                     f"attempt {attempt}/{max_attempts} (old_ip={old_ip}): "
                     f"disconnecting wan_pppoe and sleeping {wait_sec:.0f}s..."
                 )
-                _run_router_ssh("ifdown wan_pppoe")
+                disconnect_wan_pppoe()
                 if wait_sec > 0:
                     await asyncio.sleep(wait_sec)
                 logging.info(
                     f"[Kenbiya503Recovery] Reconnecting wan_pppoe and reloading routing "
                     f"(attempt {attempt}/{max_attempts})..."
                 )
-                _run_router_ssh(
-                    "ifup wan_pppoe; sleep 5; /etc/init.d/vpn-policy-routing reload"
-                )
+                reconnect_wan_pppoe()
                 new_ip = _get_wan_pppoe_ip()
                 if not old_ip or not new_ip:
                     logging.info(
@@ -404,9 +404,14 @@ class KenbiyaParserBase(ParserBase):
         ):
             return False
         try:
-            wait_sec = float(os.getenv("KENBIYA_PPPOE_ROTATE_WAIT_SEC", "600"))
+            wait_sec = float(
+                os.getenv(
+                    "KENBIYA_PPPOE_ROTATE_WAIT_SEC",
+                    str(int(DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS)),
+                )
+            )
         except ValueError:
-            wait_sec = 600.0
+            wait_sec = DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS
         state_path = cls._get_rate_limit_state_path()
         lock_path = f"{state_path}.lock"
         should_rotate = False
@@ -445,12 +450,12 @@ class KenbiyaParserBase(ParserBase):
         ):
             return
         try:
-            from package.api.kenbiya import _run_router_ssh
+            from package.api.kenbiya import disconnect_wan_pppoe
 
             logging.warning(
                 f"[Kenbiya503Circuit] Disconnecting wan_pppoe due to HTTP 503 ({url})"
             )
-            _run_router_ssh("ifdown wan_pppoe")
+            disconnect_wan_pppoe()
         except Exception as exc:
             logging.warning(
                 f"[Kenbiya503Circuit] Failed to disconnect wan_pppoe on 503: {exc}"
@@ -670,13 +675,19 @@ class KenbiyaParserBase(ParserBase):
 
     _waf_cookies: dict[str, str] = {}
     _waf_user_agent: str | None = None
+    _waf_cookies_fetched_at: float = 0.0
+    WAF_COOKIE_TTL_SEC: float = float(os.getenv("KENBIYA_WAF_COOKIE_TTL_SEC", "1200"))
 
     @classmethod
     async def _warmup_waf_cookies(cls, force: bool = False) -> None:
         """実 Chrome で WAF 通過済み Cookie と User-Agent を取得・キャッシュする。"""
         if os.getenv("KENBIYA_WAF_WARMUP_DISABLED", "false").lower() in ("true", "1"):
             return
-        if cls._waf_cookies and not force:
+        is_expired = (
+            cls._waf_cookies_fetched_at > 0.0
+            and (time.monotonic() - cls._waf_cookies_fetched_at) >= cls.WAF_COOKIE_TTL_SEC
+        )
+        if cls._waf_cookies and not force and not is_expired:
             return
         try:
             from playwright.async_api import async_playwright
@@ -698,12 +709,33 @@ class KenbiyaParserBase(ParserBase):
                     cookies = {c["name"]: c["value"] for c in await context.cookies()}
                     if cookies:
                         cls._waf_cookies = cookies
+                        cls._waf_cookies_fetched_at = time.monotonic()
                     if ua:
                         cls._waf_user_agent = ua
                 finally:
                     await browser.close()
         except Exception as e:
             logging.warning(f"Kenbiya WAF cookie warmup skipped: {e}")
+
+    @staticmethod
+    def _is_stale_tokyo_fallback(url: str, raw_bytes: bytes) -> bool:
+        """WAF Cookie 失効時に健美家が HTTP 200 で東京都1ページ目を返すフォールバックを検知する。"""
+        if "/re_" in url:
+            return False
+        page_match = re.search(r"/n-(\d+)/", url)
+        is_paginated = page_match is not None and int(page_match.group(1)) >= 2
+        is_non_tokyo_area = bool(
+            re.search(r"/pp\d+/[a-z]+/(?!tokyo/)[^/]+/", url)
+        )
+        if not is_paginated and not is_non_tokyo_area:
+            return False
+        html = raw_bytes.decode("utf-8", errors="ignore")
+        has_tokyo_page2_next = bool(re.search(r'href="/pp\d+/s/tokyo/n-2/"', html))
+        if is_non_tokyo_area and (has_tokyo_page2_next or "東京都の" in html[:8000]):
+            return True
+        if is_paginated and has_tokyo_page2_next:
+            return True
+        return False
 
     _IMPERSONATE_PROFILES = (
         "edge99", "edge101",
@@ -778,6 +810,13 @@ class KenbiyaParserBase(ParserBase):
         self, last_status: int, raw_bytes: bytes, url: str
     ) -> bytes | None:
         if last_status == 200:
+            if self._is_stale_tokyo_fallback(url, raw_bytes):
+                logging.warning(
+                    f"[KENBIYA_WAF_FALLBACK] Detected stale Tokyo Page 1 fallback for {url}; refreshing WAF cookies."
+                )
+                KenbiyaParserBase._waf_cookies = {}
+                KenbiyaParserBase._waf_cookies_fetched_at = 0.0
+                return None
             self.consecutive_timeouts = 0
             return raw_bytes
         if last_status == 403:

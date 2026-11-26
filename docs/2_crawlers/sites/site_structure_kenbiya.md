@@ -50,3 +50,8 @@
 - **IP が変わっていない場合**は、全プロセス共有の `rotating_until` を延長したうえで再度 `ifdown wan_pppoe` → 10分待機 → 再接続 → IP 確認のサイクルを IP が変わるまで繰り返す（安全上限: `KENBIYA_PPPOE_ROTATE_MAX_ATTEMPTS`、デフォルト 24 回）。
 - フォロワープロセスは共有状態の `rotating_until` が解除（`0.0`）されるまでループ待機し、リーダーの複数サイクル延長にも一体連動して追従する。
 - `wan_pppoe` 再接続時（503 ローテーション復帰・定期クールダウン復帰）には、必ず `_ensure_proxysql_tunnel_ready()` により `127.0.0.1:6033` へ `SELECT 1` で疎通確認を行い、未起動・切断状態であれば `proxysql-instance-prod` の起動および IAP トンネルの再確立を自動実行する。
+
+## 5. WAF Cookie TTL 管理・HTTP 200 フォールバック検知・PPPoE 待機定数統一仕様 (Issue #1857)
+- **WAF Cookie TTL 管理**: `_warmup_waf_cookies()` で取得した WAF Cookie の取得時刻（`_waf_cookies_fetched_at`）を保持し、`KENBIYA_WAF_COOKIE_TTL_SEC`（デフォルト `1200` 秒 = 20分）経過時に約30分の失効前に自動で再取得する。
+- **HTTP 200 東京都1ページ目フォールバック検知 (`_is_stale_tokyo_fallback`)**: WAF Cookie 失効時に健美家側が HTTP 200 のまま「東京都1ページ目（`href="/ppX/s/tokyo/n-2/"` / `東京都の`）」を返す挙動を、2ページ目以降（`/n-2/`〜）および東京以外のエリア（神奈川・埼玉・愛知）に対して検知し、Cookie を即時破棄して再取得リトライする。
+- **PPPoE 待機定数・ルーター操作の統一**: デフォルト待機時間を `DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS = 600.0`（10分）に集約し、定期クールダウン（`COOLDOWN_REST_SECONDS`）と 503 ローテーション（`KENBIYA_PPPOE_ROTATE_WAIT_SEC`）の双方から参照する。また `disconnect_wan_pppoe()` / `reconnect_wan_pppoe()` を共通ヘルパーとして利用する。
