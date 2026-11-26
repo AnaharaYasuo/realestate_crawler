@@ -217,6 +217,9 @@ def train_property_type(
         all_p10_conformal.setdefault(ptype, {})["second"] = (
             second_ensemble.p10_conformal_offset
         )
+    # 二次モデル学習完了後は df / sample_weights を即時解放し、2GiB RAM 環境での joblib.dump 時ピークを抑える (Issue #1853)
+    del df, sample_weights
+    gc.collect()
     save_stage_models(second_ensemble, model_dir, ptype, "second")
 
     duration = time.perf_counter() - ptype_start
@@ -250,7 +253,7 @@ def train_property_type(
         proc_cpu_pct,
     )
     sys.stdout.flush()
-    del df, second_ensemble
+    del second_ensemble
     gc.collect()
     return summary
 

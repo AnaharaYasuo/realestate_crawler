@@ -126,10 +126,10 @@
 
 ## 4. Issue #1849: 割安物件通知の到達性保証・未配信Slackアラート・日次Auto-Heal統合設計
 
-### 4.1 Cloud Run ML パイプラインのリソース適正化と非ブロッキング実行
-* **Cloud Run リソース・タイムアウト (`terraform/variables.tf`, `terraform/cloud_run_job.tf`)**:
-  - `ml_pipeline_memory` を `2Gi` ➔ `4Gi` へ引き上げ、曜日ローテーション再学習（特に最大データ量の `mansion`）における P10 分位点回帰＋アンサンブル保存時の OOM (`Exit Code: -9`) を根絶する。
-  - `realestate-ml-pipeline-*` の `timeout` を `7200s` ➔ `10800s`（3時間、DB バックアップ時刻 `23:30 UTC` より前に完了する上限）へ延長し、対応する `ensure_resources_stopped.py` の `JOB_HUNG_THRESHOLD_MAP["realestate-ml-pipeline"]` を `11400.0`（`10800 + 600`）へ同期する。
+### 4.1 Cloud Run ML パイプラインの 2GiB メモリ維持・ピークメモリ削減と非ブロッキング実行
+* **Cloud Run リソース・タイムアウト (`terraform/variables.tf`, `terraform/cloud_run_job.tf`, `.github/workflows/deploy-production.yml`)**:
+  - コスト最適化のため `ml_pipeline_memory` は **`2Gi` を維持**する（Issue #809, #1853）。メモリ増設ではなく、学習プロセス側のピークメモリ削減（`ensemble.py` で P10 学習前に `df_work` を解放・終了時に `X`/`y` を解放、`pipeline.py` で `save_stage_models(second_ensemble)` 前に `df`/`sample_weights` を解放、`artifacts.py` で各モデル保存後に `gc.collect()`）により 2GiB 上限内での安定完走を実現する。
+  - `realestate-ml-pipeline-*` の `timeout` は `10800s`（3時間、DB バックアップ時刻 `23:30 UTC` より前に完了する上限）とし、対応する `ensure_resources_stopped.py` の `JOB_HUNG_THRESHOLD_MAP["realestate-ml-pipeline"]` を `11400.0`（`10800 + 600`）へ同期する。
 * **非ブロッキング実行と成否ステータス永続化 (`src/crawler/scripts/ops/run_ml_pipeline.py`)**:
   - Step 2/5（MLモデル再学習）および Step 3/5（バルク価格推定）の失敗時にパイプライン全体を即中断させず、失敗ステップを `failed_steps` に記録＋即時 Slack アラート発報した上で、既存の学習済みモデル・既存評価データを用いて Step 4/5（`send_recommendations.py`）を確実に実行する。
   - バリア検証失敗・各ステップ失敗・未処理例外のいずれでも、`_notify_pipeline_failure_to_slack()` により `#property_alert`（`send_crawling_summary_alert`）および `#dev-agent`（`send_dev_report`）の双方へ割安物件通知の配信有無を含む障害アラートを即時送信する。

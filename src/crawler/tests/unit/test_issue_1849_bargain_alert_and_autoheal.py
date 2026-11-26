@@ -78,7 +78,7 @@ class _FakeGhClient:
 # ---------------------------------------------------------------------------
 
 
-def test_ml_pipeline_memory_and_timeout_upgraded_for_mansion_training():
+def test_ml_pipeline_memory_kept_at_2gi_and_timeout_upgraded():
     variables_tf = (REPO_ROOT / "terraform" / "variables.tf").read_text(encoding="utf-8")
     m_mem = re.search(
         r'variable\s+"ml_pipeline_memory"\s*\{[^}]*default\s*=\s*"([^"]+)"',
@@ -86,7 +86,7 @@ def test_ml_pipeline_memory_and_timeout_upgraded_for_mansion_training():
         re.DOTALL,
     )
     assert m_mem is not None
-    assert m_mem.group(1) == "4Gi", f"Expected ml_pipeline_memory=4Gi, got {m_mem.group(1)}"
+    assert m_mem.group(1) == "2Gi", f"Expected ml_pipeline_memory=2Gi for cost control, got {m_mem.group(1)}"
 
     job_tf = (REPO_ROOT / "terraform" / "cloud_run_job.tf").read_text(encoding="utf-8")
     m_job = re.search(
@@ -100,6 +100,22 @@ def test_ml_pipeline_memory_and_timeout_upgraded_for_mansion_training():
     from scripts import ensure_resources_stopped
 
     assert ensure_resources_stopped.JOB_HUNG_THRESHOLD_MAP["realestate-ml-pipeline"] >= 11400.0
+
+
+def test_training_releases_intermediate_frames_before_p10_and_model_save():
+    ensemble_src = (
+        REPO_ROOT / "src" / "crawler" / "package" / "ml" / "training" / "ensemble.py"
+    ).read_text(encoding="utf-8")
+    assert "del df_work" in ensemble_src
+    assert "del X, y" in ensemble_src
+
+    pipeline_src = (
+        REPO_ROOT / "src" / "crawler" / "package" / "ml" / "training" / "pipeline.py"
+    ).read_text(encoding="utf-8")
+    # df and sample_weights must be released before save_stage_models(second_ensemble, ...)
+    idx_del = pipeline_src.find("del df, sample_weights")
+    idx_save = pipeline_src.find('save_stage_models(second_ensemble, model_dir, ptype, "second")')
+    assert idx_del != -1 and idx_save != -1 and idx_del < idx_save
 
 
 # ---------------------------------------------------------------------------

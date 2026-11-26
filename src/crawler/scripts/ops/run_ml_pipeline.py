@@ -757,7 +757,7 @@ def main(argv=None):
             )
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
-        # 4GiB RAM コンテナ環境での OOM 防止のため、評価並行数はデフォルト 2、CLI/環境変数で動的指定可能 (Issue #1484, #1507, #1849)
+        # 2GiB RAM コンテナ環境での OOM 防止のため、評価並行数はデフォルト 2、CLI/環境変数で動的指定可能 (Issue #1484, #1507, #1853)
         eval_concurrency = args.concurrency
         eval_cmd = [
             sys.executable,

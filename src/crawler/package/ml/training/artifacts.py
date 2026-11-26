@@ -59,13 +59,17 @@ def save_stage_models(
     models_dict: dict[str, Any], model_dir: str, ptype: str, stage_key: str
 ) -> None:
     """特定ステージの学習済みモデルファイルおよび P10 分位点モデルを保存"""
+    import gc
+
     for algo, model in models_dict.items():
         fname = f"{ptype}_{stage_key}_stage_{algo}.joblib"
         joblib.dump(model, os.path.join(model_dir, fname))
+        gc.collect()
     p10_model = getattr(models_dict, "p10_model", None)
     if p10_model is not None:
         p10_fname = f"{ptype}_{stage_key}_stage_p10.joblib"
         joblib.dump(p10_model, os.path.join(model_dir, p10_fname))
+        gc.collect()
 
 
 def _load_existing_dict(filepath: str) -> dict[str, Any]:
