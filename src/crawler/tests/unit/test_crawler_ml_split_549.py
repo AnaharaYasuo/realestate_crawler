@@ -78,7 +78,7 @@ def test_ml_pipeline_timeout_is_below_safety_net_hung_threshold():
         ensure_resources_stopped.check_and_stop_proxysql_mig
     ).parameters["timeout_threshold_sec"].default
     timeout = _timeout_sec(_job_block("ml_pipeline_job"))
-    assert timeout == 7200
+    assert timeout == 10800
     assert timeout < threshold
 
 
@@ -164,7 +164,7 @@ def test_deploy_disables_crawler_retries():
     assert "--max-retries=0" in _deploy_step("realestate-crawler-pipeline-prod")
 
 
-@pytest.mark.parametrize("flag", ["--args=--force", "--max-retries=0", "--task-timeout=7200s"])
+@pytest.mark.parametrize("flag", ["--args=--force", "--max-retries=0", "--task-timeout=10800s"])
 def test_deploy_applies_ml_pipeline_job_settings(flag):
     assert flag in _deploy_step("realestate-ml-pipeline-prod")
 
@@ -386,7 +386,7 @@ def test_ml_main_order_with_force_and_train(ml_main):
 
 def test_ml_main_aborts_on_barrier_without_force_but_reports_and_stops_proxysql(ml_main):
     assert run_ml_pipeline.main(argv=[]) == 1
-    assert ml_main == ["startup", "wait_for_db.py", "barrier", "report", "scale:0"]
+    assert ml_main == ["startup", "wait_for_db.py", "barrier", "report", "auto_heal_parsers.py", "scale:0"]
 
 
 def test_ml_main_startup_failure_skips_steps_and_stops_proxysql(ml_main, monkeypatch):

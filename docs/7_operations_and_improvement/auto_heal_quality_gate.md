@@ -74,3 +74,21 @@ AIサブエージェントが修正コードをコミット・PR作成する前�
 - `sync_auto_heal_issues.py --record-attempt <number> [--reason "<理由>"]`
   - 修正・再現テストを試みた結果、修復に失敗した場合の証跡記録としてのみ実行する。
 
+---
+
+## 6. 割安物件通知未配信・MLパイプライン異常の日次 Auto-Heal 統合仕様 (Issue #1849)
+
+パーサー不整合だけでなく、日次の割安物件通知（`send_recommendations.py`）の未配信および ML パイプライン（`run_ml_pipeline.py`）の異常終了を確実に日次オートヒールの修復キュー（`auto-heal` GitHub Issue）へ自動投入する。
+
+### 6.1 GCS 配信ハートビート監視と自動 Issue 起票・自動クローズ (`sync_auto_heal_issues.py`)
+- `sync_auto_heal_issues.py --pull-from-gcs` 実行時、`auto_heal/latest_instruction.json` の同期に加え、GCS の以下 2 つのハートビートを検査する：
+  1. `monitoring/recommendation_last_success.json`（当日 JST の割安物件通知完了・成否）
+  2. `monitoring/ml_pipeline_last_status.json`（当日 JST の ML パイプライン実行ステータス・失敗ステップ）
+- 当日 JST の割安物件通知が未完了（未存在・前日以前・`status != "ok"`）であり、かつ ML パイプラインが正常稼働中（`status == "running"` かつ開始から 3 時間以内）でない場合、固定キー `pipeline:bargain-recommendation-not-delivered` として `auto-heal` ラベル付き GitHub Issue を自動起票（既存クローズ済みがあれば自動再オープン）する。
+- `ml_pipeline_last_status.json` に失敗ステップが記録されている場合も `failed_pipeline_steps` に合流させ、対応する `pipeline:<step>` Issue を起票・更新する。
+- 翌日の配信成功（`completed_date_jst == today_jst` かつ `status == "ok"`）が確認された時点で `active_groups` から消滅し、`_close_resolved_issues()` により自動クローズされる。
+
+### 6.2 GitHub Actions 同期スケジュール最適化 (`.github/workflows/sync-auto-heal-issues.yml`)
+- `realestate-ml-pipeline-prod`（`20:10 UTC` / `05:10 JST` 起動、最大 3 時間）の完了後に確実に検査できるよう、cron を `15 22 * * *`（`07:15 JST`）および `20 23 * * *`（`08:20 JST`）の 2 回構成とする。
+
+

@@ -75,12 +75,19 @@ DEFAULT_TRAFFIC_THRESHOLD_BYTES: int = 1_048_576
 # 最大連続稼働時間 (8時間: ハング時のゾンビ課金保護上限)
 DEFAULT_MAX_UPTIME_SEC: float = 28_800.0
 
-# ジョブ別の実効タイムアウト + 猶予 (crawler: 10800+600, ml: 7200+600, migrate: 600+300)
+# ジョブ別の実効タイムアウト + 猶予 (crawler: 14400+600, ml: 10800+600, migrate: 600+300)
 JOB_HUNG_THRESHOLD_MAP: dict[str, float] = {
     "realestate-crawler-pipeline": 15000.0,
-    "realestate-ml-pipeline": 7800.0,
+    "realestate-ml-pipeline": 11400.0,
     "realestate-migrate": 900.0,
 }
+
+RECOMMENDATION_HEARTBEAT_GCS_KEY: str = "monitoring/recommendation_last_success.json"
+ML_PIPELINE_STATUS_GCS_KEY: str = "monitoring/ml_pipeline_last_status.json"
+RECOMMENDATION_MISSING_ALERT_GCS_KEY: str = "monitoring/recommendation_missing_alerted_date.json"
+RECOMMENDATION_DEADLINE_HOUR_JST: int = 8
+RECOMMENDATION_DEADLINE_MINUTE_JST: int = 30
+DEFAULT_GCS_BUCKET: str = "realestate-images-sumifu-prod"
 
 
 def get_job_hung_threshold(job_name: str, fallback_threshold: float = DEFAULT_HUNG_THRESHOLD_SEC) -> float:
@@ -373,9 +380,7 @@ def _is_completed_condition(cond: object) -> bool:
         return False
     if "CONDITION_SUCCEEDED" in state_val or "CONDITION_FAILED" in state_val:
         return True
-    if "TRUE" in status_val or "FALSE" in status_val:
-        return True
-    return False
+    return "TRUE" in status_val or "FALSE" in status_val
 
 
 def _get_active_cloud_run_executions(
@@ -1408,6 +1413,123 @@ def check_and_stop_proxysql_mig(
     )
 
 
+def _read_gcs_json(blob_key: str, bucket_name: str | None = None) -> dict | None:
+    """GCS から JSON メタデータ（配信ハートビート等）を安全に読み込む (Issue #1849)"""
+    try:
+        import json
+
+        from google.cloud import storage
+
+        bucket_id = bucket_name or os.environ.get("STORAGE_BUCKET") or DEFAULT_GCS_BUCKET
+        client = storage.Client()
+        blob = client.bucket(bucket_id).blob(blob_key)
+        if not blob.exists():
+            return None
+        raw = blob.download_as_text(encoding="utf-8")
+        data = json.loads(raw) if raw else None
+        return data if isinstance(data, dict) else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to read GCS JSON %s: %s", blob_key, e)
+        return None
+
+
+def _write_gcs_json(blob_key: str, payload: dict, bucket_name: str | None = None) -> bool:
+    """GCS へ JSON メタデータを安全に書き込む (Issue #1849)"""
+    try:
+        import json
+
+        from google.cloud import storage
+
+        bucket_id = bucket_name or os.environ.get("STORAGE_BUCKET") or DEFAULT_GCS_BUCKET
+        client = storage.Client()
+        blob = client.bucket(bucket_id).blob(blob_key)
+        blob.upload_from_string(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            content_type="application/json",
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to write GCS JSON %s: %s", blob_key, e)
+        return False
+
+
+def check_daily_recommendation_delivery(
+    active_ml_jobs: list[CloudRunExecutionInfo],
+    *,
+    now_jst: datetime | None = None,
+    bucket_name: str | None = None,
+    dry_run: bool = False,
+) -> bool:
+    """当日 JST の割安物件通知が未配信である事をプロセス外から検知し Slack アラートを発報する (Issue #1849)"""
+    from datetime import timedelta, timezone
+
+    jst_tz = timezone(timedelta(hours=9))
+    current_jst = now_jst or datetime.now(jst_tz)
+    today_jst = current_jst.date().isoformat()
+
+    rec_hb = _read_gcs_json(RECOMMENDATION_HEARTBEAT_GCS_KEY, bucket_name=bucket_name)
+    if (
+        isinstance(rec_hb, dict)
+        and rec_hb.get("completed_date_jst") == today_jst
+        and rec_hb.get("status") == "ok"
+    ):
+        return False
+
+    if active_ml_jobs:
+        return False
+
+    ml_status = _read_gcs_json(ML_PIPELINE_STATUS_GCS_KEY, bucket_name=bucket_name)
+    ml_failed_today = (
+        isinstance(ml_status, dict)
+        and ml_status.get("date_jst") == today_jst
+        and ml_status.get("status") == "failed"
+    )
+    past_deadline = (current_jst.hour, current_jst.minute) >= (
+        RECOMMENDATION_DEADLINE_HOUR_JST,
+        RECOMMENDATION_DEADLINE_MINUTE_JST,
+    )
+    if not past_deadline and not ml_failed_today:
+        return False
+
+    alerted = _read_gcs_json(RECOMMENDATION_MISSING_ALERT_GCS_KEY, bucket_name=bucket_name)
+    if isinstance(alerted, dict) and alerted.get("alerted_date_jst") == today_jst:
+        return False
+
+    last_ok_date = rec_hb.get("completed_date_jst") if isinstance(rec_hb, dict) else "未記録"
+    failed_steps = (
+        ml_status.get("failed_steps", []) if isinstance(ml_status, dict) else []
+    )
+    reason_detail = (
+        "; ".join(str(s) for s in failed_steps[:3])
+        if failed_steps
+        else "MLパイプライン未完了またはコンテナ異常終了（OOM/タイムアウト等）の疑い"
+    )
+    msg = (
+        f"🚨 *【割安物件通知 未配信検知 (Safety-Net Watchdog)】*\n"
+        f"• *対象日 (JST)*: {today_jst}\n"
+        f"• *最終正常配信日*: {last_ok_date}\n"
+        f"• *推定原因*: {reason_detail}\n"
+        f"※ 日次 Auto-Heal 同期（`sync-auto-heal-issues.yml`）の修復キュー対象にも自動登録されます。"
+    )
+    if dry_run:
+        logger.info("[DRY-RUN] Would alert missing daily recommendation: %s", msg)
+        return True
+
+    send_slack_alert(msg)
+    dev_ch = os.environ.get("SLACK_DEV_CHANNEL", "dev-agent")
+    send_slack_alert(msg, channel=dev_ch)
+    _write_gcs_json(
+        RECOMMENDATION_MISSING_ALERT_GCS_KEY,
+        {
+            "alerted_date_jst": today_jst,
+            "alerted_at_utc": datetime.now(UTC).isoformat(),
+            "reason": reason_detail,
+        },
+        bucket_name=bucket_name,
+    )
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Ensure GCP on-demand resources are safely stopped."
@@ -1495,6 +1617,20 @@ def main() -> int:
             fallback_to_instance=True,
             skip_traffic_check=args.skip_traffic_check,
         )
+
+    # 当日 JST の割安物件通知未配信 Watchdog (Issue #1849)
+    try:
+        active_ml_jobs, _ = _get_active_cloud_run_executions(
+            project_id=args.project_id,
+            region=args.region,
+            job_prefixes=("realestate-ml-pipeline",),
+        )
+        check_daily_recommendation_delivery(
+            active_ml_jobs=active_ml_jobs,
+            dry_run=args.dry_run,
+        )
+    except Exception as wd_err:  # noqa: BLE001
+        logger.warning("Recommendation delivery watchdog skipped due to error: %s", wd_err)
 
     if result.was_leaked:
         if result.forced_stop:

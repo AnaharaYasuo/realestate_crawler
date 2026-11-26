@@ -86,7 +86,7 @@ class TestTerraformResourceRightsizing:
 
     def test_ml_pipeline_variables(self):
         assert _variable_default("ml_pipeline_cpu") == "2"
-        assert _variable_default("ml_pipeline_memory") == "2Gi"
+        assert _variable_default("ml_pipeline_memory") == "4Gi"
 
     def test_recrawl_memory_variable(self):
         assert _variable_default("recrawl_memory") == "2Gi"
@@ -97,7 +97,7 @@ class TestTerraformResourceRightsizing:
         assert "memory" in block
         # cpu は 2 または var.ml_pipeline_cpu
         assert 'cpu    = var.ml_pipeline_cpu' in block or 'cpu    = "2"' in block
-        assert 'memory = var.ml_pipeline_memory' in block or 'memory = "2Gi"' in block
+        assert 'memory = var.ml_pipeline_memory' in block or 'memory = "4Gi"' in block
 
     def test_recrawl_anomalies_job_uses_rightsized_memory(self):
         block = _job_block("recrawl_anomalies_job")
@@ -105,13 +105,13 @@ class TestTerraformResourceRightsizing:
 
 
 class TestDeployWorkflowResourceSync:
-    """Issue #809: GitHub Actionsデプロイワークフローのリソース設定同期検証"""
+    """Issue #809, #1849: GitHub Actionsデプロイワークフローのリソース設定同期検証"""
 
     def test_deploy_production_ml_pipeline_specs(self):
         content = _read(DEPLOY_WORKFLOW_PATH)
         ml_section = content.split("realestate-ml-pipeline-prod", 1)[1].split("gcloud run jobs", 1)[0]
         assert "--cpu=2" in ml_section
-        assert "--memory=2Gi" in ml_section
+        assert "--memory=4Gi" in ml_section
 
     def test_deploy_production_recrawl_anomalies_specs(self):
         content = _read(DEPLOY_WORKFLOW_PATH)

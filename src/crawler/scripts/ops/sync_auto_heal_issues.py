@@ -26,6 +26,11 @@ AUTO_HEAL_LABEL = "auto-heal"
 NEEDS_HUMAN_LABEL = "auto-heal:needs-human"
 DEFAULT_GCS_BUCKET = "realestate-images-sumifu-prod"
 DEFAULT_GCS_KEY = "auto_heal/latest_instruction.json"
+RECOMMENDATION_HEARTBEAT_GCS_KEY = "monitoring/recommendation_last_success.json"
+ML_PIPELINE_STATUS_GCS_KEY = "monitoring/ml_pipeline_last_status.json"
+BARGAIN_NOT_DELIVERED_STEP = "bargain-recommendation-not-delivered"
+BARGAIN_NOT_DELIVERED_KEY = f"pipeline:{BARGAIN_NOT_DELIVERED_STEP}"
+ML_PIPELINE_MAX_RUNNING_MINUTES = 190
 DEFAULT_MAX_ATTEMPTS = 2
 
 _KEY_MARKER_RE = re.compile(r"<!-- auto-heal-key:([^\s>]+) -->")
@@ -257,7 +262,10 @@ def group_instruction_targets(instruction: dict[str, Any]) -> dict[str, dict[str
         step_str = str(step).strip()
         if not step_str:
             continue
-        slug = _slugify_step(step_str)
+        if step_str.startswith(BARGAIN_NOT_DELIVERED_STEP):
+            slug = BARGAIN_NOT_DELIVERED_STEP
+        else:
+            slug = _slugify_step(step_str)
         key = f"pipeline:{slug}"
         groups[key] = {
             "company": "pipeline",
@@ -624,7 +632,7 @@ def pull_instruction_from_gcs_direct(
     bucket_name: str = DEFAULT_GCS_BUCKET,
     blob_key: str = DEFAULT_GCS_KEY,
 ) -> dict[str, Any] | None:
-    """Fetch `auto_heal/latest_instruction.json` directly from GCS without requiring Django/DB."""
+    """Fetch JSON blob directly from GCS without requiring Django/DB."""
     from google.cloud import storage
 
     client = storage.Client()
@@ -637,6 +645,87 @@ def pull_instruction_from_gcs_direct(
     return json.loads(raw) if raw else None
 
 
+def _is_ml_pipeline_actively_running(
+    ml_status: dict[str, Any] | None,
+    now_utc: Any,
+) -> bool:
+    """ml_pipeline_last_status.json が現在正常稼働中（開始から 190 分以内）か判定する (Issue #1849)"""
+    from datetime import datetime, timedelta
+
+    if not isinstance(ml_status, dict) or ml_status.get("status") != "running":
+        return False
+    started_raw = ml_status.get("started_at_utc") or ml_status.get("updated_at_utc")
+    if not started_raw:
+        return False
+    try:
+        started_dt = datetime.fromisoformat(str(started_raw))
+        return (now_utc - started_dt) <= timedelta(minutes=ML_PIPELINE_MAX_RUNNING_MINUTES)
+    except ValueError:
+        return False
+
+
+def enrich_instruction_with_delivery_health(
+    instruction: dict[str, Any] | None,
+    *,
+    rec_heartbeat: dict[str, Any] | None,
+    ml_status: dict[str, Any] | None,
+    now_jst: Any = None,
+) -> dict[str, Any] | None:
+    """GCS 配信ハートビートと ML パイプライン状態から割安通知未配信・ML異常を検知し指示書へ合流する (Issue #1849)"""
+    from datetime import UTC, datetime, timedelta, timezone
+
+    jst_tz = timezone(timedelta(hours=9))
+    current_jst = now_jst or datetime.now(jst_tz)
+    current_utc = current_jst.astimezone(UTC)
+    today_jst = current_jst.date().isoformat()
+
+    if _is_ml_pipeline_actively_running(ml_status, current_utc):
+        return instruction
+
+    delivered_today = (
+        isinstance(rec_heartbeat, dict)
+        and rec_heartbeat.get("completed_date_jst") == today_jst
+        and rec_heartbeat.get("status") == "ok"
+    )
+
+    injected_steps: list[str] = []
+    if not delivered_today:
+        last_ok = (
+            rec_heartbeat.get("completed_date_jst")
+            if isinstance(rec_heartbeat, dict)
+            else "未記録"
+        )
+        rec_state = (
+            rec_heartbeat.get("status")
+            if isinstance(rec_heartbeat, dict)
+            else "missing"
+        )
+        injected_steps.append(
+            f"{BARGAIN_NOT_DELIVERED_STEP}: 当日({today_jst} JST)の割安物件通知が未配信 (最終正常日={last_ok}, status={rec_state})"
+        )
+
+    if isinstance(ml_status, dict) and ml_status.get("date_jst") == today_jst:
+        for step in ml_status.get("failed_steps") or []:
+            step_str = str(step).strip()
+            if step_str:
+                injected_steps.append(step_str)
+
+    if not injected_steps:
+        return instruction
+
+    merged: dict[str, Any] = dict(instruction) if isinstance(instruction, dict) else {
+        "generated_at": current_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        "targets": [],
+        "ai_summary": "日次割安物件通知の未配信またはMLパイプライン異常を GCS ハートビート監視により自動検知しました。",
+    }
+    existing_steps = list(merged.get("failed_pipeline_steps") or [])
+    for s in injected_steps:
+        if s not in existing_steps:
+            existing_steps.append(s)
+    merged["failed_pipeline_steps"] = existing_steps
+    return merged
+
+
 def _load_instruction_for_cli(args: argparse.Namespace) -> dict[str, Any] | None:
     if args.instruction_file:
         path = Path(args.instruction_file)
@@ -647,7 +736,14 @@ def _load_instruction_for_cli(args: argparse.Namespace) -> dict[str, Any] | None
 
     if args.pull_from_gcs:
         bucket = os.environ.get("GCS_BUCKET_NAME", DEFAULT_GCS_BUCKET)
-        return pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=DEFAULT_GCS_KEY)
+        instruction = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=DEFAULT_GCS_KEY)
+        rec_hb = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=RECOMMENDATION_HEARTBEAT_GCS_KEY)
+        ml_st = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=ML_PIPELINE_STATUS_GCS_KEY)
+        return enrich_instruction_with_delivery_health(
+            instruction,
+            rec_heartbeat=rec_hb,
+            ml_status=ml_st,
+        )
 
     default_local = Path(__file__).resolve().parents[4] / "Temp" / "auto_heal_instruction.json"
     if default_local.exists():
