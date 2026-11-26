@@ -797,9 +797,26 @@ def test_stale_tokyo_fallback_detection_and_cooldown_default():
 
 
 @pytest.mark.asyncio
-async def test_cffi_session_reuse_and_invalidation():
+async def test_cffi_session_reuse_and_invalidation(monkeypatch):
     """curl_cffi AsyncSession が再利用され、_invalidate_waf_cookies 後に再生成されることを検証"""
+    import sys
+    import types
     from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaParserBase
+
+    closed_sessions = []
+
+    class _DummyAsyncSession:
+        def __init__(self, impersonate=None):
+            self.impersonate = impersonate
+            self.cookies = {}
+
+        async def close(self):
+            closed_sessions.append(self)
+
+    dummy_requests = types.SimpleNamespace(AsyncSession=_DummyAsyncSession)
+    dummy_pkg = types.SimpleNamespace(requests=dummy_requests)
+    monkeypatch.setitem(sys.modules, "curl_cffi", dummy_pkg)
+    monkeypatch.setitem(sys.modules, "curl_cffi.requests", dummy_requests)
 
     parser = KenbiyaMansionParser()
     s1 = await parser._get_or_create_cffi_session("chrome124")
@@ -809,6 +826,7 @@ async def test_cffi_session_reuse_and_invalidation():
     KenbiyaParserBase._invalidate_waf_cookies()
     s3 = await parser._get_or_create_cffi_session("chrome124")
     assert s3 is not s1
+    assert closed_sessions == [s1]
     await s3.close()
 
 

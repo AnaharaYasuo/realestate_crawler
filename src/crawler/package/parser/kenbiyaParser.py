@@ -803,8 +803,8 @@ class KenbiyaParserBase(ParserBase):
         if existing is not None:
             try:
                 await existing.close()
-            except Exception:
-                pass
+            except Exception as close_exc:
+                logging.debug(f"Failed to close previous curl_cffi session: {close_exc}")
         session = AsyncSession(impersonate=impersonate)
         if self._waf_cookies:
             session.cookies.update(dict(self._waf_cookies))
