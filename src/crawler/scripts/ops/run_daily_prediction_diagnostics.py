@@ -89,8 +89,12 @@ def _classify_over_prediction(text: str, features: dict) -> list:
     causes = []
     if re.search(r"借地|地上権|定期借地|地代", text):
         causes.append("leasehold")
-    if re.search(r"再建築不可|市街化調整|建築不可|セットバック要", text):
+    if re.search(r"再建築不可|市街化調整|建築不可|セットバック要|43条但書|43条2項", text):
         causes.append("unbuildable")
+    if re.search(r"連棟|テラスハウス|長屋", text):
+        causes.append("rentou")
+    if re.search(r"共有持分|持分売買|持分のみ", text):
+        causes.append("special_share")
     if re.search(r"告知事項|心理的瑕疵|事故|特別募集", text):
         causes.append("hazard_stigma")
 
