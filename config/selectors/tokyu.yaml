@@ -62,7 +62,7 @@ investment:
   # Price and Address will be retrieved via Label in _scrape_specs
   next_page: "次へ"
   saikou_key: "向き"
-  property_links: "h3[class*='PropertyPanel_propertyName'] a"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a, a[href*='/fudosan-toushi/C']"
   table:
     # Same unified structure
     selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
@@ -74,7 +74,7 @@ invest_kodate:
   title: "h1"
   next_page: "次へ"
   saikou_key: "向き"
-  property_links: "h3[class*='PropertyPanel_propertyName'] a"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a, a[href*='/fudosan-toushi/C']"
   table:
     selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
     row_selector: "div, dl"
@@ -85,7 +85,7 @@ invest_apartment:
   title: "h1"
   next_page: "次へ"
   saikou_key: "向き"
-  property_links: "h3[class*='PropertyPanel_propertyName'] a"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a, a[href*='/fudosan-toushi/C']"
   table:
     selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
     row_selector: "div, dl"
