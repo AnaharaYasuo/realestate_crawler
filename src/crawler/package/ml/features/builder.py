@@ -354,6 +354,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                 rights_ratio=float(feats.get("rights_ratio", 1.0)),
                 is_saikenchiku_fuka=float(feats.get("is_saikenchiku_fuka", 0.0)),
                 is_shigaika_chousei=float(feats.get("is_shigaika_chousei", 0.0)),
+                is_rentou=float(feats.get("is_rentou", 0.0)),
                 effective_land_price_multiplier=float(feats.get("effective_land_price_multiplier", 1.0)),
                 furuya_demolition_cost=float(feats.get("furuya_demolition_cost", 0.0)),
                 cost_approach_value=float(feats["cost_approach_value"]),

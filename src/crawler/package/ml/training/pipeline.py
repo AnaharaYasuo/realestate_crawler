@@ -15,6 +15,7 @@ from package.ml.features import FEATURE_SETS
 from package.ml.training.artifacts import (
     save_metadata,
     save_stage_models,
+    sync_existing_metadata_from_storage,
     upload_models_to_storage,
 )
 from package.ml.training.cleaning import clean_training_data
@@ -22,7 +23,6 @@ from package.ml.training.data_loader import (
     collect_model_classes_by_type,
     get_evaluation_and_duplicate_caches,
     stream_training_feature_chunks,
-    stream_training_features,
 )
 from package.ml.training.dummy_data import generate_dummy_data
 from package.ml.training.ensemble import train_and_compare
@@ -70,8 +70,8 @@ def _build_compact_dataframe(chunk_stream: Any) -> pd.DataFrame:
             try:
                 if full_df[col].nunique() < len(full_df) * 0.5:
                     full_df[col] = full_df[col].astype("category")
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Skipped category downcast for column %s: %s", col, e)
 
     return full_df
 
@@ -335,6 +335,7 @@ def run_training(
         del stream
         gc.collect()
 
+    sync_existing_metadata_from_storage(model_dir)
     save_metadata(
         model_dir,
         all_ensemble_weights,

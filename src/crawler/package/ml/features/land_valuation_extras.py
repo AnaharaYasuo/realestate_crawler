@@ -82,6 +82,7 @@ class AnchorPricingInput:
     dem_south_aspect_score: float = 0.0
     dem_depression_depth_m: float = 0.0
     effective_land_price_multiplier: float | None = None
+    is_rentou: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,7 @@ class LandValuationContext:
     building_depreciation_ratio: float = 0.5
     demolition_cost_discount: float = 0.0
     effective_land_price_multiplier: float | None = None
+    is_rentou: float = 0.0
 
 
 def _evaluate_infra_connection(norm_text: str, chome_infra_score: float) -> tuple[float, float]:
@@ -269,6 +271,7 @@ def _compute_net_land_from_input(inp: AnchorPricingInput) -> float:
         inp.effective_land_price_multiplier,
     )
     dem_m = _dem_terrain_multiplier(inp.dem_south_aspect_score, inp.dem_depression_depth_m)
+    rentou_m = 0.65 if inp.is_rentou >= 0.5 else 1.0
     if inp.property_type == "mansion":
         return max(0.0, (denom * 0.20) * micro_man * float(inp.rights_ratio) * shigaika_m)
     eff_land = max(0.0, float(inp.effective_tochi_area))
@@ -282,6 +285,7 @@ def _compute_net_land_from_input(inp: AnchorPricingInput) -> float:
         * float(inp.rights_ratio)
         * saiken_m
         * shigaika_m
+        * rentou_m
         * dem_m
     )
     fixed_man = float(inp.fixed_cost_per_sqm) * denom
@@ -384,12 +388,13 @@ def _vectorized_net_land_man(df: pd.DataFrame, property_type: str, denom: pd.Ser
     rights_f = _col_series(df, "rights_ratio", 1.0)
     fixed_sqm = _col_series(df, "fixed_cost_per_sqm", 0.0)
     saiken = _col_flag_multiplier(df, "is_saikenchiku_fuka", 0.25 if property_type == "tochi" else 0.48)
+    rentou = _col_flag_multiplier(df, "is_rentou", 0.65)
     if "effective_land_price_multiplier" in df.columns:
         shigaika = _col_series(df, "effective_land_price_multiplier", 1.0).clip(lower=0.10, upper=1.0).to_numpy(dtype=float)
     else:
         shigaika = _col_flag_multiplier(df, "is_shigaika_chousei", 0.35 if property_type == "tochi" else 0.50)
 
-    qual_mult = (scale_d * front_f * road_f * shape_f * rights_f).to_numpy(dtype=float) * saiken * shigaika
+    qual_mult = (scale_d * front_f * road_f * shape_f * rights_f).to_numpy(dtype=float) * saiken * shigaika * rentou
     net_land = (eff_area * micro_man * qual_mult - fixed_sqm * denom).clip(lower=0.0)
     return net_land, qual_mult
 
@@ -519,6 +524,7 @@ def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]
     )
     is_cul_de_sac = 1.0 if any(k in norm_text for k in _CUL_DE_SAC_KW) else 0.0
     is_special_share = _detect_special_sale_share(norm_text)
+    effective_rights_ratio = min(ctx.rights_ratio, 0.40) if is_special_share >= 0.5 else ctx.rights_ratio
 
     has_land_component = ctx.property_type in ("tochi", "kodate", "apartment")
     subdiv_score = (
@@ -567,7 +573,7 @@ def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]
         frontage_penalty_factor=ctx.frontage_penalty_factor,
         road_condition_factor=ctx.road_condition_factor,
         plot_shape_penalty=ctx.plot_shape_penalty,
-        rights_ratio=ctx.rights_ratio,
+        rights_ratio=effective_rights_ratio,
         is_saikenchiku_fuka=ctx.is_saikenchiku_fuka,
         is_shigaika_chousei=ctx.is_shigaika_chousei,
         fixed_cost_per_sqm=fixed_per_sqm,
@@ -581,6 +587,7 @@ def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]
         dem_south_aspect_score=dem_feat.dem_south_aspect_score,
         dem_depression_depth_m=dem_feat.dem_depression_depth_m,
         effective_land_price_multiplier=ctx.effective_land_price_multiplier,
+        is_rentou=ctx.is_rentou,
     )
     net_land_man = round(_compute_net_land_from_input(anchor_inp), 2)
     net_land_sqm = round(net_land_man / denom_sqm, 4)
@@ -615,6 +622,7 @@ def extract_land_valuation_extras(ctx: LandValuationContext) -> dict[str, float]
         "is_measured_boundary": is_measured,
         "is_cul_de_sac_road": is_cul_de_sac,
         "is_special_sale_share": is_special_share,
+        "rights_ratio": effective_rights_ratio,
         "subdivision_potential_score": subdiv_score,
         "dcf_theoretical_value": dcf_val,
         "kodate_residual_land_value": kodate_res_land,
