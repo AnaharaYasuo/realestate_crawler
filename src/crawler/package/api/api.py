@@ -157,10 +157,10 @@ def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> 
 
 def _get_fire_and_forget_wait_timeout() -> float:
     try:
-        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "7200.0"))
-        return val if val >= 0 else 7200.0
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "43200.0"))
+        return val if val >= 0 else 43200.0
     except (ValueError, TypeError):
-        return 7200.0
+        return 43200.0
 
 
 _last_fire_and_forget_progress_ts: float = 0.0
