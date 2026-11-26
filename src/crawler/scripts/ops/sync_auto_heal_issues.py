@@ -703,12 +703,25 @@ def enrich_instruction_with_delivery_health(
         injected_steps.append(
             f"{BARGAIN_NOT_DELIVERED_STEP}: 当日({today_jst} JST)の割安物件通知が未配信 (最終正常日={last_ok}, status={rec_state})"
         )
+    elif int(rec_heartbeat.get("failed_count") or 0) > 0:
+        sent_cnt = int(rec_heartbeat.get("sent_count") or 0)
+        failed_cnt = int(rec_heartbeat.get("failed_count") or 0)
+        injected_steps.append(
+            f"{BARGAIN_NOT_DELIVERED_STEP}: 当日({today_jst} JST)の割安物件通知で一部配信失敗 (sent={sent_cnt}, failed={failed_cnt})"
+        )
 
     if isinstance(ml_status, dict) and ml_status.get("date_jst") == today_jst:
-        for step in ml_status.get("failed_steps") or []:
-            step_str = str(step).strip()
-            if step_str:
-                injected_steps.append(step_str)
+        ml_failed_steps = [str(s).strip() for s in (ml_status.get("failed_steps") or []) if str(s).strip()]
+        injected_steps.extend(ml_failed_steps)
+        ml_state = str(ml_status.get("status") or "").lower()
+        if ml_state == "failed" and not ml_failed_steps:
+            injected_steps.append(
+                f"ml-pipeline-failed: 当日({today_jst} JST)のMLパイプラインが異常終了 (failed_steps未記録)"
+            )
+        elif ml_state == "running":
+            injected_steps.append(
+                f"ml-pipeline-timeout: 当日({today_jst} JST)のMLパイプラインが{ML_PIPELINE_MAX_RUNNING_MINUTES}分以上完了せずハング/タイムアウト"
+            )
 
     if not injected_steps:
         return instruction
@@ -726,6 +739,28 @@ def enrich_instruction_with_delivery_health(
     return merged
 
 
+def _load_gcs_enriched_instruction() -> dict[str, Any] | None:
+    bucket = os.environ.get("GCS_BUCKET_NAME", DEFAULT_GCS_BUCKET)
+    instruction = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=DEFAULT_GCS_KEY)
+    rec_hb = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=RECOMMENDATION_HEARTBEAT_GCS_KEY)
+    ml_st = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=ML_PIPELINE_STATUS_GCS_KEY)
+    return enrich_instruction_with_delivery_health(
+        instruction,
+        rec_heartbeat=rec_hb,
+        ml_status=ml_st,
+    )
+
+
+def _sync_from_gcs_best_effort(gh: GhClientProtocol) -> None:
+    """Sync latest GCS telemetry into GitHub Issues before listing actionable items (Issue #1868)."""
+    try:
+        instruction = _load_gcs_enriched_instruction()
+        if instruction is not None:
+            sync_instruction_to_issues(instruction, gh, dry_run=False)
+    except Exception as exc:
+        logger.warning("Best-effort GCS telemetry sync before --list-actionable skipped: %s", exc)
+
+
 def _load_instruction_for_cli(args: argparse.Namespace) -> dict[str, Any] | None:
     if args.instruction_file:
         path = Path(args.instruction_file)
@@ -735,15 +770,7 @@ def _load_instruction_for_cli(args: argparse.Namespace) -> dict[str, Any] | None
         return json.loads(path.read_text(encoding="utf-8"))
 
     if args.pull_from_gcs:
-        bucket = os.environ.get("GCS_BUCKET_NAME", DEFAULT_GCS_BUCKET)
-        instruction = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=DEFAULT_GCS_KEY)
-        rec_hb = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=RECOMMENDATION_HEARTBEAT_GCS_KEY)
-        ml_st = pull_instruction_from_gcs_direct(bucket_name=bucket, blob_key=ML_PIPELINE_STATUS_GCS_KEY)
-        return enrich_instruction_with_delivery_health(
-            instruction,
-            rec_heartbeat=rec_hb,
-            ml_status=ml_st,
-        )
+        return _load_gcs_enriched_instruction()
 
     default_local = Path(__file__).resolve().parents[4] / "Temp" / "auto_heal_instruction.json"
     if default_local.exists():
@@ -757,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--instruction-file", type=str, help="Path to local auto_heal_instruction.json")
     parser.add_argument("--dry-run", action="store_true", help="Preview issue sync without mutating GitHub")
     parser.add_argument("--list-actionable", action="store_true", help="Output JSON of actionable auto-heal issues")
+    parser.add_argument("--no-sync", action="store_true", help="Skip best-effort GCS sync before --list-actionable")
     parser.add_argument("--record-attempt", type=int, metavar="ISSUE_NUM", help="Increment attempt counter on issue")
     parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS, help="Max auto-heal attempts")
     parser.add_argument("--escalate", type=int, metavar="ISSUE_NUM", help="Escalate issue to auto-heal:needs-human")
@@ -767,6 +795,8 @@ def main(argv: list[str] | None = None) -> int:
     gh = SubprocessGhClient()
 
     if args.list_actionable:
+        if not args.no_sync:
+            _sync_from_gcs_best_effort(gh)
         print(json.dumps(list_actionable_issues(gh), ensure_ascii=False))
         return 0
     if args.record_attempt:

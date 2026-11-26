@@ -742,3 +742,80 @@ def test_post_recommendation_auto_heal_trigger_in_run_ml_pipeline():
         assert "Step 4/5: Slack Notification (Hot Property Recommendation)" in executed_descriptions
         assert "Post-Recommendation Anomaly Inspection & Instruction Generation" in executed_descriptions
         assert "Post-Recommendation Auto-Heal Issue Deduplicated Sync" in executed_descriptions
+
+
+def test_enrich_delivery_health_detects_partial_delivery_failure_and_ml_crash_or_timeout():
+    """Verify Issue #1868: partial delivery failures, silent ML failures, and ML timeouts are injected."""
+    from datetime import datetime, timedelta, timezone
+    from scripts.ops.sync_auto_heal_issues import enrich_instruction_with_delivery_health
+
+    jst = timezone(timedelta(hours=9))
+    now_jst = datetime(2026, 11, 27, 7, 30, 0, tzinfo=jst)
+
+    # Case 1: Partial delivery failure (status ok but failed_count > 0) + silent ML failed (empty failed_steps)
+    merged = enrich_instruction_with_delivery_health(
+        None,
+        rec_heartbeat={
+            "completed_date_jst": "2026-11-27",
+            "status": "ok",
+            "sent_count": 10,
+            "failed_count": 2,
+        },
+        ml_status={
+            "date_jst": "2026-11-27",
+            "status": "failed",
+            "failed_steps": [],
+        },
+        now_jst=now_jst,
+    )
+    assert merged is not None
+    steps = merged["failed_pipeline_steps"]
+    assert any("一部配信失敗" in s for s in steps)
+    assert any("ml-pipeline-failed" in s for s in steps)
+
+    # Case 2: ML pipeline hung/timed out (> 190 min in running state)
+    merged_timeout = enrich_instruction_with_delivery_health(
+        None,
+        rec_heartbeat={"completed_date_jst": "2026-11-27", "status": "ok", "failed_count": 0},
+        ml_status={
+            "date_jst": "2026-11-27",
+            "status": "running",
+            "started_at_utc": "2026-11-26T18:00:00+00:00",
+        },
+        now_jst=now_jst,
+    )
+    assert merged_timeout is not None
+    assert any("ml-pipeline-timeout" in s for s in merged_timeout["failed_pipeline_steps"])
+
+
+def test_list_actionable_cli_syncs_gcs_before_listing_and_respects_no_sync(capsys):
+    """Verify Issue #1868: --list-actionable syncs GCS telemetry by default and skips when --no-sync is passed."""
+    from scripts.ops import sync_auto_heal_issues
+
+    fake_gh = FakeGhClient()
+    sample_instruction = {
+        "generated_at": "2026-11-26 22:05:43",
+        "targets": [],
+        "failed_pipeline_steps": ["Step 'Step 2/5: ML Model Re-Training [kodate]' failed with exit code -9"],
+    }
+
+    with (
+        patch.object(sync_auto_heal_issues, "SubprocessGhClient", return_value=fake_gh),
+        patch.object(sync_auto_heal_issues, "_load_gcs_enriched_instruction", return_value=sample_instruction) as mock_load,
+    ):
+        rc = sync_auto_heal_issues.main(["--list-actionable"])
+        assert rc == 0
+        mock_load.assert_called_once()
+        out = json.loads(capsys.readouterr().out)
+        assert out["count"] == 1
+        assert out["issues"][0]["key"].startswith("pipeline:")
+
+    with (
+        patch.object(sync_auto_heal_issues, "SubprocessGhClient", return_value=fake_gh),
+        patch.object(sync_auto_heal_issues, "_load_gcs_enriched_instruction", return_value=sample_instruction) as mock_load_skip,
+    ):
+        rc2 = sync_auto_heal_issues.main(["--list-actionable", "--no-sync"])
+        assert rc2 == 0
+        mock_load_skip.assert_not_called()
+        out2 = json.loads(capsys.readouterr().out)
+        assert out2["count"] == 1

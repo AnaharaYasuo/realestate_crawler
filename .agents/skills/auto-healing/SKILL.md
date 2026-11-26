@@ -34,7 +34,9 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 - **【完了定義】**: 各 Issue の修復は、単体修正・PR作成時点や `master` マージ時点ではなく、**「`production` ブランチへのリリースPRマージ完了および本番デプロイ（`Deploy Production`）の成功確認」をもって初めて完了とする。**
 
 1. **対象 Issue の高速判定と全件バッチグループ化**:
-   - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、未解決 Issue 一覧（`issues`）を取得する。`count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
+   - `python src/crawler/scripts/ops/sync_auto_heal_issues.py --list-actionable` を実行し、未解決 Issue 一覧（`issues`）を取得する。
+   - **【GCS 最新テレメトリ自動同期（cron 遅延対策）】**: `--list-actionable` はデフォルトで実行前に GCS（`auto_heal/latest_instruction.json`, `monitoring/recommendation_last_success.json`, `monitoring/ml_pipeline_last_status.json`）から最新テレメトリを同期して GitHub Issue へ反映する（同期のみ抑止したい場合は `--no-sync`）。これにより GitHub Actions のスケジュール cron 遅延があっても、当日の割安物件通知未配信・一部配信失敗・MLパイプライン異常（OOM / タイムアウト / 失敗）を確実に取りこぼさずオートヒール対象とする。
+   - `count == 0` の場合は追加調査を行わず即座に完了報告して終了する（トークン消費最小化）。
    - `count > 0` の場合、リストされた未着手の全 Issue をまとめて 1 つの修復ブランチで一括処理する。
 2. **調査・事実確認先行原則 ＆ 試行回数記録（サーキットブレーカー誤作動の完全防止）**:
    - **【着手前インクリメントの絶対禁止】**: コード変更やエラー再現確認を行う前の段階で、機械的に `sync_auto_heal_issues.py --record-attempt <N>` を実行してはならない。未調査のまま試行回数のみを消費し、上限（2回）超過によって誤った `auto-heal:needs-human` エスカレーションを引き起こすことを完全に防ぐ。

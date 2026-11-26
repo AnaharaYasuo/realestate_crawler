@@ -181,3 +181,7 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 
 ## ブランチ作成時の Issue 番号強制 PreToolUse フックガード (Issue #1765)
 - `.agents/scripts/hook_guard.py` により、ブランチ作成コマンド（`git checkout -b <branch>`、`git switch -c <branch>`、`git worktree add ... -b <branch>`、`git branch <branch>`、`git branch -m <old> <new>`）で GitHub Issue 番号（数字トークン）を含まないブランチを作成・リネームしようとした時点で即座に `deny` し、Issue 未紐付けブランチの発生を入口で機械的に防止する。
+
+## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868)
+- `sync_auto_heal_issues.py --list-actionable` はデフォルトで実行前に GCS（`auto_heal/latest_instruction.json`, `monitoring/recommendation_last_success.json`, `monitoring/ml_pipeline_last_status.json`）から最新テレメトリをベストエフォート同期する（`--no-sync` で抑止可能）。
+- `enrich_instruction_with_delivery_health` により、割安物件通知の未配信・一部配信失敗（`failed_count > 0`）、MLパイプラインの `failed_steps` 記録済み失敗・無言失敗（`status == "failed"`）・190分超過タイムアウト（`status == "running"`）をすべてオートヒール Issue 対象として自動検知する。
