@@ -1267,18 +1267,20 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         if not selector:
             return []
         items = []
+        seen = set()
         for link in response.select(selector):
             href = link.get('href')
             if href:
                 full_url = self.BASE_URL + href if href.startswith('/') else href
-                if not self._is_non_property_href(full_url):
+                if full_url not in seen and not self._is_non_property_href(full_url):
+                    seen.add(full_url)
                     price = self._extract_card_price(link)
                     items.append(ListItem(url=full_url, price=price))
         return items
 
     async def parsePropertyListPage(self, response):
         items = self._extract_nextjs_urls(response)
-        if items is not None:
+        if items:
             for item in items:
                 yield item
             return

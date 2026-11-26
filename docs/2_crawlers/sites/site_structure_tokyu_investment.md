@@ -19,7 +19,9 @@
 - **土地:** `/fudosan-toushi/tochi-bukken-all/`
 
 ### 2. 詳細ページ
-- **URLパターン:** `https://www.livable.co.jp/biz/pro/listing/[PROPERTY_ID]/`
+- **URLパターン:** `https://www.livable.co.jp/fudosan-toushi/C[PROPERTY_ID]/`（または `https://www.livable.co.jp/biz/pro/listing/[PROPERTY_ID]/`）
+- **一覧ページ物件リンク抽出規約:**
+  - `__NEXT_DATA__` からの物件リスト抽出を優先し、0件または取得不能時は CSS セレクタ（`h3[class*='PropertyPanel_propertyName'] a, a[href*='/fudosan-toushi/C']`）へフォールバックして重複排除した詳細URLを抽出する（Next.js CSS Modules クラス名ハッシュ変更耐性）。
 
 ## セレクタ (詳細ページ)
 `TokyuInvestment` モデルに対応する全フィールドの抽出定義。
