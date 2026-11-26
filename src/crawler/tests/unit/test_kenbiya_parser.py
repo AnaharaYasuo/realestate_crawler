@@ -764,6 +764,39 @@ def test_ensure_proxysql_tunnel_ready_starts_vm_and_tunnel(monkeypatch):
     popen_mock.assert_called_once()
 
 
+def test_stale_tokyo_fallback_detection_and_cooldown_default():
+    """WAF Cookie失効時の東京都1ページ目フォールバック検知と定期クールダウン10分デフォルトを検証"""
+    from package.api import kenbiya as kenbiya_api
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+
+    assert kenbiya_api.COOLDOWN_REST_SECONDS == 600.0
+
+    stale_html = (
+        '<html><body><h1>東京都の投資用マンション一覧</h1>'
+        '<a rel="next" href="/pp1/s/tokyo/n-2/">次へ</a></body></html>'
+    ).encode("utf-8")
+    valid_kanagawa_html = (
+        '<html><body><h1>神奈川県の投資用マンション一覧</h1>'
+        '<a rel="next" href="/pp1/s/kanagawa/n-2/">次へ</a></body></html>'
+    ).encode("utf-8")
+    valid_tokyo_p53_html = (
+        '<html><body><h1>東京都の投資用マンション一覧</h1>'
+        '<a rel="next" href="/pp1/s/tokyo/n-54/">次へ</a></body></html>'
+    ).encode("utf-8")
+
+    # 正常系: 東京1ページ目、神奈川正常、東京53ページ目正常、詳細ページ
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/tokyo/", stale_html) is False
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/kanagawa/", valid_kanagawa_html) is False
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/tokyo/n-53/", valid_tokyo_p53_html) is False
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/kanagawa/yokohama-shi/re_123/", stale_html) is False
+
+    # 異常系: 神奈川/埼玉/愛知や2ページ目以降で東京1ページ目が返された場合
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/kanagawa/", stale_html) is True
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/t/aichi/", stale_html) is True
+    assert KenbiyaParserBase._is_stale_tokyo_fallback("https://www.kenbiya.com/pp1/s/tokyo/n-53/", stale_html) is True
+
+
+
 
 
 
