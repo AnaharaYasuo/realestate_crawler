@@ -819,3 +819,33 @@ def test_list_actionable_cli_syncs_gcs_before_listing_and_respects_no_sync(capsy
         mock_load_skip.assert_not_called()
         out2 = json.loads(capsys.readouterr().out)
         assert out2["count"] == 1
+
+
+def test_enrich_delivery_health_skips_false_positive_before_0700_jst_when_yesterday_succeeded():
+    """Verify Issue #1884: before 07:00 JST delivery window, yesterday's ok heartbeat does not trigger false alert."""
+    from datetime import datetime, timedelta, timezone
+    from scripts.ops.sync_auto_heal_issues import enrich_instruction_with_delivery_health
+
+    jst = timezone(timedelta(hours=9))
+    early_morning_jst = datetime(2026, 11, 28, 3, 30, 0, tzinfo=jst)
+    base = {"generated_at": "2026-11-26 22:05:43", "targets": [], "failed_pipeline_steps": []}
+
+    # Yesterday succeeded -> no false alert before 07:00 JST
+    res_ok = enrich_instruction_with_delivery_health(
+        base,
+        rec_heartbeat={"completed_date_jst": "2026-11-27", "status": "ok", "failed_count": 0},
+        ml_status={"date_jst": "2026-11-27", "status": "succeeded", "failed_steps": []},
+        now_jst=early_morning_jst,
+    )
+    assert res_ok is not None
+    assert not res_ok.get("failed_pipeline_steps")
+
+    # Yesterday ALSO missed (2 days stale) -> still alerts even before 07:00 JST
+    res_stale = enrich_instruction_with_delivery_health(
+        base,
+        rec_heartbeat={"completed_date_jst": "2026-11-26", "status": "ok", "failed_count": 0},
+        ml_status={"date_jst": "2026-11-26", "status": "succeeded", "failed_steps": []},
+        now_jst=early_morning_jst,
+    )
+    assert res_stale is not None
+    assert any("bargain-recommendation-not-delivered" in s for s in res_stale.get("failed_pipeline_steps", []))

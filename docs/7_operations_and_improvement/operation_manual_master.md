@@ -182,9 +182,10 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 ## ブランチ作成時の Issue 番号強制 PreToolUse フックガード (Issue #1765)
 - `.agents/scripts/hook_guard.py` により、ブランチ作成コマンド（`git checkout -b <branch>`、`git switch -c <branch>`、`git worktree add ... -b <branch>`、`git branch <branch>`、`git branch -m <old> <new>`）で GitHub Issue 番号（数字トークン）を含まないブランチを作成・リネームしようとした時点で即座に `deny` し、Issue 未紐付けブランチの発生を入口で機械的に防止する。
 
-## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868)
+## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868, #1884)
 - `sync_auto_heal_issues.py --list-actionable` はデフォルトで実行前に GCS（`auto_heal/latest_instruction.json`, `monitoring/recommendation_last_success.json`, `monitoring/ml_pipeline_last_status.json`）から最新テレメトリをベストエフォート同期する（`--no-sync` で抑止可能）。
 - `enrich_instruction_with_delivery_health` により、割安物件通知の未配信・一部配信失敗（`failed_count > 0`）、MLパイプラインの `failed_steps` 記録済み失敗・無言失敗（`status == "failed"`）・190分超過タイムアウト（`status == "running"`）をすべてオートヒール Issue 対象として自動検知する。
+- 日次 ML パイプライン＆割安物件通知ウィンドウ完了前の早朝時間帯（00:00〜06:59 JST、`BARGAIN_DELIVERY_CHECK_HOUR_JST = 7` 未満）においては、前日（`yesterday_jst`）の正常配信（`status == "ok"`）が確認できる場合に限り当日分の未配信アラート起票を抑止し、スケジュール前の誤検知を防止する。
 
 ## MLパイプライン 2GiB RAM 制約下の OOM 根本解消 (Issue #1871, #1872)
 - インスタンスメモリ（`ml_pipeline_memory = "2Gi"`）をスケールアップせず、プロセス内ピーク RAM を根本削減する。
