@@ -2005,6 +2005,20 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 return None
             raise
 
+    async def _crawl_start_urls(self, session: aiohttp.ClientSession, primary_url: Any, all_results: list[Any]) -> None:
+        extra_urls = getattr(self, "_extra_start_urls", ()) or ()
+        start_urls = list(primary_url) if isinstance(primary_url, (list, tuple)) else [primary_url]
+        start_urls.extend(extra_urls)
+        for start_url in start_urls:
+            await self._crawl_pages(session, start_url, all_results)
+        if self._defer_detail_dispatch_until_list_complete():
+            label = start_urls[0] if len(start_urls) == 1 else f"{len(start_urls)} areas ({start_urls[0]} ...)"
+            await self._flush_deferred_detail_items(label, all_results)
+
+    def main(self, _url, extra_urls=()):
+        self._extra_start_urls = tuple(extra_urls) if extra_urls else ()
+        return super().main(_url)
+
     async def _crawl_pages(self, session: aiohttp.ClientSession, start_url: str, all_results: list[Any]):
         current_url = start_url
         visited_urls: set[str] = set()
@@ -2058,9 +2072,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             ) as session:
                 self._shared_session = session
                 try:
-                    await self._crawl_pages(session, _url, all_results)
-                    if self._defer_detail_dispatch_until_list_complete():
-                        await self._flush_deferred_detail_items(_url, all_results)
+                    await self._crawl_start_urls(session, _url, all_results)
                     if self._detail_queue is not None:
                         await self._detail_queue.join()
                         for _ in workers:
