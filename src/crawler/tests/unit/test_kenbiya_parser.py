@@ -872,6 +872,43 @@ async def test_kenbiya_two_phase_list_first_crawl_defers_detail_dispatch():
     assert all_results == ["u1", "u2", "u3"]
 
 
+@pytest.mark.asyncio
+async def test_kenbiya_multi_area_crawls_all_four_prefectures_before_detail_dispatch():
+    """4都県まとめて渡した場合に全4都県の一覧巡回完了後に詳細投入が実行されることを検証"""
+    from package.api.kenbiya import ParseKenbiyaMansionStartAsync
+
+    proc = ParseKenbiyaMansionStartAsync()
+    events = []
+
+    async def fake_crawl_pages(session, start_url, all_results):
+        events.append(("list", start_url))
+        await proc._flush_middle_page_chunk([f"{start_url}re_1/"], all_results)
+
+    async def fake_call_api(chunk):
+        events.append(("detail", list(chunk)))
+        return list(chunk)
+
+    proc._crawl_pages = fake_crawl_pages
+    proc._callApi = fake_call_api
+
+    areas = (
+        "https://www.kenbiya.com/pp1/s/tokyo/",
+        "https://www.kenbiya.com/pp1/s/kanagawa/",
+        "https://www.kenbiya.com/pp1/s/saitama/",
+        "https://www.kenbiya.com/pp1/t/aichi/",
+    )
+    res = await proc._run(areas)
+    assert events == [
+        ("list", areas[0]),
+        ("list", areas[1]),
+        ("list", areas[2]),
+        ("list", areas[3]),
+        ("detail", [f"{a}re_1/" for a in areas]),
+    ]
+    assert res == [f"{a}re_1/" for a in areas]
+
+
+
 
 
 

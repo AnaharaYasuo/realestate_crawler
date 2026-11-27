@@ -2058,9 +2058,14 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             ) as session:
                 self._shared_session = session
                 try:
-                    await self._crawl_pages(session, _url, all_results)
+                    start_urls = (
+                        list(_url) if isinstance(_url, (list, tuple)) else [_url]
+                    )
+                    for start_url in start_urls:
+                        await self._crawl_pages(session, start_url, all_results)
                     if self._defer_detail_dispatch_until_list_complete():
-                        await self._flush_deferred_detail_items(_url, all_results)
+                        label = start_urls[0] if len(start_urls) == 1 else f"{len(start_urls)} areas ({start_urls[0]} ...)"
+                        await self._flush_deferred_detail_items(label, all_results)
                     if self._detail_queue is not None:
                         await self._detail_queue.join()
                         for _ in workers:
