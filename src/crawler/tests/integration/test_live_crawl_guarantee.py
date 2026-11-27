@@ -122,7 +122,10 @@ def test_live_crawl_guarantee_for_job(job):
         "misawa_kodate",
         "misawa_tochi",
         "misawa_invest_apartment",
-        "misawa_invest_kodate",
+        "misawa_invest_kodate",
+        "heim_mansion",
+        "heim_kodate",
+        "heim_tochi",
     ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(

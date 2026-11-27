@@ -35,7 +35,7 @@ from package.utils.newrelic_helper import _read_cpu_metrics, _read_host_memory_f
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TRAINING_ITEMS = 50000
+DEFAULT_MAX_TRAINING_ITEMS = 25000
 
 
 def _downcast_chunk_columns(df: pd.DataFrame) -> pd.DataFrame:
