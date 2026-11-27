@@ -678,18 +678,19 @@ def enrich_instruction_with_delivery_health(
     current_jst = now_jst or datetime.now(jst_tz)
     current_utc = current_jst.astimezone(UTC)
     today_jst = current_jst.date().isoformat()
+    yesterday_jst = (current_jst.date() - timedelta(days=1)).isoformat()
 
     if _is_ml_pipeline_actively_running(ml_status, current_utc):
         return instruction
 
-    delivered_today = (
-        isinstance(rec_heartbeat, dict)
-        and rec_heartbeat.get("completed_date_jst") == today_jst
-        and rec_heartbeat.get("status") == "ok"
-    )
+    rec_completed_date = rec_heartbeat.get("completed_date_jst") if isinstance(rec_heartbeat, dict) else None
+    rec_ok = isinstance(rec_heartbeat, dict) and rec_heartbeat.get("status") == "ok"
+    delivered_today = rec_ok and rec_completed_date == today_jst
+    before_delivery_window = current_jst.hour < 7
+    delivered_as_expected = delivered_today or (before_delivery_window and rec_ok and rec_completed_date == yesterday_jst)
 
     injected_steps: list[str] = []
-    if not delivered_today:
+    if not delivered_as_expected:
         last_ok = (
             rec_heartbeat.get("completed_date_jst")
             if isinstance(rec_heartbeat, dict)
