@@ -322,12 +322,15 @@ class PropertyTypeDetector:
             return "tochi"
 
         # 建物キーワードを先に判定（「一棟アパート 土地・建物」や単独「土地」混在時の建物優先）
-        if cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS):
+        apt_hit = cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS)
+        if apt_hit and apt_hit != "一棟":
             return "apartment"
-        # 建物名「テラスハウス〇〇」が「中古マンション」等と共起するケースでは明示的マンション複合語を優先
+        # 建物名「テラスハウス〇〇」「〇〇一棟」等が「中古マンション」等と共起するケースでは明示的マンション複合語を優先
         if any(mk in text for mk in ("区分マンション", "中古マンション", "新築マンション", "区分所有")):
             if not any(kk in text for kk in ("一戸建", "戸建")):
                 return "mansion"
+        if apt_hit:
+            return "apartment"
         if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
             return "kodate"
         if cls._is_isolated_tochi(text) or cls._first_keyword_hit(text, cls.TOCHI_KEYWORDS):
