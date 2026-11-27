@@ -73,3 +73,16 @@ def test_bulk_evaluation_groups_by_property_type_and_clears_models_between_group
 
     # mansion group and kodate group -> clear_models called twice
     assert mock_reg.clear_models.call_count == 2
+
+
+def test_heim_parser_skips_undecided_price_cleanly():
+    """Verify HeimParser raises SkipPropertyException for undecided price (販売価格: 未定)."""
+    import pytest
+    from bs4 import BeautifulSoup
+    from package.parser.baseParser import SkipPropertyException
+    from package.parser.heimParser import HeimTochiParser
+
+    parser = HeimTochiParser()
+    soup = BeautifulSoup("<table><tr><td>販売価格</td><td>未定</td></tr></table>", "html.parser")
+    with pytest.raises(SkipPropertyException):
+        parser._parsePrice(soup, specs={"販売価格": "未定"})

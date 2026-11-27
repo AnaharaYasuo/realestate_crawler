@@ -346,6 +346,8 @@ class HeimParser(ParserBase):
             p_val = converter.parse_price(price_str)
             if p_val is not None and p_val > 0:
                 return p_val
+            if any(k in price_str for k in ("未定", "相談", "非公開", "お問合", "お問い合")):
+                raise SkipPropertyException(f"Heim price undecided/unavailable: {price_str!r}")
         return 0
 
     def _heim_address_from_heading(self, response: BeautifulSoup) -> str:
