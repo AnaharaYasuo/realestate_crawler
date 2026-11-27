@@ -108,7 +108,7 @@ class TestPhase6MlValuationUpgrade:
     def test_chunked_compact_dataframe_memory_and_shape(self):
         """Issue #1517: チャンク化ストリーミングデータローダーによるメモリ圧縮の検証"""
         from package.ml.training.pipeline import _build_compact_dataframe, DEFAULT_MAX_TRAINING_ITEMS
-        assert DEFAULT_MAX_TRAINING_ITEMS == 50000
+        assert DEFAULT_MAX_TRAINING_ITEMS == 25000
 
         chunks = [
             [{'price': 3000.0, 'area': 70.0, 'prefecture': '東京都', 'city': '港区'} for _ in range(100)],
