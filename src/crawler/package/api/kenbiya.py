@@ -279,11 +279,18 @@ class _KenbiyaDetailBase(ParseDetailPageAsyncBase):
     def _get_cooldown_hooks(self): return (_kenbiya_on_pause, _kenbiya_on_resume)
 
 
+class _KenbiyaStartBase(ParseMiddlePageAsyncBase):
+    """健美家一覧巡回基底クラス: 2フェーズ（一覧全件巡回→詳細取得）で詳細ワーカーとのレート競合を排除する。"""
+
+    def _defer_detail_dispatch_until_list_complete(self) -> bool:
+        return True
+
+
 # Mansion (/pp1/)
 class ParseKenbiyaMansionDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaMansionParser()
 
-class ParseKenbiyaMansionStartAsync(ParseMiddlePageAsyncBase):
+class ParseKenbiyaMansionStartAsync(_KenbiyaStartBase):
     def _generateParser(self): return KenbiyaMansionParser()
     def _getParserFunc(self): return self.parser.parseRootPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
@@ -298,7 +305,7 @@ class ParseKenbiyaMansionStartAsync(ParseMiddlePageAsyncBase):
 class ParseKenbiyaKodateDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaKodateParser()
 
-class ParseKenbiyaKodateStartAsync(ParseMiddlePageAsyncBase):
+class ParseKenbiyaKodateStartAsync(_KenbiyaStartBase):
     def _generateParser(self): return KenbiyaKodateParser()
     def _getParserFunc(self): return self.parser.parseRootPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
@@ -313,7 +320,7 @@ class ParseKenbiyaKodateStartAsync(ParseMiddlePageAsyncBase):
 class ParseKenbiyaTochiDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaTochiParser()
 
-class ParseKenbiyaTochiStartAsync(ParseMiddlePageAsyncBase):
+class ParseKenbiyaTochiStartAsync(_KenbiyaStartBase):
     def _generateParser(self): return KenbiyaTochiParser()
     def _getParserFunc(self): return self.parser.parseRootPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
@@ -328,7 +335,7 @@ class ParseKenbiyaTochiStartAsync(ParseMiddlePageAsyncBase):
 class ParseKenbiyaInvestApartmentDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaInvestmentApartmentParser()
 
-class ParseKenbiyaInvestApartmentStartAsync(ParseMiddlePageAsyncBase):
+class ParseKenbiyaInvestApartmentStartAsync(_KenbiyaStartBase):
     def _generateParser(self): return KenbiyaInvestmentApartmentParser()
     def _getParserFunc(self): return self.parser.parseRootPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
@@ -343,7 +350,7 @@ class ParseKenbiyaInvestApartmentStartAsync(ParseMiddlePageAsyncBase):
 class ParseKenbiyaInvestBuildingDetailFuncAsync(_KenbiyaDetailBase):
     def _generateParser(self): return KenbiyaInvestmentBuildingParser()
 
-class ParseKenbiyaInvestBuildingStartAsync(ParseMiddlePageAsyncBase):
+class ParseKenbiyaInvestBuildingStartAsync(_KenbiyaStartBase):
     def _generateParser(self): return KenbiyaInvestmentBuildingParser()
     def _getParserFunc(self): return self.parser.parseRootPage
     def _getNextPageParserFunc(self): return self.parser.parseNextPage
