@@ -185,3 +185,8 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 ## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868)
 - `sync_auto_heal_issues.py --list-actionable` はデフォルトで実行前に GCS（`auto_heal/latest_instruction.json`, `monitoring/recommendation_last_success.json`, `monitoring/ml_pipeline_last_status.json`）から最新テレメトリをベストエフォート同期する（`--no-sync` で抑止可能）。
 - `enrich_instruction_with_delivery_health` により、割安物件通知の未配信・一部配信失敗（`failed_count > 0`）、MLパイプラインの `failed_steps` 記録済み失敗・無言失敗（`status == "failed"`）・190分超過タイムアウト（`status == "running"`）をすべてオートヒール Issue 対象として自動検知する。
+
+## MLパイプライン 2GiB RAM 制約下の OOM 根本解消 (Issue #1871, #1872)
+- インスタンスメモリ（`ml_pipeline_memory = "2Gi"`）をスケールアップせず、プロセス内ピーク RAM を根本削減する。
+- **Step 2/5 再学習**: `DEFAULT_MAX_TRAINING_ITEMS` を 25,000 件へ適正化し、`RandomForestRegressor` のデフォルトグリッドを `n_estimators=60, max_depth=12, min_samples_leaf=8` へ軽量化するとともに、CV 各 Fold 終了時にモデルと分割データを即時解放する。
+- **Step 3/5 バルク評価**: 一次推論（`bulk_predict_first_stage*`）で不要な二次モデル（`second_stage`）をロードしないようにし、`run_bulk_evaluation` で物件種別ごとにモデルを実行・種別切替時にモデルキャッシュを明示解放することで、常駐モデル数を「1種別・1ステージ」に限定する。

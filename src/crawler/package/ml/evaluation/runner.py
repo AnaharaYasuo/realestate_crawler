@@ -23,7 +23,10 @@ from package.ml.evaluation.targets import (
     get_all_property_models,
     iter_unprocessed_chunks,
 )
-from package.ml.predict import bulk_predict_first_stage, bulk_predict_first_stage_with_p10
+from package.ml.predict import (
+    bulk_predict_first_stage,
+    bulk_predict_first_stage_with_p10,
+)
 from package.models.evaluation import PropertyEvaluation
 from package.utils.batch_metrics import BatchMetrics
 from package.utils.deduplication import clear_real_property_cache
@@ -262,30 +265,40 @@ def run_bulk_evaluation(
     failed_models: list[str] = []
     slack_progress_active = True
 
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        future_to_model = {
-            executor.submit(
-                single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check, chunk_size
-            ): m
-            for m in models
-        }
-        for future in as_completed(future_to_model):
-            m = future_to_model[future]
-            try:
-                cnt, skp, p_cnt, d_cnt = future.result()
-                evaluated_count += cnt
-                skipped_count += skp
-                passed_total += p_cnt
-                duplicate_total += d_cnt
-                metrics.record_processed(cnt)
-                metrics.record_skipped(skp)
-                slack_progress_active = _try_notify_progress(
-                    m.__name__, cnt, skp, evaluated_count, slack_progress_active
-                )
-            except Exception:
-                failed_models.append(m.__name__)
-                metrics.record_failed(1)
-                logger.exception("Failed evaluating %s", m.__name__)
+    # 2GiB RAM 制約下の OOM 防止のため、物件種別ごとにグループ化して処理し、種別切替時にモデルキャッシュを解放 (Issue #1872)
+    from package.ml.inference.model_registry import get_default_registry
+
+    models_by_ptype: dict[str, list[Any]] = {}
+    for m in models:
+        _, ptype = resolve_company_and_type(m.__name__)
+        models_by_ptype.setdefault(ptype, []).append(m)
+
+    for ptype_models in models_by_ptype.values():
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            future_to_model = {
+                executor.submit(
+                    single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check, chunk_size
+                ): m
+                for m in ptype_models
+            }
+            for future in as_completed(future_to_model):
+                m = future_to_model[future]
+                try:
+                    cnt, skp, p_cnt, d_cnt = future.result()
+                    evaluated_count += cnt
+                    skipped_count += skp
+                    passed_total += p_cnt
+                    duplicate_total += d_cnt
+                    metrics.record_processed(cnt)
+                    metrics.record_skipped(skp)
+                    slack_progress_active = _try_notify_progress(
+                        m.__name__, cnt, skp, evaluated_count, slack_progress_active
+                    )
+                except Exception:
+                    failed_models.append(m.__name__)
+                    metrics.record_failed(1)
+                    logger.exception("Failed evaluating %s", m.__name__)
+        get_default_registry().clear_models()
 
     metrics.total_count = evaluated_count + skipped_count
     metrics.finish()
