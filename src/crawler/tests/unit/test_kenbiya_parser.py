@@ -838,6 +838,41 @@ def test_fire_and_forget_wait_timeout_default_is_12_hours(monkeypatch):
     assert api_mod._get_fire_and_forget_wait_timeout() == 43200.0
 
 
+@pytest.mark.asyncio
+async def test_kenbiya_two_phase_list_first_crawl_defers_detail_dispatch():
+    """2フェーズ一覧優先モードで全一覧ページの巡回完了後に詳細投入が実行されることを検証"""
+    from package.api.kenbiya import ParseKenbiyaMansionStartAsync
+
+    proc = ParseKenbiyaMansionStartAsync()
+    assert proc._defer_detail_dispatch_until_list_complete() is True
+
+    events = []
+
+    async def fake_call_api(chunk):
+        events.append(("detail_dispatch", list(chunk)))
+        return list(chunk)
+
+    proc._callApi = fake_call_api
+
+    all_results = []
+    # Phase 1: 一覧ページ2ページ分のチャンクをフラッシュしても詳細投入されないこと
+    events.append(("list_page", 1))
+    await proc._flush_middle_page_chunk(["u1", "u2"], all_results)
+    events.append(("list_page", 2))
+    await proc._flush_middle_page_chunk(["u3"], all_results)
+    assert all_results == []
+
+    # Phase 2: 一覧巡回完了後のフラッシュで初めて詳細投入されること
+    await proc._flush_deferred_detail_items("https://www.kenbiya.com/pp1/s/tokyo/", all_results)
+    assert events == [
+        ("list_page", 1),
+        ("list_page", 2),
+        ("detail_dispatch", ["u1", "u2", "u3"]),
+    ]
+    assert all_results == ["u1", "u2", "u3"]
+
+
+
 
 
 

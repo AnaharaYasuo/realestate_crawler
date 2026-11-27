@@ -57,3 +57,4 @@
 - **HTTP 200 東京都1ページ目フォールバック検知 (`_is_stale_tokyo_fallback`)**: WAF Cookie 失効や IP シャドウバン時に健美家側が HTTP 200 のまま「東京都1ページ目（`li.next a` / `a[rel="next"]` が `/ppX/s/tokyo/n-2/` または `<h1>` が `東京都の`）」を返す挙動を、2ページ目以降（`/n-2/`〜）および東京以外のエリア（神奈川・埼玉・愛知）に対して検知し、1回目は Cookie 再取得リトライ、2回目以降（`attempt >= 1`）も解消しない場合は自動で `_handle_503_with_pppoe_recovery()`（PPPoE IP ローテーション）へフォールバックする。
 - **PPPoE 待機定数・ルーター操作の統一**: デフォルト待機時間を `DEFAULT_KENBIYA_PPPOE_WAIT_SECONDS = 600.0`（10分）に集約し、定期クールダウン（`COOLDOWN_REST_SECONDS`）と 503 ローテーション（`KENBIYA_PPPOE_ROTATE_WAIT_SEC`）の双方から参照する。また `disconnect_wan_pppoe()` / `reconnect_wan_pppoe()` を共通ヘルパーとして利用する。
 - **詳細取得ワーカー待機タイムアウト延長 (Issue #1865)**: PPPoE ローテーションを複数回挟む大規模クロールで途中打ち切りにならないよう、`CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT` のデフォルトを `43200.0` 秒（12時間）に設定する。
+- **2フェーズ一覧優先クロール (Issue #1873)**: `_KenbiyaStartBase` で `_defer_detail_dispatch_until_list_complete() -> True` を有効化し、各エリアの一覧ページを最後まで巡回して全URLを収集し終えてから（詳細ワーカーとのレート制限ロック競合・シャドウバン枠消費を排除してから）差分判定および詳細取得フェーズへ一括投入する。

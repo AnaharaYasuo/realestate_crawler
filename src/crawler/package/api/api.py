@@ -1856,10 +1856,21 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             )
             return ""
 
+    def _defer_detail_dispatch_until_list_complete(self) -> bool:
+        """一覧ページの全件巡回完了後に詳細ページ取得を一括投入する2フェーズモードを有効にするか。"""
+        return False
+
     async def _flush_middle_page_chunk(self, chunk_buffer: list[Any], all_results: list[Any]) -> list[Any]:
         if not chunk_buffer:
             return []
         self._touch_watchdog_progress()
+        if self._defer_detail_dispatch_until_list_complete():
+            deferred = getattr(self, "_deferred_detail_items", None)
+            if deferred is None:
+                deferred = []
+                self._deferred_detail_items = deferred
+            deferred.extend(chunk_buffer)
+            return []
         record_thread_activity("middle_page_chunk_flush", current_url=str(getattr(self, "url", "")))
         page_res = await self._callApi(chunk_buffer)
         if isinstance(page_res, list):
@@ -1869,6 +1880,30 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         del page_res
         gc.collect()
         return []
+
+    async def _flush_deferred_detail_items(self, start_url: str, all_results: list[Any]) -> None:
+        deferred = getattr(self, "_deferred_detail_items", None)
+        if not deferred:
+            return
+        total = len(deferred)
+        logger.info(
+            "[TwoPhaseCrawl] List crawl complete for %s: collected %d items; starting detail dispatch phase.",
+            start_url,
+            total,
+        )
+        self._deferred_detail_items = []
+        chunk_size = 200
+        for idx in range(0, total, chunk_size):
+            chunk = deferred[idx : idx + chunk_size]
+            self._touch_watchdog_progress()
+            record_thread_activity("middle_page_chunk_flush", current_url=str(start_url))
+            page_res = await self._callApi(chunk)
+            if isinstance(page_res, list):
+                all_results.extend(page_res)
+            elif page_res is not None:
+                all_results.append(page_res)
+            del page_res
+            gc.collect()
 
     async def _process_middle_page_stream(self, response, current_url: str, all_results: list[Any]) -> str:
         try:
@@ -2024,6 +2059,8 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 self._shared_session = session
                 try:
                     await self._crawl_pages(session, _url, all_results)
+                    if self._defer_detail_dispatch_until_list_complete():
+                        await self._flush_deferred_detail_items(_url, all_results)
                     if self._detail_queue is not None:
                         await self._detail_queue.join()
                         for _ in workers:
