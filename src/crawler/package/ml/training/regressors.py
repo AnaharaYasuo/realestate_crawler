@@ -72,7 +72,12 @@ def get_regressor(
         )
     elif name == "cat":
         base = CatBoostRegressor(
-            random_state=42, verbose=0, thread_count=ml_threads, iterations=200, **p
+            random_state=42,
+            verbose=0,
+            thread_count=ml_threads,
+            iterations=200,
+            allow_writing_files=False,
+            **p,
         )
     elif name == "rf":
         base = RandomForestRegressor(

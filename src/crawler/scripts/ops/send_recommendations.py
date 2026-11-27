@@ -1103,24 +1103,62 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str, report_data: di
         return True
     return False
 
+RECOMMENDATION_LOOKBACK_DAYS = 30
+
+
+def _execute_candidate_query_with_retry(qs_factory, label: str, max_attempts: int = 3) -> list:
+    """候補クエリ実行時の MySQL Error 2013 / 一時的切断に対して接続リセット＆リトライを行う (Issue #1887)"""
+    from django.db import InterfaceError, OperationalError
+
+    for attempt in range(max_attempts):
+        try:
+            return list(qs_factory())
+        except (OperationalError, InterfaceError) as exc:
+            logger.warning(
+                "Candidate query failed for %s (attempt %d/%d): %s",
+                label,
+                attempt + 1,
+                max_attempts,
+                exc,
+            )
+            close_old_connections()
+            connections.close_all()
+            bound_mysql_timeouts()
+            if attempt == max_attempts - 1:
+                logger.error(
+                    "Giving up candidate query for %s after %d attempts; continuing with remaining types.",
+                    label,
+                    max_attempts,
+                )
+                return []
+            time.sleep(1.5 * (attempt + 1))
+    return []
+
+
 def _fetch_recommendation_candidates(limit: int = 3000):
     """
-    全種別の候補をバランスよく取得する (Issue #1087, #1343)
+    全種別の候補をバランスよく取得する (Issue #1087, #1343, #1887)
     住居系（マンション、戸建て、土地）と投資系（区分、一棟、戸建て）のそれぞれについて
     一次スクリーニング合格済み・非重複の最新公開物件を並行してロードし、不合格・未算出レコードによる枠の圧迫を防ぐ。
     """
     from django.db.models import Q
-    base_qs = PropertyEvaluation.objects.filter(
-        is_slack_notified=False,
-        is_published=True,
-        needs_recrawl=False,
-        needs_parser_fix=False,
-        duplicate_of__isnull=True,
-    ).exclude(
-        Q(is_first_stage_passed=False)
-        | Q(first_stage_predicted_price=0)
-        | Q(heal_status__in=["detected", "heal_requested", "ready_for_recrawl", "recrawled_pending_ml", "source_data_invalid"])
-    )
+
+    lookback_cutoff = timezone.now() - datetime.timedelta(days=RECOMMENDATION_LOOKBACK_DAYS)
+
+    def _build_base_qs():
+        return PropertyEvaluation.objects.filter(
+            is_slack_notified=False,
+            is_published=True,
+            needs_recrawl=False,
+            needs_parser_fix=False,
+            duplicate_of__isnull=True,
+            analyzed_at__gte=lookback_cutoff,
+        ).exclude(
+            Q(is_first_stage_passed=False)
+            | Q(first_stage_predicted_price=0)
+            | Q(heal_status__in=["detected", "heal_requested", "ready_for_recrawl", "recrawled_pending_ml", "source_data_invalid"])
+        )
+
     all_types = [
         'mansion', 'kodate', 'tochi',
         'investmentapartment', 'investment', 'apartment',
@@ -1131,16 +1169,22 @@ def _fetch_recommendation_candidates(limit: int = 3000):
     seen_ids = set()
 
     for ptype in all_types:
-        qs_type = base_qs.filter(property_type=ptype).order_by('-analyzed_at', '-id')[:per_type_limit]
-        for rec in qs_type:
+        rows = _execute_candidate_query_with_retry(
+            lambda pt=ptype: _build_base_qs().filter(property_type=pt).order_by('-analyzed_at', '-id')[:per_type_limit],
+            label=f"property_type={ptype}",
+        )
+        for rec in rows:
             if rec.id not in seen_ids:
                 seen_ids.add(rec.id)
                 combined_candidates.append(rec)
 
     if len(combined_candidates) < limit:
         remaining_limit = limit - len(combined_candidates)
-        fallback_qs = base_qs.exclude(id__in=seen_ids).order_by('-analyzed_at', '-id')[:remaining_limit]
-        combined_candidates.extend(fallback_qs)
+        fallback_rows = _execute_candidate_query_with_retry(
+            lambda: _build_base_qs().exclude(id__in=seen_ids).order_by('-analyzed_at', '-id')[:remaining_limit],
+            label="fallback",
+        )
+        combined_candidates.extend(fallback_rows)
 
     return combined_candidates
 

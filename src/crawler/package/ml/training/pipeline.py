@@ -128,6 +128,7 @@ def train_property_type(
     allow_dummy_fallback: bool | None = None,
     all_location_encoders: dict[str, Any] | None = None,
     all_p10_conformal: dict[str, Any] | None = None,
+    on_stream_consumed: Any = None,
 ) -> dict[str, Any]:
     """単一種別のデータクレンジング、一次/二次アンサンブル学習、モデル保存を実行"""
     ptype_start = time.perf_counter()
@@ -135,6 +136,8 @@ def train_property_type(
     mem_start_mb = round(mem_start_bytes / (1024 * 1024), 1)
 
     df = _resolve_input_dataframe(features_iterator)
+    if callable(on_stream_consumed):
+        on_stream_consumed()
     initial_count = len(df)
 
     logger.info("\n=========================================")
@@ -311,7 +314,15 @@ def run_training(
         os.environ.get("ML_MAX_TRAINING_ITEMS", str(DEFAULT_MAX_TRAINING_ITEMS))
     )
 
-    for ptype in types_to_train:
+    def _release_eval_caches() -> None:
+        """最終種別のデータ読み込み完了後、学習ピーク前に不要キャッシュを解放 (Issue #1871)"""
+        if isinstance(eval_map, dict):
+            eval_map.clear()
+        if isinstance(duplicate_urls, (set, dict)):
+            duplicate_urls.clear()
+        gc.collect()
+
+    for idx, ptype in enumerate(types_to_train):
         stream = stream_training_feature_chunks(
             ptype,
             models_by_type,
@@ -320,6 +331,7 @@ def run_training(
             mkt_master,
             max_items=max_items,
         )
+        is_last_type = idx == len(types_to_train) - 1
         summary = train_property_type(
             ptype,
             stream,
@@ -330,6 +342,7 @@ def run_training(
             allow_dummy_fallback=allow_dummy_fallback,
             all_location_encoders=all_location_encoders,
             all_p10_conformal=all_p10_conformal,
+            on_stream_consumed=_release_eval_caches if is_last_type else None,
         )
         if summary.get("used_dummy"):
             any_dummy_used = True
