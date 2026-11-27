@@ -182,12 +182,13 @@ python src/crawler/scripts/ops/run_ttl_expired_recrawl.py --ensure-local-prod-in
 ## ブランチ作成時の Issue 番号強制 PreToolUse フックガード (Issue #1765)
 - `.agents/scripts/hook_guard.py` により、ブランチ作成コマンド（`git checkout -b <branch>`、`git switch -c <branch>`、`git worktree add ... -b <branch>`、`git branch <branch>`、`git branch -m <old> <new>`）で GitHub Issue 番号（数字トークン）を含まないブランチを作成・リネームしようとした時点で即座に `deny` し、Issue 未紐付けブランチの発生を入口で機械的に防止する。
 
-## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868, #1884)
+## 割安物件通知・MLパイプライン障害のオートヒール自動同期 (Issue #1868, #1884, #1887)
 - `sync_auto_heal_issues.py --list-actionable` はデフォルトで実行前に GCS（`auto_heal/latest_instruction.json`, `monitoring/recommendation_last_success.json`, `monitoring/ml_pipeline_last_status.json`）から最新テレメトリをベストエフォート同期する（`--no-sync` で抑止可能）。
 - `enrich_instruction_with_delivery_health` により、割安物件通知の未配信・一部配信失敗（`failed_count > 0`）、MLパイプラインの `failed_steps` 記録済み失敗・無言失敗（`status == "failed"`）・190分超過タイムアウト（`status == "running"`）をすべてオートヒール Issue 対象として自動検知する。
 - 日次 ML パイプライン＆割安物件通知ウィンドウ完了前の早朝時間帯（00:00〜06:59 JST、`BARGAIN_DELIVERY_CHECK_HOUR_JST = 7` 未満）においては、前日（`yesterday_jst`）の正常配信（`status == "ok"`）が確認できる場合に限り当日分の未配信アラート起票を抑止し、スケジュール前の誤検知を防止する。
+- **Step 4/5 割安通知候補クエリの Error 2013 対策 (`send_recommendations.py`)**: `_fetch_recommendation_candidates()` において `analyzed_at` を直近30日（`RECOMMENDATION_LOOKBACK_DAYS = 30`）に限定して空・疎な種別でのインデックス逆スキャンによる MySQL Error 2013（`Lost connection to server during query`）を根本防止し、`OperationalError` / `InterfaceError` 発生時は接続リセット＋タイムアウト再設定のうえ最大3回リトライする。
 
 ## MLパイプライン 2GiB RAM 制約下の OOM 根本解消 (Issue #1871, #1872)
 - インスタンスメモリ（`ml_pipeline_memory = "2Gi"`）をスケールアップせず、プロセス内ピーク RAM を根本削減する。
-- **Step 2/5 再学習**: `DEFAULT_MAX_TRAINING_ITEMS` を 25,000 件へ適正化し、`RandomForestRegressor` のデフォルトグリッドを `n_estimators=60, max_depth=12, min_samples_leaf=8` へ軽量化するとともに、CV 各 Fold 終了時にモデルと分割データを即時解放する。
+- **Step 2/5 再学習**: `DEFAULT_MAX_TRAINING_ITEMS` を 25,000 件へ適正化し、`RandomForestRegressor` のデフォルトグリッドを `n_estimators=60, max_depth=12, min_samples_leaf=8` へ軽量化、`CatBoostRegressor` に `allow_writing_files=False` を設定するとともに、最終種別（単一種別サブプロセス実行時は初回）の特徴量チャンク消費直後に `eval_map` / `duplicate_urls` キャッシュを即時解放（`clear()` + `gc.collect()`）し、CV 各 Fold 終了時にもモデルと分割データを即時解放する。
 - **Step 3/5 バルク評価**: 一次推論（`bulk_predict_first_stage*`）で不要な二次モデル（`second_stage`）をロードしないようにし、`run_bulk_evaluation` で物件種別ごとにモデルを実行・種別切替時にモデルキャッシュを明示解放することで、常駐モデル数を「1種別・1ステージ」に限定する。
