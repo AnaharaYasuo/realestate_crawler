@@ -34,7 +34,7 @@ PARAM_GRIDS: dict[str, list[dict[str, Any]]] = {
         {"learning_rate": 0.08, "depth": 6, "l2_leaf_reg": 3},
     ],
     "rf": [
-        {"n_estimators": 100, "max_depth": 15, "min_samples_leaf": 5},
+        {"n_estimators": 60, "max_depth": 12, "min_samples_leaf": 8},
     ],
 }
 

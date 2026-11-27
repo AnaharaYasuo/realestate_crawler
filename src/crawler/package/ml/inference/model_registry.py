@@ -115,6 +115,15 @@ class ModelRegistry:
             self._models[cache_key] = loaded_dict
             return self._models[cache_key]
 
+    def clear_models(self) -> None:
+        """キャッシュ済みの学習済みモデル（一次・二次・P10）を解放して2GiB RAM制約下のピークメモリを抑える (Issue #1872)"""
+        import gc
+
+        with self._lock:
+            self._models.clear()
+            self._p10_models.clear()
+        gc.collect()
+
     def market_master(self) -> dict[str, Any]:
         """取引事例比準マスタを取得"""
         with self._lock:
