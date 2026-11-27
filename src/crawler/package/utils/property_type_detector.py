@@ -45,6 +45,7 @@ class PropertyTypeDetector:
     KW_ITTO_URI_MANSION = "一棟売りマンション"
     KW_ITTO_MANSION = "一棟マンション"
     KW_ITTO_URI_BUILDING = "一棟売りビル"
+    KW_ITTO = "一棟"
     KW_MANSION = "マンション"
     KW_TERRACE_HOUSE = "テラスハウス"
 
@@ -53,14 +54,14 @@ class PropertyTypeDetector:
 
     ITTO_KEYWORDS = (
         KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
-        KW_ITTO_URI_BUILDING, "一棟ビル", "一棟売り", "一棟",
+        KW_ITTO_URI_BUILDING, "一棟ビル", "一棟売り", KW_ITTO,
     )
 
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
     APARTMENT_KEYWORDS = [
         KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
         KW_ITTO_URI_BUILDING, "一棟ビル", "収益アパート", "投資用アパート",
-        "収益物件", "一棟売り", "一棟"
+        "収益物件", "一棟売り", KW_ITTO
     ]
 
     MANSION_KEYWORDS = [
@@ -299,6 +300,12 @@ class PropertyTypeDetector:
                 return kw
         return None
 
+    @staticmethod
+    def _is_explicit_mansion_without_kodate(text: str) -> bool:
+        return any(
+            mk in text for mk in ("区分マンション", "中古マンション", "新築マンション", "区分所有")
+        ) and not any(kk in text for kk in ("一戸建", "戸建"))
+
     @classmethod
     def _match_keywords(cls, text: str) -> str | None:
         """テキストからキーワードマッチにより種別を特定。
@@ -323,12 +330,11 @@ class PropertyTypeDetector:
 
         # 建物キーワードを先に判定（「一棟アパート 土地・建物」や単独「土地」混在時の建物優先）
         apt_hit = cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS)
-        if apt_hit and apt_hit != "一棟":
+        if apt_hit and apt_hit != cls.KW_ITTO:
             return "apartment"
         # 建物名「テラスハウス〇〇」「〇〇一棟」等が「中古マンション」等と共起するケースでは明示的マンション複合語を優先
-        if any(mk in text for mk in ("区分マンション", "中古マンション", "新築マンション", "区分所有")):
-            if not any(kk in text for kk in ("一戸建", "戸建")):
-                return "mansion"
+        if cls._is_explicit_mansion_without_kodate(text):
+            return "mansion"
         if apt_hit:
             return "apartment"
         if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
