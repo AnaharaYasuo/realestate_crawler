@@ -13,13 +13,20 @@ from routes.kenbiya_routes import (
 )
 
 
+def _extract_called_urls(mock_main):
+    urls = []
+    for call in mock_main.call_args_list:
+        urls.append(call.args[0])
+        urls.extend(call.kwargs.get("extra_urls", ()))
+    return urls
+
+
 def test_kenbiya_mansion_start_crawls_four_areas():
     with patch("routes.kenbiya_routes.ParseKenbiyaMansionStartAsync") as mock_cls:
         mock_cls.return_value.main.return_value = "ok"
         res = kenbiya_mansion_start()
         assert res == "ok"
-        called_urls = [call.args[0] for call in mock_cls.return_value.main.call_args_list]
-        assert called_urls == [
+        assert _extract_called_urls(mock_cls.return_value.main) == [
             "https://www.kenbiya.com/pp1/s/tokyo/",
             "https://www.kenbiya.com/pp1/s/kanagawa/",
             "https://www.kenbiya.com/pp1/s/saitama/",
@@ -32,8 +39,7 @@ def test_kenbiya_kodate_start_crawls_four_areas():
         mock_cls.return_value.main.return_value = "ok"
         res = kenbiya_kodate_start()
         assert res == "ok"
-        called_urls = [call.args[0] for call in mock_cls.return_value.main.call_args_list]
-        assert called_urls == [
+        assert _extract_called_urls(mock_cls.return_value.main) == [
             "https://www.kenbiya.com/pp8/s/tokyo/",
             "https://www.kenbiya.com/pp8/s/kanagawa/",
             "https://www.kenbiya.com/pp8/s/saitama/",
@@ -46,8 +52,7 @@ def test_kenbiya_tochi_start_crawls_four_areas():
         mock_cls.return_value.main.return_value = "ok"
         res = kenbiya_tochi_start()
         assert res == "ok"
-        called_urls = [call.args[0] for call in mock_cls.return_value.main.call_args_list]
-        assert called_urls == [
+        assert _extract_called_urls(mock_cls.return_value.main) == [
             "https://www.kenbiya.com/pp5/s/tokyo/",
             "https://www.kenbiya.com/pp5/s/kanagawa/",
             "https://www.kenbiya.com/pp5/s/saitama/",
@@ -60,8 +65,7 @@ def test_kenbiya_invest_apartment_start_crawls_four_areas():
         mock_cls.return_value.main.return_value = "ok"
         res = kenbiya_invest_apartment_start()
         assert res == "ok"
-        called_urls = [call.args[0] for call in mock_cls.return_value.main.call_args_list]
-        assert called_urls == [
+        assert _extract_called_urls(mock_cls.return_value.main) == [
             "https://www.kenbiya.com/pp2/s/tokyo/",
             "https://www.kenbiya.com/pp2/s/kanagawa/",
             "https://www.kenbiya.com/pp2/s/saitama/",
@@ -74,8 +78,7 @@ def test_kenbiya_invest_building_start_crawls_four_areas():
         mock_cls.return_value.main.return_value = "ok"
         res = kenbiya_invest_building_start()
         assert res == "ok"
-        called_urls = [call.args[0] for call in mock_cls.return_value.main.call_args_list]
-        assert called_urls == [
+        assert _extract_called_urls(mock_cls.return_value.main) == [
             "https://www.kenbiya.com/pp3/s/tokyo/",
             "https://www.kenbiya.com/pp3/s/kanagawa/",
             "https://www.kenbiya.com/pp3/s/saitama/",
