@@ -220,6 +220,37 @@ def _enrich_records_with_evaluations(res_map: dict[str, dict[str, Any]], urls: l
             target["last_detail_fetched_at"] = ev["last_detail_fetched_at"]
 
 
+_DB_RECONNECT_KEYWORDS = (
+    "2013",
+    "2006",
+    "2003",
+    "10061",
+    "lost connection",
+    "server has gone away",
+    "can't connect",
+)
+
+
+def _recover_db_connection(connection: Any, db_err: Exception) -> bool:
+    err_msg = str(db_err).lower()
+    if not any(k in err_msg for k in _DB_RECONNECT_KEYWORDS):
+        return False
+    logger.warning(
+        f"[Differential Crawl] DB connection lost ({db_err}). Ensuring ProxySQL tunnel and retrying differential query..."
+    )
+    try:
+        connection.close()
+    except Exception:
+        pass
+    try:
+        from package.api.kenbiya import _ensure_proxysql_tunnel_ready
+
+        _ensure_proxysql_tunnel_ready()
+    except Exception as rec_err:
+        logger.warning(f"[Differential Crawl] ProxySQL auto-recovery failed: {rec_err}")
+    return True
+
+
 def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str, dict[str, Any]]:
     from django.db import models as dj_models, connection, OperationalError, DatabaseError
     from package.utils.url_matcher import UrlMatcher
@@ -244,32 +275,7 @@ def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str,
     try:
         return _execute_query()
     except (OperationalError, DatabaseError) as db_err:
-        err_msg = str(db_err).lower()
-        if any(
-            k in err_msg
-            for k in (
-                "2013",
-                "2006",
-                "2003",
-                "10061",
-                "lost connection",
-                "server has gone away",
-                "can't connect",
-            )
-        ):
-            logger.warning(
-                f"[Differential Crawl] DB connection lost ({db_err}). Ensuring ProxySQL tunnel and retrying differential query..."
-            )
-            try:
-                connection.close()
-            except Exception:
-                pass
-            try:
-                from package.api.kenbiya import _ensure_proxysql_tunnel_ready
-
-                _ensure_proxysql_tunnel_ready()
-            except Exception as rec_err:
-                logger.warning(f"[Differential Crawl] ProxySQL auto-recovery failed: {rec_err}")
+        if _recover_db_connection(connection, db_err):
             return _execute_query()
         raise
 
