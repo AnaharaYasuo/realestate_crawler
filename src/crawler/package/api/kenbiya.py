@@ -34,7 +34,7 @@ from package.parser.kenbiyaParser import (
 
 DETAIL_PARALLEL_LIMIT = int(os.getenv("KENBIYA_DETAIL_PARALLEL_LIMIT", "5"))
 MIDDLE_PARALLEL_LIMIT = 1
-COOLDOWN_WORK_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_WORK_SECONDS", "3600"))
+COOLDOWN_WORK_SECONDS = float(os.getenv("KENBIYA_COOLDOWN_WORK_SECONDS", "0"))
 COOLDOWN_REST_SECONDS = float(
     os.getenv(
         "KENBIYA_COOLDOWN_REST_SECONDS",
@@ -275,7 +275,8 @@ class _KenbiyaDetailBase(ParseDetailPageAsyncBase):
     def _getCloudPararellLimit(self): return DETAIL_PARALLEL_LIMIT
     def _getTimeOutSecond(self): return 60
     def _getApiKey(self): return ""
-    def _get_cooldown_config(self): return (COOLDOWN_WORK_SECONDS, COOLDOWN_REST_SECONDS)
+    def _get_cooldown_config(self):
+        return (COOLDOWN_WORK_SECONDS, COOLDOWN_REST_SECONDS) if COOLDOWN_WORK_SECONDS > 0 else None
     def _get_cooldown_hooks(self): return (_kenbiya_on_pause, _kenbiya_on_resume)
 
 
