@@ -48,3 +48,8 @@
 ## 予防的60分クールダウンの既定無効化と差分クエリ時のProxySQL自動復旧 (Issue #1890)
 - `src/crawler/package/api/kenbiya.py`: `KENBIYA_COOLDOWN_WORK_SECONDS` のデフォルトを `3600` から `0` に変更し、`COOLDOWN_WORK_SECONDS <= 0` の場合は `_KenbiyaDetailBase._get_cooldown_config()` が `None` を返すようにする。これにより、503 が発生していない安定稼働中に 60 分ごとに不要な 10 分停止を行わずスループットを維持する（実際の 503 検知時は `[Kenbiya503Recovery]` による自動 IP ローテーションが引き続き機能する）。
 - `src/crawler/package/api/differential.py`: `_query_existing_records_sync` で `OperationalError` / `DatabaseError`（`2013`, `2006`, `2003`, `10061`, `lost connection`, `server has gone away`, `can't connect`）を検知した際、`_ensure_proxysql_tunnel_ready()` を呼び出して `proxysql-instance-prod` VM および IAP トンネルを自動復旧してからリトライする。
+
+## Issue #1894: 一覧・詳細レート制限分離 ＆ 2フェーズ遅延ディスパッチ既定無効化
+- 2026-11-28 本番稼働ログ分析により、健美家 WAF の 503 制限は一覧ページ（約 10 分ごとに発火）に集中しており、詳細ページ（`/re_`）は 4.5 時間以上連続アクセスしても 503 ゼロであることが確認された。
+- `src/crawler/package/parser/kenbiyaParser.py`: `_resolve_min_interval(url)` を導入し、一覧ページには `KENBIYA_LIST_MIN_INTERVAL`（既定 `6.0` 秒）、詳細ページ（`/re_` を含む URL）には `KENBIYA_DETAIL_MIN_INTERVAL`（既定 `0.8` 秒・控えめな緩和）を適用する。いずれも未設定かつ `KENBIYA_MIN_INTERVAL` が明示設定されている場合は `KENBIYA_MIN_INTERVAL` へフォールバックする。
+- `src/crawler/package/api/kenbiya.py`: `_KenbiyaStartBase._defer_detail_dispatch_until_list_complete()` は環境変数 `KENBIYA_DEFER_DETAIL_DISPATCH`（既定 `false`）で制御し、デフォルトで一覧巡回と詳細取得を並行パイプライン実行する。

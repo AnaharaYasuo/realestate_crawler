@@ -281,10 +281,10 @@ class _KenbiyaDetailBase(ParseDetailPageAsyncBase):
 
 
 class _KenbiyaStartBase(ParseMiddlePageAsyncBase):
-    """健美家一覧巡回基底クラス: 2フェーズ（一覧全件巡回→詳細取得）で詳細ワーカーとのレート競合を排除する。"""
+    """健美家一覧巡回基底クラス: 既定で一覧巡回と詳細取得を並行パイプライン実行する（KENBIYA_DEFER_DETAIL_DISPATCH=true で2フェーズ化可）。"""
 
     def _defer_detail_dispatch_until_list_complete(self) -> bool:
-        return True
+        return os.getenv("KENBIYA_DEFER_DETAIL_DISPATCH", "false").lower() in ("true", "1", "yes")
 
 
 # Mansion (/pp1/)

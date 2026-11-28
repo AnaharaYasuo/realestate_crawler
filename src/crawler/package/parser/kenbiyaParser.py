@@ -544,11 +544,23 @@ class KenbiyaParserBase(ParserBase):
         return target_wall - now_wall
 
     @classmethod
-    async def _throttle_before_request(cls) -> None:
+    def _resolve_min_interval(cls, url: str = "") -> float:
+        """一覧ページと詳細ページ(/re_)で最小リクエスト間隔を分離解決する。"""
+        is_detail = "/re_" in (url or "")
+        specific_env = "KENBIYA_DETAIL_MIN_INTERVAL" if is_detail else "KENBIYA_LIST_MIN_INTERVAL"
+        default_val = 0.8 if is_detail else 6.0
+        if os.getenv(specific_env) not in (None, ""):
+            return cls._env_float(specific_env, default_val)
+        if os.getenv("KENBIYA_MIN_INTERVAL") not in (None, ""):
+            return cls._env_float("KENBIYA_MIN_INTERVAL", default_val)
+        return default_val
+
+    @classmethod
+    async def _throttle_before_request(cls, url: str = "") -> None:
         """リクエスト送信間隔を全プロセス共通のファイルロックで担保し、503サーキットブレーカーを共有する"""
         if os.getenv("KENBIYA_THROTTLE_DISABLED", "false").lower() in ("true", "1"):
             return
-        min_interval = cls._env_float("KENBIYA_MIN_INTERVAL", 1.0)
+        min_interval = cls._resolve_min_interval(url)
         jitter = random.uniform(1.5, 2.5)
 
         if cls._is_cross_process_coordination_enabled():
@@ -932,7 +944,7 @@ class KenbiyaParserBase(ParserBase):
         )
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
-            await self._throttle_before_request()
+            await self._throttle_before_request(url)
             try:
                 if use_curl_cffi:
                     last_status, raw_bytes = await self._get_with_curl_cffi(

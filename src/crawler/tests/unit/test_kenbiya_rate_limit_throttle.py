@@ -96,7 +96,7 @@ async def test_kenbiya_throttle_default_interval_is_1s(monkeypatch):
         "asyncio.sleep", new=AsyncMock()
     ) as mock_sleep:
         await KenbiyaMansionParser._throttle_before_request()
-        mock_sleep.assert_awaited_once_with(pytest.approx(1.3))
+        mock_sleep.assert_awaited_once_with(pytest.approx(6.3))
 
 
 def test_kenbiya_throttle_works_across_multiple_event_loops(monkeypatch):
@@ -122,7 +122,7 @@ async def test_kenbiya_throttle_jitter_range_05_to_15(monkeypatch):
     ) as mock_sleep:
         await KenbiyaMansionParser._throttle_before_request()
         mock_rand.assert_called_once_with(1.5, 2.5)
-        mock_sleep.assert_awaited_once_with(pytest.approx(2.0))
+        mock_sleep.assert_awaited_once_with(pytest.approx(7.0))
 
 
 @pytest.mark.asyncio
@@ -141,3 +141,40 @@ async def test_kenbiya_waf_cookie_warmup_skip_and_reset(monkeypatch):
         res = await parser._handle_curl_cffi_response(429, b"", "https://www.kenbiya.com/")
     assert res is None
     assert KenbiyaParserBase._waf_cookies == {}
+
+
+def test_resolve_min_interval_splits_list_and_detail_defaults(monkeypatch):
+    monkeypatch.delenv("KENBIYA_LIST_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("KENBIYA_DETAIL_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("KENBIYA_MIN_INTERVAL", raising=False)
+
+    assert KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/n-2/") == 6.0
+    assert (
+        KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/minato-ku/re_12345abc/")
+        == 0.8
+    )
+
+
+def test_resolve_min_interval_respects_specific_and_legacy_env(monkeypatch):
+    monkeypatch.setenv("KENBIYA_MIN_INTERVAL", "2.5")
+    monkeypatch.delenv("KENBIYA_LIST_MIN_INTERVAL", raising=False)
+    monkeypatch.delenv("KENBIYA_DETAIL_MIN_INTERVAL", raising=False)
+
+    assert KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/") == 2.5
+    assert KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/re_999/") == 2.5
+
+    monkeypatch.setenv("KENBIYA_LIST_MIN_INTERVAL", "7.0")
+    monkeypatch.setenv("KENBIYA_DETAIL_MIN_INTERVAL", "0.9")
+    assert KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/") == 7.0
+    assert KenbiyaParserBase._resolve_min_interval("https://www.kenbiya.com/pp1/s/tokyo/re_999/") == 0.9
+
+
+def test_kenbiya_start_base_disables_deferred_dispatch_by_default(monkeypatch):
+    from package.api.kenbiya import ParseKenbiyaMansionStartAsync
+
+    monkeypatch.delenv("KENBIYA_DEFER_DETAIL_DISPATCH", raising=False)
+    start = ParseKenbiyaMansionStartAsync.__new__(ParseKenbiyaMansionStartAsync)
+    assert start._defer_detail_dispatch_until_list_complete() is False
+
+    monkeypatch.setenv("KENBIYA_DEFER_DETAIL_DISPATCH", "true")
+    assert start._defer_detail_dispatch_until_list_complete() is True
