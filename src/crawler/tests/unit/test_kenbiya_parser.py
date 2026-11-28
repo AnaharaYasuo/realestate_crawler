@@ -839,10 +839,11 @@ def test_fire_and_forget_wait_timeout_default_is_12_hours(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_kenbiya_two_phase_list_first_crawl_defers_detail_dispatch():
+async def test_kenbiya_two_phase_list_first_crawl_defers_detail_dispatch(monkeypatch):
     """2フェーズ一覧優先モードで全一覧ページの巡回完了後に詳細投入が実行されることを検証"""
     from package.api.kenbiya import ParseKenbiyaMansionStartAsync
 
+    monkeypatch.setenv("KENBIYA_DEFER_DETAIL_DISPATCH", "true")
     proc = ParseKenbiyaMansionStartAsync()
     assert proc._defer_detail_dispatch_until_list_complete() is True
 
@@ -873,10 +874,11 @@ async def test_kenbiya_two_phase_list_first_crawl_defers_detail_dispatch():
 
 
 @pytest.mark.asyncio
-async def test_kenbiya_multi_area_crawls_all_four_prefectures_before_detail_dispatch():
+async def test_kenbiya_multi_area_crawls_all_four_prefectures_before_detail_dispatch(monkeypatch):
     """4都県まとめて渡した場合に全4都県の一覧巡回完了後に詳細投入が実行されることを検証"""
     from package.api.kenbiya import ParseKenbiyaMansionStartAsync
 
+    monkeypatch.setenv("KENBIYA_DEFER_DETAIL_DISPATCH", "true")
     proc = ParseKenbiyaMansionStartAsync()
     events = []
 
