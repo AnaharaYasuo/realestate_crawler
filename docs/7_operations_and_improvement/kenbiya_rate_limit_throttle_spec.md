@@ -44,3 +44,7 @@
 
 ## マルチイベントループ対応 (Issue #1646)
 - `KenbiyaParserBase._request_lock` を `asyncio.Lock()` から `threading.Lock()` へ変更し、異なるイベントループから呼ばれた際の `RuntimeError: ... is bound to a different event loop` を防止する。
+
+## 予防的60分クールダウンの既定無効化と差分クエリ時のProxySQL自動復旧 (Issue #1890)
+- `src/crawler/package/api/kenbiya.py`: `KENBIYA_COOLDOWN_WORK_SECONDS` のデフォルトを `3600` から `0` に変更し、`COOLDOWN_WORK_SECONDS <= 0` の場合は `_KenbiyaDetailBase._get_cooldown_config()` が `None` を返すようにする。これにより、503 が発生していない安定稼働中に 60 分ごとに不要な 10 分停止を行わずスループットを維持する（実際の 503 検知時は `[Kenbiya503Recovery]` による自動 IP ローテーションが引き続き機能する）。
+- `src/crawler/package/api/differential.py`: `_query_existing_records_sync` で `OperationalError` / `DatabaseError`（`2013`, `2006`, `2003`, `10061`, `lost connection`, `server has gone away`, `can't connect`）を検知した際、`_ensure_proxysql_tunnel_ready()` を呼び出して `proxysql-instance-prod` VM および IAP トンネルを自動復旧してからリトライする。
