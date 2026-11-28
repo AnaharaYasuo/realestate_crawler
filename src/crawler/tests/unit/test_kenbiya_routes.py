@@ -91,3 +91,40 @@ def test_kenbiya_blueprint_registers_routes():
     app.register_blueprint(kenbiya_bp)
     rules = {rule.rule for rule in app.url_map.iter_rules()}
     assert len(rules) >= 10
+
+
+def test_kenbiya_detail_cooldown_disabled_by_default(monkeypatch):
+    from package.api import kenbiya as kenbiya_api
+
+    monkeypatch.setattr(kenbiya_api, "COOLDOWN_WORK_SECONDS", 0.0)
+    detail = kenbiya_api.ParseKenbiyaMansionDetailFuncAsync()
+    assert detail._get_cooldown_config() is None
+
+    monkeypatch.setattr(kenbiya_api, "COOLDOWN_WORK_SECONDS", 3600.0)
+    assert detail._get_cooldown_config() == (3600.0, kenbiya_api.COOLDOWN_REST_SECONDS)
+
+
+def test_differential_query_recovers_proxysql_on_2013():
+    from django.db import OperationalError
+    from package.api.differential import _query_existing_records_sync
+
+    calls = {"n": 0}
+
+    class FakeQS:
+        def values(self, *args):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OperationalError(2013, "Lost connection to server at 'handshake'")
+            return [{"pageUrl": "https://www.kenbiya.com/pp1/re_1/", "price": 1000, "updateDateTime": None, "inputDateTime": None}]
+
+    class FakeModel:
+        class objects:
+            @staticmethod
+            def filter(**kwargs):
+                return FakeQS()
+
+    with patch("package.api.kenbiya._ensure_proxysql_tunnel_ready", return_value=True) as mock_recover:
+        res = _query_existing_records_sync(FakeModel, ["https://www.kenbiya.com/pp1/re_1/"])
+        assert mock_recover.call_count == 1
+        assert calls["n"] == 2
+        assert "https://www.kenbiya.com/pp1/re_1/" in res
